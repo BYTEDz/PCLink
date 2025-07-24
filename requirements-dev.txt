@@ -1,0 +1,19 @@
+# PCLink Development Dependencies
+-r requirements.txt
+
+# Testing
+pytest>=7.3.1
+pytest-cov>=4.1.0
+
+# Code Quality
+black>=23.3.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.3.0
+
+# Build Tools
+nuitka>=1.5.0
+pyinstaller>=5.13.0
+tomli>=2.0.0  # For reading pyproject.toml in build script
+svglib>=1.5.1  # For icon conversion
+reportlab>=4.0.0  # For icon conversion

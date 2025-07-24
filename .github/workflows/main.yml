@@ -1,0 +1,108 @@
+name: PCLink CI & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+        include:
+          - os: ubuntu-22.04
+            artifact_name: PCLink-Linux
+          - os: windows-2022
+            artifact_name: PCLink-Windows
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Build for Linux (One-File Only)
+        if: runner.os == 'Linux'
+        run: python scripts/build.py --format onefile --clean
+
+      - name: Build for Windows - Portable (.zip)
+        if: runner.os == 'Windows'
+        run: python scripts/build.py --format portable --clean
+
+      - name: Build for Windows - One-File (.exe)
+        if: runner.os == 'Windows'
+        run: python scripts/build.py --format onefile
+
+      - name: Install Inno Setup via Chocolatey
+        if: runner.os == 'Windows'
+        run: choco install innosetup -y --no-progress
+      
+      - name: Build for Windows - Installer (.exe)
+        if: runner.os == 'Windows'
+        run: python scripts/build.py --format installer
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: releases/
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Generate Checksum File
+        run: |
+          cd artifacts
+          find . -type f -exec sha256sum {} + | sort > ../SHA256SUMS.txt
+          echo "Generated SHA256SUMS.txt:"
+          cat ../SHA256SUMS.txt
+
+      - name: Extract Release Notes from CHANGELOG
+        id: extract_notes
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          # This awk command extracts the content between the correct version header and the next header.
+          NOTES=$(awk -v ver="$VERSION" 'BEGIN{p=0} /^## \['"$VERSION"'\]/{p=1;next} /^## \[/{p=0} p' CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="See CHANGELOG.md for details."
+          fi
+          echo "$NOTES" > RELEASE_NOTES.md
+          echo "Release notes extracted."
+
+      - name: Create GitHub Release and Upload All Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" ./artifacts/*/* SHA256SUMS.txt \
+            --title "Release $TAG" \
+            --notes-file RELEASE_NOTES.md

@@ -1,0 +1,28 @@
+# PCLink Core Dependencies
+# PCLink version: 0.6.0
+
+# Core API and Web Server
+fastapi>=0.95.0
+uvicorn[standard]>=0.22.0
+
+# GUI Framework
+PySide6>=6.5.0
+
+# --- Lightweight System & Hardware Interaction ---
+pynput>=1.7.6
+psutil>=5.9.0
+pyperclip>=1.8.2
+mss>=9.0.0
+keyboard>=0.13.5
+Pillow>=10.0.0
+requests>=2.31.0
+
+# Security & QR Code
+cryptography>=41.0.0
+qrcode>=7.4.0
+packaging>=21.0
+
+# Windows-specific dependencies (for media keys and system operations)
+pycaw>=20230330; sys_platform == "win32"
+comtypes>=1.2.0; sys_platform == "win32"
+pywin32>=306; sys_platform == "win32"
