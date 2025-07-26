@@ -18,6 +18,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
 import os
+import subprocess
 import socket
 import sys
 from pathlib import Path
@@ -232,37 +233,305 @@ class _WindowsStartupManager(_StartupManager):
         self.key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
     def add(self, app_name: str, exe_path: Path):
-        command = f'"{exe_path}" --startup'
+        # Enhanced Windows 11 compatibility with multiple startup methods
+        if getattr(sys, "frozen", False):
+            # Running as PyInstaller executable
+            command = f'"{exe_path}" --startup'
+            log.info(f"Configuring PyInstaller executable for startup: {command}")
+        else:
+            # Running as Python script
+            command = f'"{exe_path}" --startup'
+        
+        # Method 1: Registry (traditional method)
+        registry_success = self._add_to_registry(app_name, command)
+        
+        # Method 2: Windows Startup folder (Windows 11 fallback)
+        shortcut_success = self._add_to_startup_folder(app_name, exe_path)
+        
+        # Method 3: Task Scheduler (most reliable for Windows 11)
+        task_success = self._add_to_task_scheduler(app_name, exe_path)
+        
+        if not (registry_success or shortcut_success or task_success):
+            raise OSError("Failed to add to startup using any method")
+        
+        log.info(f"Added '{app_name}' to Windows startup using available methods")
+
+    def _add_to_registry(self, app_name: str, command: str) -> bool:
+        """Add to Windows registry startup."""
         try:
             with winreg.OpenKey(
                 self.key, self.key_path, 0, winreg.KEY_SET_VALUE
             ) as reg_key:
                 winreg.SetValueEx(reg_key, app_name, 0, winreg.REG_SZ, command)
-            log.info(f"Added '{app_name}' to Windows startup.")
+            log.info(f"Added '{app_name}' to registry startup")
+            return True
         except OSError as e:
-            log.error(f"Failed to add to Windows startup: {e}")
-            raise
+            log.warning(f"Failed to add to registry startup: {e}")
+            return False
+
+    def _add_to_startup_folder(self, app_name: str, exe_path: Path) -> bool:
+        """Add shortcut to Windows startup folder (Windows 11 preferred)."""
+        try:
+            startup_folder = Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+            startup_folder.mkdir(parents=True, exist_ok=True)
+            
+            shortcut_path = startup_folder / f"{app_name}.lnk"
+            
+            # Method 1: Try using win32com.client (if available)
+            try:
+                import win32com.client
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shortcut = shell.CreateShortCut(str(shortcut_path))
+                shortcut.Targetpath = str(exe_path)
+                shortcut.Arguments = "--startup"
+                shortcut.WorkingDirectory = str(exe_path.parent)
+                shortcut.save()
+                
+                if shortcut_path.exists():
+                    log.info(f"Added '{app_name}' shortcut to startup folder using win32com")
+                    return True
+                    
+            except ImportError:
+                log.debug("win32com not available, trying alternative method")
+            except Exception as e:
+                log.warning(f"win32com method failed: {e}")
+            
+            # Method 2: Create a simple batch file instead of shortcut
+            batch_path = startup_folder / f"{app_name}.bat"
+            batch_content = f'@echo off\nstart "" "{exe_path}" --startup\n'
+            
+            try:
+                with open(batch_path, 'w') as f:
+                    f.write(batch_content)
+                
+                if batch_path.exists():
+                    log.info(f"Added '{app_name}' batch file to startup folder")
+                    return True
+                    
+            except Exception as e:
+                log.warning(f"Batch file method failed: {e}")
+            
+            # Method 3: Copy executable to startup folder (simple but works)
+            try:
+                import shutil
+                startup_exe = startup_folder / f"{app_name}.exe"
+                
+                # Create a simple wrapper script
+                wrapper_content = f'''import subprocess
+import sys
+subprocess.run([r"{exe_path}", "--startup"])
+'''
+                wrapper_path = startup_folder / f"{app_name}_startup.py"
+                with open(wrapper_path, 'w') as f:
+                    f.write(wrapper_content)
+                
+                # Create batch file to run the Python wrapper
+                batch_path = startup_folder / f"{app_name}.bat"
+                batch_content = f'@echo off\npython "{wrapper_path}"\n'
+                with open(batch_path, 'w') as f:
+                    f.write(batch_content)
+                
+                if batch_path.exists():
+                    log.info(f"Added '{app_name}' Python wrapper to startup folder")
+                    return True
+                    
+            except Exception as e:
+                log.warning(f"Python wrapper method failed: {e}")
+            
+            return False
+                
+        except Exception as e:
+            log.warning(f"Failed to add to startup folder: {e}")
+            return False
+
+    def _add_to_task_scheduler(self, app_name: str, exe_path: Path) -> bool:
+        """Add to Windows Task Scheduler (most reliable for Windows 11)."""
+        try:
+            # Create a scheduled task that runs at logon
+            task_name = f"PCLink_{app_name}"
+            
+            # XML for the scheduled task
+            task_xml = f'''<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>PCLink Remote PC Control Server</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <Delay>PT10S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions>
+    <Exec>
+      <Command>{exe_path}</Command>
+      <Arguments>--startup</Arguments>
+      <WorkingDirectory>{exe_path.parent}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>'''
+            
+            # Save task XML to temp file
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as f:
+                f.write(task_xml)
+                temp_xml = f.name
+            
+            try:
+                # Create the scheduled task
+                result = subprocess.run([
+                    "schtasks", "/create", "/tn", task_name, "/xml", temp_xml, "/f"
+                ], capture_output=True, text=True, timeout=15)
+                
+                if result.returncode == 0:
+                    log.info(f"Added '{app_name}' to Task Scheduler")
+                    return True
+                else:
+                    log.warning(f"Failed to create scheduled task: {result.stderr}")
+                    return False
+                    
+            finally:
+                # Clean up temp file
+                try:
+                    Path(temp_xml).unlink()
+                except:
+                    pass
+                    
+        except Exception as e:
+            log.warning(f"Failed to add to Task Scheduler: {e}")
+            return False
 
     def remove(self, app_name: str):
+        """Remove from all startup methods."""
+        removed_any = False
+        
+        # Remove from registry
         try:
             with winreg.OpenKey(
                 self.key, self.key_path, 0, winreg.KEY_SET_VALUE
             ) as reg_key:
                 winreg.DeleteValue(reg_key, app_name)
-            log.info(f"Removed '{app_name}' from Windows startup.")
+            log.info(f"Removed '{app_name}' from registry startup.")
+            removed_any = True
         except FileNotFoundError:
-            log.debug(f"'{app_name}' not in startup, nothing to remove.")
+            log.debug(f"'{app_name}' not in registry startup.")
         except OSError as e:
-            log.error(f"Failed to remove from Windows startup: {e}")
-            raise
+            log.warning(f"Failed to remove from registry startup: {e}")
+        
+        # Remove from startup folder (multiple file types)
+        try:
+            startup_folder = Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+            
+            # Remove .lnk shortcut
+            shortcut_path = startup_folder / f"{app_name}.lnk"
+            if shortcut_path.exists():
+                shortcut_path.unlink()
+                log.info(f"Removed '{app_name}' shortcut from startup folder.")
+                removed_any = True
+            
+            # Remove .bat batch file
+            batch_path = startup_folder / f"{app_name}.bat"
+            if batch_path.exists():
+                batch_path.unlink()
+                log.info(f"Removed '{app_name}' batch file from startup folder.")
+                removed_any = True
+            
+            # Remove Python wrapper
+            wrapper_path = startup_folder / f"{app_name}_startup.py"
+            if wrapper_path.exists():
+                wrapper_path.unlink()
+                log.info(f"Removed '{app_name}' Python wrapper from startup folder.")
+                removed_any = True
+                
+        except Exception as e:
+            log.warning(f"Failed to remove startup files: {e}")
+        
+        # Remove from Task Scheduler
+        try:
+            task_name = f"PCLink_{app_name}"
+            result = subprocess.run([
+                "schtasks", "/delete", "/tn", task_name, "/f"
+            ], capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                log.info(f"Removed '{app_name}' from Task Scheduler.")
+                removed_any = True
+        except Exception as e:
+            log.warning(f"Failed to remove from Task Scheduler: {e}")
+        
+        if not removed_any:
+            log.debug(f"'{app_name}' not found in any startup location.")
 
     def is_enabled(self, app_name: str) -> bool:
+        """Check if enabled in any startup method."""
+        # Check registry
         try:
             with winreg.OpenKey(self.key, self.key_path, 0, winreg.KEY_READ) as reg_key:
                 winreg.QueryValueEx(reg_key, app_name)
             return True
         except FileNotFoundError:
-            return False
+            pass
+        
+        # Check startup folder (multiple file types)
+        try:
+            startup_folder = Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+            
+            # Check for .lnk shortcut
+            shortcut_path = startup_folder / f"{app_name}.lnk"
+            if shortcut_path.exists():
+                return True
+            
+            # Check for .bat batch file
+            batch_path = startup_folder / f"{app_name}.bat"
+            if batch_path.exists():
+                return True
+            
+            # Check for Python wrapper
+            wrapper_path = startup_folder / f"{app_name}_startup.py"
+            if wrapper_path.exists():
+                return True
+                
+        except:
+            pass
+        
+        # Check Task Scheduler
+        try:
+            task_name = f"PCLink_{app_name}"
+            result = subprocess.run([
+                "schtasks", "/query", "/tn", task_name
+            ], capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                return True
+        except:
+            pass
+        
+        return False
 
 
 class _LinuxStartupManager(_StartupManager):

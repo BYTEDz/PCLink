@@ -83,6 +83,7 @@ class Controller:
         )
         w.language_action_group.triggered.connect(w.on_language_selected)
         w.about_action.triggered.connect(w.show_about_dialog)
+        w.open_log_action.triggered.connect(self.open_log_file)
         w.check_updates_action.toggled.connect(self.handle_check_updates_change)
         w.check_updates_now_action.triggered.connect(w.check_for_updates_manual)
 
@@ -369,3 +370,29 @@ class Controller:
         """Handle the check for updates on startup setting change."""
         self.window.check_updates_on_startup = checked
         self.window.settings.setValue("check_updates_on_startup", checked)
+
+    def open_log_file(self):
+        """Open the log file for debugging."""
+        try:
+            from PySide6.QtGui import QDesktopServices
+            from PySide6.QtCore import QUrl
+            
+            log_file = constants.APP_DATA_PATH / "pclink.log"
+            if log_file.exists():
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(log_file)))
+                log.info("Opened log file from menu")
+            else:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.information(
+                    self.window,
+                    "Log File Not Found",
+                    f"Log file does not exist at:\n{log_file}"
+                )
+        except Exception as e:
+            log.error(f"Failed to open log file from menu: {e}", exc_info=True)
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self.window,
+                "Error Opening Log File",
+                f"Failed to open log file:\n{str(e)}"
+            )

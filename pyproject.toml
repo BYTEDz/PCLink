@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pclink"
-version = "1.0.0"  # Fresh start version
+version = "1.0.1"  # Fresh start version
 description = "A secure remote PC control and file management application"
 readme = "README.md"
 license = {file = "LICENSE"}

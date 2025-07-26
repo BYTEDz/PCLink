@@ -4,7 +4,7 @@ PCLink - Version Information
 This file serves as the single source of truth for the application's version.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __app_name__ = "PCLink"
 
 class VersionInfo:
