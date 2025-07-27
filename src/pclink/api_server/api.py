@@ -267,22 +267,63 @@ def create_api_app(
 
     @app.post("/pairing/request")
     async def request_pairing(payload: PairingRequestPayload, request: Request):
-        pairing_id = str(uuid.uuid4())
-        event = asyncio.Event()
-        pairing_events[pairing_id] = event
-        log.info(f"Received pairing request from device '{payload.device_name}'. ID: {pairing_id}")
-        api_signal_emitter.pairing_request.emit(pairing_id, payload.device_name)
-
         try:
-            await asyncio.wait_for(event.wait(), timeout=60.0)
+            pairing_id = str(uuid.uuid4())
+            event = asyncio.Event()
+            pairing_events[pairing_id] = event
+            
+            client_ip = request.client.host if request.client else "unknown"
+            log.info(f"Received pairing request from device '{payload.device_name}' at {client_ip}. ID: {pairing_id}")
+            
+            # Validate payload
+            if not payload.device_name or not payload.device_name.strip():
+                log.warning(f"Pairing request {pairing_id} has empty device name")
+                raise HTTPException(status_code=400, detail="Device name is required.")
+            
+            # Emit pairing request signal
+            try:
+                api_signal_emitter.pairing_request.emit(pairing_id, payload.device_name)
+            except Exception as e:
+                log.error(f"Failed to emit pairing request signal: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail="Failed to process pairing request.")
+
+            # Wait for user response
+            try:
+                await asyncio.wait_for(event.wait(), timeout=60.0)
+            except asyncio.TimeoutError:
+                log.warning(f"Pairing request {pairing_id} timed out after 60 seconds")
+                raise HTTPException(status_code=408, detail="Pairing request timed out.")
+            
+            # Check user response
             if pairing_results.get(pairing_id, False):
                 log.info(f"Pairing request {pairing_id} accepted by user.")
-                fingerprint = get_cert_fingerprint(constants.CERT_FILE) if app.state.is_https_enabled else None
-                return {"api_key": server_api_key, "cert_fingerprint": fingerprint}
-            raise HTTPException(status_code=403, detail="Pairing request denied by user.")
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=408, detail="Pairing request timed out.")
+                
+                # Get certificate fingerprint if HTTPS is enabled
+                fingerprint = None
+                if app.state.is_https_enabled:
+                    fingerprint = get_cert_fingerprint(constants.CERT_FILE)
+                    if not fingerprint:
+                        log.error(f"Failed to get certificate fingerprint for pairing {pairing_id}")
+                        # Don't fail the pairing, but log the issue
+                        log.warning("Continuing pairing without certificate fingerprint")
+                
+                response_data = {
+                    "api_key": server_api_key, 
+                    "cert_fingerprint": fingerprint
+                }
+                log.info(f"Pairing {pairing_id} successful, returning API key and fingerprint")
+                return response_data
+            else:
+                log.info(f"Pairing request {pairing_id} denied by user.")
+                raise HTTPException(status_code=403, detail="Pairing request denied by user.")
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.error(f"Unexpected error in request_pairing: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error during pairing.")
         finally:
+            # Clean up pairing state
             pairing_events.pop(pairing_id, None)
             pairing_results.pop(pairing_id, None)
 
@@ -296,14 +337,47 @@ def create_api_app(
 
     @app.get("/qr-payload", response_model=QrPayload, dependencies=[PROTECTED])
     async def get_qr_payload(request: Request):
-        fingerprint = get_cert_fingerprint(constants.CERT_FILE) if app.state.is_https_enabled else None
-        if app.state.is_https_enabled and not fingerprint:
-            raise HTTPException(status_code=500, detail="Could not process server certificate.")
-        return QrPayload(
-            protocol="https" if app.state.is_https_enabled else "http",
-            ip=app.state.host_ip, port=app.state.host_port,
-            apiKey=app.state.api_key, certFingerprint=fingerprint,
-        )
+        try:
+            fingerprint = None
+            if app.state.is_https_enabled:
+                fingerprint = get_cert_fingerprint(constants.CERT_FILE)
+                if not fingerprint:
+                    log.error(f"Failed to get certificate fingerprint from {constants.CERT_FILE}")
+                    # Check if certificate file exists
+                    if not constants.CERT_FILE.exists():
+                        log.error(f"Certificate file does not exist: {constants.CERT_FILE}")
+                        raise HTTPException(status_code=500, detail="Server certificate file not found.")
+                    else:
+                        log.error(f"Certificate file exists but fingerprint calculation failed")
+                        raise HTTPException(status_code=500, detail="Could not process server certificate.")
+            
+            # Validate required state variables
+            if not hasattr(app.state, 'host_ip') or not app.state.host_ip:
+                log.error("app.state.host_ip is not set")
+                raise HTTPException(status_code=500, detail="Server host IP not configured.")
+            
+            if not hasattr(app.state, 'host_port') or not app.state.host_port:
+                log.error("app.state.host_port is not set")
+                raise HTTPException(status_code=500, detail="Server host port not configured.")
+            
+            if not hasattr(app.state, 'api_key') or not app.state.api_key:
+                log.error("app.state.api_key is not set")
+                raise HTTPException(status_code=500, detail="Server API key not configured.")
+            
+            log.info(f"QR payload requested - Protocol: {'https' if app.state.is_https_enabled else 'http'}, IP: {app.state.host_ip}, Port: {app.state.host_port}")
+            
+            return QrPayload(
+                protocol="https" if app.state.is_https_enabled else "http",
+                ip=app.state.host_ip, 
+                port=app.state.host_port,
+                apiKey=app.state.api_key, 
+                certFingerprint=fingerprint,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.error(f"Unexpected error in get_qr_payload: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error during QR payload generation.")
 
     @app.post("/announce", dependencies=[PROTECTED])
     async def announce_device(request: Request, payload: AnnouncePayload):

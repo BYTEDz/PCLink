@@ -146,71 +146,135 @@ def restart_as_admin():
 def generate_self_signed_cert(cert_path: Path, key_path: Path):
     """Generates a self-signed certificate and private key if they don't exist."""
     if cert_path.exists() and key_path.exists():
-        return
+        log.debug(f"Certificate and key already exist at {cert_path} and {key_path}")
+        # Verify the existing certificate is valid
+        try:
+            fingerprint = get_cert_fingerprint(cert_path)
+            if fingerprint:
+                log.debug("Existing certificate is valid")
+                return
+            else:
+                log.warning("Existing certificate is invalid, regenerating...")
+        except Exception as e:
+            log.warning(f"Error validating existing certificate: {e}, regenerating...")
 
     try:
         import datetime
+        import ipaddress
 
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import NameOID
-    except ImportError:
-        log.error(
-            "Cryptography library is required. Please run 'pip install cryptography'."
-        )
+    except ImportError as e:
+        log.error(f"Cryptography library is required. Please run 'pip install cryptography': {e}")
         raise
 
-    log.info(f"Generating new self-signed certificate at {cert_path}")
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    key_path.parent.mkdir(parents=True, exist_ok=True)
-    with key_path.open("wb") as f:
-        f.write(
-            key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption(),
+    try:
+        log.info(f"Generating new self-signed certificate at {cert_path}")
+        
+        # Generate private key
+        log.debug("Generating RSA private key...")
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        
+        # Ensure directories exist
+        key_path.parent.mkdir(parents=True, exist_ok=True)
+        cert_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write private key
+        log.debug(f"Writing private key to {key_path}")
+        with key_path.open("wb") as f:
+            f.write(
+                key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption(),
+                )
             )
+
+        # Create certificate
+        log.debug("Creating certificate...")
+        subject = issuer = x509.Name(
+            [x509.NameAttribute(NameOID.COMMON_NAME, "PCLink Self-Signed")]
+        )
+        
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now)
+            .not_valid_after(now + datetime.timedelta(days=3650))
+            .add_extension(
+                x509.SubjectAlternativeName([
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress.IPv4Address("127.0.0.1"))
+                ]), 
+                critical=False
+            )
+            .sign(key, hashes.SHA256())
         )
 
-    subject = issuer = x509.Name(
-        [x509.NameAttribute(NameOID.COMMON_NAME, "PCLink Self-Signed")]
-    )
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
-        .not_valid_after(
-            datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3650)
-        )
-        .add_extension(
-            x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False
-        )
-        .sign(key, hashes.SHA256())
-    )
-
-    cert_path.parent.mkdir(parents=True, exist_ok=True)
-    with cert_path.open("wb") as f:
-        f.write(cert.public_bytes(serialization.Encoding.PEM))
+        # Write certificate
+        log.debug(f"Writing certificate to {cert_path}")
+        with cert_path.open("wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+        
+        # Verify the generated certificate
+        fingerprint = get_cert_fingerprint(cert_path)
+        if fingerprint:
+            log.info(f"Successfully generated certificate with fingerprint: {fingerprint[:16]}...")
+        else:
+            log.error("Generated certificate appears to be invalid")
+            raise Exception("Certificate validation failed after generation")
+            
+    except Exception as e:
+        log.error(f"Failed to generate self-signed certificate: {e}", exc_info=True)
+        # Clean up partial files
+        try:
+            if cert_path.exists():
+                cert_path.unlink()
+            if key_path.exists():
+                key_path.unlink()
+        except Exception as cleanup_error:
+            log.error(f"Failed to clean up partial certificate files: {cleanup_error}")
+        raise
 
 
 def get_cert_fingerprint(cert_path: Path) -> Optional[str]:
     """Calculate the SHA-256 fingerprint of a certificate."""
     if not cert_path.is_file():
+        log.error(f"Certificate file does not exist: {cert_path}")
         return None
+    
     try:
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes
 
+        log.debug(f"Reading certificate from: {cert_path}")
         cert_data = cert_path.read_bytes()
+        
+        if not cert_data:
+            log.error(f"Certificate file is empty: {cert_path}")
+            return None
+        
+        log.debug(f"Loading PEM certificate, size: {len(cert_data)} bytes")
         cert = x509.load_pem_x509_certificate(cert_data)
+        
+        log.debug("Calculating SHA-256 fingerprint")
         fingerprint = cert.fingerprint(hashes.SHA256())
-        return fingerprint.hex()
+        fingerprint_hex = fingerprint.hex()
+        
+        log.debug(f"Certificate fingerprint calculated: {fingerprint_hex[:16]}...")
+        return fingerprint_hex
+        
+    except ImportError as e:
+        log.error(f"Cryptography library not available: {e}")
+        return None
     except Exception as e:
-        log.error(f"Error calculating cert fingerprint for {cert_path}: {e}")
+        log.error(f"Error calculating cert fingerprint for {cert_path}: {e}", exc_info=True)
         return None
 
 

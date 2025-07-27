@@ -585,8 +585,8 @@ class HeadlessApp(QObject):
             # Update controller's window reference to GUI window
             self.controller.window = self.main_window
             
-            # Connect controller signals to GUI
-            self.controller.connect_signals()
+            # Note: Don't call connect_signals() here as MainWindow initialization will handle it
+            # This prevents duplicate signal connections that cause double pairing dialogs
             
             # Update UI to reflect current server state
             self.controller.update_ui_for_server_state()

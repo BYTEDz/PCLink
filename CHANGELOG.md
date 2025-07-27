@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.2.0] - 2025-07-27
+
+### Fixed
+- **Pairing System**: Fixed "unexpected error" issues during client connection attempts
+- **Duplicate Dialogs**: Resolved pairing dialog appearing twice when clients request pairing
+- **Certificate Handling**: Fixed certificate generation with proper IPv4Address formatting
+- **API State**: Fixed missing `app.state.api_key` and other required state variables
+- **Signal Connections**: Prevented duplicate Qt signal connections causing multiple dialog boxes
+
+### Added
+- **Diagnostic Tool**: Added `diagnose_pairing.py` for comprehensive pairing troubleshooting
+- **Enhanced Logging**: Added detailed logging throughout pairing process for debugging
+- **Connection Prevention**: Added `_signals_connected` flag to prevent duplicate signal connections
+- **Duplicate Protection**: Added pairing ID validation to prevent duplicate request processing
+- **Certificate Validation**: Added post-generation certificate validation and fingerprint verification
+- **Signal Disconnection**: Added `disconnect_signals()` method for proper cleanup
+
+### Improved
+- **Certificate Generation**: Enhanced with proper IP address formatting, validation, and cleanup on failure
+- **API Endpoints**: Improved `/qr-payload` and `/pairing/request` with comprehensive error handling
+- **Error Messages**: More specific error messages for certificate, network, and validation failures
+- **State Management**: Proper initialization of all FastAPI app state variables
+- **Logging Coverage**: Added debug, info, warning, and error logging throughout certificate and pairing processes
+- **Timeout Handling**: Better handling of pairing request timeouts and user response validation
+
+### Technical Details
+- **Controller**: Added `_signals_connected` flag and `disconnect_signals()` method
+- **API Server**: Enhanced error handling in `get_qr_payload()` and `request_pairing()` endpoints
+- **Certificate Utils**: Improved `generate_self_signed_cert()` and `get_cert_fingerprint()` functions
+- **State Initialization**: Fixed app state variables: `api_key`, `host_ip`, `host_port`, `is_https_enabled`
+- **HeadlessApp**: Removed redundant `connect_signals()` call to prevent duplicate connections
+- **Pairing Handler**: Added duplicate request prevention using pairing ID tracking
+
+### Files Modified
+- `src/pclink/core/controller.py`: Signal connection management and pairing dialog handling
+- `src/pclink/api_server/api.py`: Enhanced API endpoint error handling and validation
+- `src/pclink/core/utils.py`: Improved certificate generation and fingerprint calculation
+- `src/pclink/main.py`: Fixed HeadlessApp signal connection duplication
 ## [1.0.1] - 2025-07-26
 
 - startup fix

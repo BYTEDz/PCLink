@@ -49,10 +49,19 @@ class Controller:
         self.uvicorn_server = None
         self.server_thread = None
         self.startup_manager = get_startup_manager()
+        self._signals_connected = False
 
     def connect_signals(self):
         """Connects GUI element signals to controller methods."""
+        # Prevent multiple connections
+        if self._signals_connected:
+            log.debug("Signals already connected, skipping")
+            return
+        
+        log.debug("Connecting controller signals")
         w = self.window
+        
+        # GUI element signals
         w.server_toggle_button.clicked.connect(self.toggle_server_state)
         w.copy_ip_btn.clicked.connect(
             lambda: self.copy_to_clipboard(w.ip_address_combo.currentText())
@@ -65,9 +74,11 @@ class Controller:
         )
         w.ip_address_combo.currentIndexChanged.connect(w.generate_qr_code)
 
+        # API signals (these are the critical ones that were being duplicated)
         api_signal_emitter.device_list_updated.connect(w.update_device_list_ui)
         api_signal_emitter.pairing_request.connect(self.handle_pairing_request)
 
+        # Menu actions
         w.exit_action.triggered.connect(w.quit_application)
         w.restart_admin_action.triggered.connect(self.handle_restart_as_admin)
         w.change_port_action.triggered.connect(self.change_port_ui)
@@ -86,10 +97,34 @@ class Controller:
         w.open_log_action.triggered.connect(self.open_log_file)
         w.check_updates_action.toggled.connect(self.handle_check_updates_change)
         w.check_updates_now_action.triggered.connect(w.check_for_updates_manual)
+        
+        self._signals_connected = True
+        log.debug("Controller signals connected successfully")
+
+    def disconnect_signals(self):
+        """Disconnects all controller signals."""
+        if not self._signals_connected:
+            return
+        
+        log.debug("Disconnecting controller signals")
+        try:
+            # Disconnect API signals (most important to prevent duplicates)
+            api_signal_emitter.device_list_updated.disconnect(self.window.update_device_list_ui)
+            api_signal_emitter.pairing_request.disconnect(self.handle_pairing_request)
+            
+            self._signals_connected = False
+            log.debug("Controller signals disconnected successfully")
+        except Exception as e:
+            log.warning(f"Error disconnecting signals: {e}")
 
     def handle_pairing_request(self, pairing_id: str, device_name: str):
         """Shows a confirmation dialog when a new device wants to pair."""
-        log.info(f"GUI: Displaying pairing dialog for '{device_name}'")
+        log.info(f"GUI: Displaying pairing dialog for '{device_name}' (ID: {pairing_id})")
+        
+        # Check if this pairing ID already has a result (duplicate call prevention)
+        if pairing_id in pairing_results:
+            log.warning(f"Pairing request {pairing_id} already processed, ignoring duplicate")
+            return
 
         reply = QMessageBox.question(
             self.window,
@@ -101,6 +136,8 @@ class Controller:
 
         accepted = reply == QMessageBox.StandardButton.Yes
         pairing_results[pairing_id] = accepted
+        
+        log.info(f"Pairing request {pairing_id} result: {'accepted' if accepted else 'denied'}")
 
         if event := pairing_events.get(pairing_id):
             event.set()
@@ -152,8 +189,14 @@ class Controller:
                 self.window.use_https,
                 self.window.allow_insecure_shell,
             )
+            # Ensure all required state variables are set
             app_instance.state.host_ip = self.window.ip_address_combo.currentText()
             app_instance.state.host_port = self.window.api_port
+            app_instance.state.api_key = self.window.api_key
+            app_instance.state.is_https_enabled = self.window.use_https
+            app_instance.state.allow_insecure_shell = self.window.allow_insecure_shell
+            
+            log.info(f"Server starting with HTTPS: {self.window.use_https}, IP: {app_instance.state.host_ip}, Port: {app_instance.state.host_port}")
 
             uvicorn_config = {
                 "app": app_instance,
