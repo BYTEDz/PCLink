@@ -30,7 +30,7 @@ class ApiSignalEmitter(QObject):
     """
 
     device_list_updated = Signal()
-    pairing_request = Signal(str, str)  # Emits pairing_id and device_name
+    pairing_request = Signal(str, str, str)  # Emits pairing_id, device_name, and device_id
 
 
 # Global singleton instance of the signal emitter.

@@ -45,12 +45,13 @@ from pynput.keyboard import Key
 from pynput.mouse import Button, Controller as MouseController
 
 from ..core import constants
+from ..core.device_manager import device_manager
 from ..core.state import api_signal_emitter
 from ..core.utils import get_cert_fingerprint
 from ..core.validators import (ValidationError, sanitize_log_input,
                              validate_api_key)
 from .file_browser import router as file_browser_router
-from .file_browser import upload_router
+from .file_browser import upload_router, download_router
 from .process_manager import router as process_manager_router
 from .terminal import create_terminal_router
 
@@ -99,6 +100,23 @@ class QrPayload(BaseModel):
 
 class PairingRequestPayload(BaseModel):
     device_name: str
+    device_id: Optional[str] = None
+    device_fingerprint: Optional[str] = None
+    client_version: Optional[str] = None
+    platform: Optional[str] = None
+
+
+class ReconnectionPayload(BaseModel):
+    device_id: str
+    device_fingerprint: Optional[str] = None
+    reconnection: bool = True
+
+
+class IPChangePayload(BaseModel):
+    device_id: str
+    old_ip: Optional[str] = None
+    new_ip: str
+    timestamp: Optional[str] = None
 
 # --- Pairing State ---
 pairing_events: Dict[str, asyncio.Event] = {}
@@ -210,15 +228,33 @@ def create_api_app(
     manager = ConnectionManager()
     server_api_key = validate_api_key(api_key)
 
-    async def verify_api_key(x_api_key: str = Header(None)):
+    async def verify_api_key(x_api_key: str = Header(None), request: Request = None):
         if not x_api_key:
             raise HTTPException(status_code=403, detail="Missing API Key")
+        
+        # Check if it's the server API key (for backward compatibility)
         try:
-            if validate_api_key(x_api_key) != server_api_key:
-                raise ValidationError("API Key mismatch")
+            if validate_api_key(x_api_key) == server_api_key:
+                return True
         except ValidationError:
-            log.warning(f"Invalid API key attempt from header: {sanitize_log_input(x_api_key[:8])}...")
+            pass
+        
+        # Check device-based authentication
+        device = device_manager.get_device_by_api_key(x_api_key)
+        if not device or not device.is_approved:
+            log.warning(f"Invalid API key attempt: {sanitize_log_input(x_api_key[:8])}...")
             raise HTTPException(status_code=403, detail="Invalid API Key")
+        
+        # Update device IP and last seen
+        if request and request.client:
+            client_ip = request.client.host
+            if device.current_ip != client_ip:
+                device_manager.update_device_ip(device.device_id, client_ip)
+            else:
+                # Just update last seen time
+                device_manager.update_device_last_seen(device.device_id)
+        
+        return True
 
     PROTECTED = Depends(verify_api_key)
 
@@ -226,6 +262,7 @@ def create_api_app(
     terminal_router = create_terminal_router(server_api_key, allow_insecure_shell)
     app.include_router(file_browser_router, prefix="/files", dependencies=[PROTECTED])
     app.include_router(upload_router, prefix="/files/upload", dependencies=[PROTECTED])
+    app.include_router(download_router, prefix="/files/download", dependencies=[PROTECTED])
     app.include_router(process_manager_router, prefix="/system", dependencies=[PROTECTED])
     app.include_router(terminal_router, prefix="/terminal")
     app.state.is_https_enabled = is_https_enabled
@@ -241,11 +278,27 @@ def create_api_app(
         if not token:
             await websocket.close(code=1008, reason="Missing API Key")
             return
+        
+        # Use the same authentication logic as REST endpoints
+        authenticated = False
+        
+        # Check if it's the server API key (for backward compatibility)
         try:
-            if validate_api_key(token) != server_api_key:
-                raise ValidationError("Token mismatch.")
-        except ValidationError as e:
-            log.warning(f"WebSocket connection rejected for token '{sanitize_log_input(token)}': {e}")
+            if validate_api_key(token) == server_api_key:
+                authenticated = True
+        except ValidationError:
+            pass
+        
+        # Check device-based authentication
+        if not authenticated:
+            device = device_manager.get_device_by_api_key(token)
+            if device and device.is_approved:
+                authenticated = True
+                # Update device last seen
+                device_manager.update_device_last_seen(device.device_id)
+        
+        if not authenticated:
+            log.warning(f"WebSocket connection rejected for token '{sanitize_log_input(token[:8])}...': Invalid API Key")
             await websocket.close(code=1008, reason="Invalid API Key")
             return
 
@@ -273,16 +326,32 @@ def create_api_app(
             pairing_events[pairing_id] = event
             
             client_ip = request.client.host if request.client else "unknown"
-            log.info(f"Received pairing request from device '{payload.device_name}' at {client_ip}. ID: {pairing_id}")
+            device_id = payload.device_id or str(uuid.uuid4())
+            
+            log.info(f"Received pairing request from device '{payload.device_name}' ({device_id[:8]}...) at {client_ip}")
             
             # Validate payload
             if not payload.device_name or not payload.device_name.strip():
                 log.warning(f"Pairing request {pairing_id} has empty device name")
                 raise HTTPException(status_code=400, detail="Device name is required.")
             
-            # Emit pairing request signal
+            # Register device (pending approval)
+            device = device_manager.register_device(
+                device_id=device_id,
+                device_name=payload.device_name,
+                device_fingerprint=payload.device_fingerprint or "",
+                platform=payload.platform or "",
+                client_version=payload.client_version or "",
+                current_ip=client_ip
+            )
+            
+            # Store pairing info for the approval process
+            pairing_events[pairing_id] = event
+            pairing_results[pairing_id] = {"device": device, "approved": False}
+            
+            # Emit pairing request signal with device info
             try:
-                api_signal_emitter.pairing_request.emit(pairing_id, payload.device_name)
+                api_signal_emitter.pairing_request.emit(pairing_id, payload.device_name, device_id)
             except Exception as e:
                 log.error(f"Failed to emit pairing request signal: {e}", exc_info=True)
                 raise HTTPException(status_code=500, detail="Failed to process pairing request.")
@@ -295,7 +364,10 @@ def create_api_app(
                 raise HTTPException(status_code=408, detail="Pairing request timed out.")
             
             # Check user response
-            if pairing_results.get(pairing_id, False):
+            pairing_result = pairing_results.get(pairing_id, {})
+            if pairing_result.get("approved", False):
+                # Approve the device
+                device_manager.approve_device(device.device_id)
                 log.info(f"Pairing request {pairing_id} accepted by user.")
                 
                 # Get certificate fingerprint if HTTPS is enabled
@@ -304,17 +376,19 @@ def create_api_app(
                     fingerprint = get_cert_fingerprint(constants.CERT_FILE)
                     if not fingerprint:
                         log.error(f"Failed to get certificate fingerprint for pairing {pairing_id}")
-                        # Don't fail the pairing, but log the issue
                         log.warning("Continuing pairing without certificate fingerprint")
                 
                 response_data = {
-                    "api_key": server_api_key, 
-                    "cert_fingerprint": fingerprint
+                    "api_key": device.api_key, 
+                    "cert_fingerprint": fingerprint,
+                    "device_id": device.device_id
                 }
-                log.info(f"Pairing {pairing_id} successful, returning API key and fingerprint")
+                log.info(f"Pairing {pairing_id} successful, returning device API key")
                 return response_data
             else:
                 log.info(f"Pairing request {pairing_id} denied by user.")
+                # Remove the device since it wasn't approved
+                device_manager.revoke_device(device.device_id)
                 raise HTTPException(status_code=403, detail="Pairing request denied by user.")
                 
         except HTTPException:
@@ -378,6 +452,62 @@ def create_api_app(
         except Exception as e:
             log.error(f"Unexpected error in get_qr_payload: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Internal server error during QR payload generation.")
+
+    @app.post("/pairing/reconnect")
+    async def silent_reconnection(payload: ReconnectionPayload, request: Request, x_api_key: str = Header(None)):
+        """Handle silent reconnection for devices with changed IPs"""
+        if not x_api_key:
+            raise HTTPException(status_code=403, detail="Missing API Key")
+        
+        try:
+            # Find device by API key and device ID
+            device = device_manager.get_device_by_api_key(x_api_key)
+            if not device or device.device_id != payload.device_id or not device.is_approved:
+                log.warning(f"Reconnection attempt failed for device {payload.device_id[:8]}...")
+                raise HTTPException(status_code=404, detail="Device not found or not approved")
+            
+            # Validate device fingerprint if provided
+            if payload.device_fingerprint and device.device_fingerprint:
+                if payload.device_fingerprint != device.device_fingerprint:
+                    log.warning(f"Device fingerprint mismatch for {device.device_name}")
+                    raise HTTPException(status_code=403, detail="Device fingerprint mismatch")
+            
+            # Update IP address silently
+            client_ip = request.client.host if request.client else ""
+            device_manager.update_device_ip(device.device_id, client_ip)
+            
+            log.info(f"Silent reconnection successful for {device.device_name} ({device.device_id[:8]}...)")
+            return {"status": "success", "message": "Reconnection successful"}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.error(f"Error in silent reconnection: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @app.post("/device/ip-change", dependencies=[PROTECTED])
+    async def handle_ip_change(payload: IPChangePayload, request: Request, x_api_key: str = Header(None)):
+        """Handle IP change notification from devices"""
+        if not x_api_key:
+            raise HTTPException(status_code=403, detail="Missing API Key")
+        
+        try:
+            # Find device by API key
+            device = device_manager.get_device_by_api_key(x_api_key)
+            if not device or device.device_id != payload.device_id or not device.is_approved:
+                raise HTTPException(status_code=404, detail="Device not found or not approved")
+            
+            # Update device IP
+            device_manager.update_device_ip(device.device_id, payload.new_ip)
+            
+            log.info(f"IP change notification from {device.device_name}: {payload.old_ip} -> {payload.new_ip}")
+            return {"status": "success"}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            log.error(f"Error handling IP change: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @app.post("/announce", dependencies=[PROTECTED])
     async def announce_device(request: Request, payload: AnnouncePayload):
@@ -529,6 +659,50 @@ def create_api_app(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to send keyboard input: {e}")
         return {"status": "input sent"}
+
+    @app.get("/devices", dependencies=[PROTECTED])
+    async def get_devices():
+        """Get all registered devices"""
+        devices = device_manager.get_all_devices()
+        return {
+            "devices": [
+                {
+                    "device_id": d.device_id[:8] + "...",  # Truncate for privacy
+                    "device_name": d.device_name,
+                    "platform": d.platform,
+                    "current_ip": d.current_ip,
+                    "last_seen": d.last_seen.isoformat(),
+                    "is_approved": d.is_approved,
+                    "is_online": (datetime.now(timezone.utc) - d.last_seen).total_seconds() < 300  # 5 minutes
+                }
+                for d in devices
+            ]
+        }
+
+    @app.post("/devices/{device_id}/revoke", dependencies=[PROTECTED])
+    async def revoke_device(device_id: str):
+        """Revoke device access"""
+        success = device_manager.revoke_device(device_id)
+        if success:
+            return {"status": "success", "message": "Device access revoked"}
+        else:
+            raise HTTPException(status_code=404, detail="Device not found")
+
+    @app.get("/devices/{device_id}/ip-history", dependencies=[PROTECTED])
+    async def get_device_ip_history(device_id: str, limit: int = Query(50, le=100)):
+        """Get IP change history for a device"""
+        history = device_manager.get_ip_change_history(device_id, limit)
+        return {
+            "device_id": device_id[:8] + "...",
+            "ip_changes": [
+                {
+                    "old_ip": change.old_ip,
+                    "new_ip": change.new_ip,
+                    "timestamp": change.timestamp.isoformat()
+                }
+                for change in history
+            ]
+        }
 
     return app
 

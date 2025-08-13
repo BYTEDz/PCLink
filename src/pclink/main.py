@@ -25,6 +25,7 @@ import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -1030,6 +1031,7 @@ class MainWindow(QMainWindow):
         self.show_startup_notification_action = QAction(self, checkable=True, checked=self.settings.value("show_startup_notification", True, type=bool))
         self.check_updates_action = QAction(self, checkable=True, checked=self.check_updates_on_startup)
         self.check_updates_now_action = QAction(self)
+        self.fix_discovery_action = QAction(self)
         self.language_action_group = QActionGroup(self)
 
     def create_menus(self):
@@ -1064,6 +1066,7 @@ class MainWindow(QMainWindow):
         self.settings_menu.addAction(self.check_updates_action)
         self.settings_menu.addSeparator()
         self.settings_menu.addAction(self.check_updates_now_action)
+        self.settings_menu.addAction(self.fix_discovery_action)
 
     def retranslate_menus(self):
         self.file_menu.setTitle(self.tr("menu_file"))
@@ -1084,6 +1087,7 @@ class MainWindow(QMainWindow):
         self.show_startup_notification_action.setText(self.tr("show_startup_notification_chk"))
         self.check_updates_action.setText(self.tr("check_updates_on_startup_chk"))
         self.check_updates_now_action.setText(self.tr("check_updates_now_btn"))
+        self.fix_discovery_action.setText("Fix Discovery Issues")
         self.language_menu.setTitle(self.tr("menu_language"))
 
     def update_device_list_ui(self):
@@ -1092,15 +1096,51 @@ class MainWindow(QMainWindow):
             self.device_list.addItem(self.tr("devices_stopped_text"))
             return
 
-        active_devices = [d for d in connected_devices.values() if time.time() - d.get("last_seen", 0) < constants.DEVICE_TIMEOUT]
-        if not active_devices:
-            self.device_list.addItem(self.tr("devices_waiting_text"))
-            return
+        # Use new device manager for approved devices
+        try:
+            from .core.device_manager import device_manager
+            approved_devices = device_manager.get_approved_devices()
+            
+            # Filter for recently active devices (within 5 minutes)
+            now = datetime.now(timezone.utc)
+            active_devices = [
+                d for d in approved_devices 
+                if (now - d.last_seen).total_seconds() < 300
+            ]
+            
+            if not active_devices:
+                self.device_list.addItem(self.tr("devices_waiting_text"))
+                return
 
-        for d in sorted(active_devices, key=lambda x: x.get("name", "Unknown")):
-            item = QListWidgetItem(f"● {d.get('name', 'Unknown')} ({d.get('ip', '?.?.?.?')})")
-            item.setForeground(QColor("#a6e22e"))
-            self.device_list.addItem(item)
+            for device in sorted(active_devices, key=lambda x: x.device_name):
+                platform_icon = {
+                    'ios': '📱',
+                    'android': '📱', 
+                    'windows': '💻',
+                    'macos': '💻',
+                    'linux': '💻'
+                }.get(device.platform.lower(), '📱')
+                
+                device_info = f"{platform_icon} {device.device_name}"
+                if device.current_ip:
+                    device_info += f" ({device.current_ip})"
+                
+                item = QListWidgetItem(device_info)
+                item.setForeground(QColor("#a6e22e"))
+                self.device_list.addItem(item)
+                
+        except Exception as e:
+            # Fallback to old system if device manager fails
+            log.warning(f"Device manager error, falling back to old system: {e}")
+            active_devices = [d for d in connected_devices.values() if time.time() - d.get("last_seen", 0) < constants.DEVICE_TIMEOUT]
+            if not active_devices:
+                self.device_list.addItem(self.tr("devices_waiting_text"))
+                return
+
+            for d in sorted(active_devices, key=lambda x: x.get("name", "Unknown")):
+                item = QListWidgetItem(f"● {d.get('name', 'Unknown')} ({d.get('ip', '?.?.?.?')})")
+                item.setForeground(QColor("#a6e22e"))
+                self.device_list.addItem(item)
 
     def on_language_selected(self, action: QAction):
         if (lang_code := action.data()) and self.current_language != lang_code:

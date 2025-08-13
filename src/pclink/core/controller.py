@@ -97,6 +97,7 @@ class Controller:
         w.open_log_action.triggered.connect(self.open_log_file)
         w.check_updates_action.toggled.connect(self.handle_check_updates_change)
         w.check_updates_now_action.triggered.connect(w.check_for_updates_manual)
+        w.fix_discovery_action.triggered.connect(self.show_discovery_troubleshoot)
         
         self._signals_connected = True
         log.debug("Controller signals connected successfully")
@@ -117,25 +118,40 @@ class Controller:
         except Exception as e:
             log.warning(f"Error disconnecting signals: {e}")
 
-    def handle_pairing_request(self, pairing_id: str, device_name: str):
+    def handle_pairing_request(self, pairing_id: str, device_name: str, device_id: str = None):
         """Shows a confirmation dialog when a new device wants to pair."""
-        log.info(f"GUI: Displaying pairing dialog for '{device_name}' (ID: {pairing_id})")
+        device_info = f"{device_name}"
+        if device_id:
+            device_info += f" ({device_id[:8]}...)"
         
-        # Check if this pairing ID already has a result (duplicate call prevention)
+        log.info(f"GUI: Displaying pairing dialog for '{device_info}' (ID: {pairing_id})")
+        
+        # Debug: Log current pairing state
         if pairing_id in pairing_results:
+            current_state = pairing_results[pairing_id]
+            log.debug(f"Pairing {pairing_id} current state: {current_state}")
+        
+        # Check if this pairing ID already has a user decision (duplicate call prevention)
+        if pairing_id in pairing_results and pairing_results[pairing_id].get("user_decided", False):
             log.warning(f"Pairing request {pairing_id} already processed, ignoring duplicate")
             return
 
         reply = QMessageBox.question(
             self.window,
             self.window.tr("pairing_request_title"),
-            self.window.tr("pairing_request_text", device_name=device_name),
+            self.window.tr("pairing_request_text", device_name=device_info),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes,
         )
 
         accepted = reply == QMessageBox.StandardButton.Yes
-        pairing_results[pairing_id] = accepted
+        
+        # Store the result with device info for the API
+        if pairing_id in pairing_results:
+            pairing_results[pairing_id]["approved"] = accepted
+            pairing_results[pairing_id]["user_decided"] = True
+        else:
+            pairing_results[pairing_id] = {"approved": accepted, "user_decided": True}
         
         log.info(f"Pairing request {pairing_id} result: {'accepted' if accepted else 'denied'}")
 
@@ -413,6 +429,15 @@ class Controller:
         """Handle the check for updates on startup setting change."""
         self.window.check_updates_on_startup = checked
         self.window.settings.setValue("check_updates_on_startup", checked)
+
+    def show_discovery_troubleshoot(self):
+        """Show discovery troubleshooting dialog."""
+        try:
+            from ..gui.discovery_dialog import DiscoveryTroubleshootDialog
+            dialog = DiscoveryTroubleshootDialog(self.window)
+            dialog.exec()
+        except Exception as e:
+            log.error(f"Failed to show discovery troubleshoot dialog: {e}", exc_info=True)
 
     def open_log_file(self):
         """Open the log file for debugging."""

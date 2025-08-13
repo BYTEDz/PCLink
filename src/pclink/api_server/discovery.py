@@ -9,20 +9,34 @@ BEACON_MAGIC = "PCLINK_DISCOVERY_BEACON_V1"
 
 
 class DiscoveryService:
-    def __init__(self, api_port: int, hostname: str, use_https: bool):
+    def __init__(self, api_port: int, hostname: str, use_https: bool, server_id: str = None):
         self.api_port = api_port
         self.hostname = hostname
         self.use_https = use_https
+        self.server_id = server_id or self._generate_server_id()
         self._thread = None
         self._running = False
         self._socket = None
 
+    def _generate_server_id(self) -> str:
+        """Generate a unique server identifier"""
+        import uuid
+        import platform
+        
+        # Create a deterministic ID based on hostname and system info
+        system_info = f"{platform.node()}-{platform.system()}-{platform.machine()}"
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, system_info))
+
     def _get_beacon_payload(self) -> bytes:
+        import platform
+        
         payload = {
             "magic": BEACON_MAGIC,
             "port": self.api_port,
             "hostname": self.hostname,
             "https": self.use_https,
+            "os": platform.system().lower(),
+            "server_id": self.server_id
         }
         return json.dumps(payload).encode("utf-8")
 

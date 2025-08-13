@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.0] - 2025-08-13
+
+### Fixed
+- **Discovery Issues**: Fixed Android devices unable to discover PCLink server due to Windows Firewall blocking UDP broadcasts
+- **Pairing Dialog**: Fixed pairing dialog not appearing due to flawed duplicate detection mechanism
+- **WebSocket Authentication**: Fixed WebSocket connections failing after device pairing by implementing device-based authentication
+- **Device Management**: Fixed GUI device list not refreshing when devices connect/disconnect/reconnect
+
+### Added
+- **Discovery Troubleshooting**: Integrated "Fix Discovery Issues" dialog in Settings menu for one-click firewall rule management
+- **Firewall Management**: Added automatic Windows Firewall rule creation for UDP port 38099 discovery broadcasts
+- **Device Management Utility**: Added `clear_devices.py` utility for clearing registered devices when client app data is reset
+- **Admin Privilege Handling**: Added automatic administrator privilege detection and restart functionality
+- **Enhanced Device Tracking**: Added device last seen updates and GUI refresh signals for real-time device status
+
+### Improved
+- **Discovery Protocol**: Enhanced UDP broadcast system with better error handling and network diagnostics
+- **Device Authentication**: Unified authentication system supporting both server API keys and device-specific API keys
+- **GUI Integration**: Seamless integration of discovery troubleshooting tools directly in the application interface
+- **User Experience**: Eliminated need for external batch files or command-line tools for common issues
+- **Device State Management**: Improved device registration, approval, and revocation with proper GUI updates
+
+### Technical Details
+- **Discovery Service**: Enhanced UDP broadcast mechanism with comprehensive error handling
+- **Device Manager**: Added GUI update signals to `approve_device()`, `update_device_ip()`, and `revoke_device()` methods
+- **WebSocket Endpoint**: Updated authentication to support device-specific API keys alongside server API key
+- **Pairing System**: Improved duplicate detection using `user_decided` flag instead of simple presence check
+- **Firewall Utils**: Added `is_admin()`, `check_firewall_rule_exists()`, `add_firewall_rule()`, and `restart_as_admin()` utilities
+- **Discovery Dialog**: Created comprehensive troubleshooting interface with background thread operations
+
+### Files Modified
+- `src/pclink/api_server/discovery.py`: Enhanced discovery service with better error handling
+- `src/pclink/core/device_manager.py`: Added GUI update signals and device last seen tracking
+- `src/pclink/api_server/api.py`: Updated WebSocket authentication and device management
+- `src/pclink/core/controller.py`: Fixed pairing dialog duplicate detection and added discovery troubleshooting
+- `src/pclink/core/utils.py`: Added Windows Firewall management utilities
+- `src/pclink/gui/discovery_dialog.py`: New comprehensive discovery troubleshooting dialog
+- `src/pclink/main.py`: Added discovery troubleshooting menu integration
 ## [1.2.0] - 2025-07-27
 
 ### Fixed

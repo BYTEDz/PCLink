@@ -240,3 +240,4 @@ extra_modules/
 upx/*
 build_tools/*
 create_release.py
+DYNAMIC_IP_IMPLEMENTATION.md

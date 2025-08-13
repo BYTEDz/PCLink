@@ -48,6 +48,84 @@ def get_app_data_path(app_name: str) -> Path:
     return path
 
 
+def is_admin() -> bool:
+    """Check if the current process is running with administrator privileges"""
+    if sys.platform == "win32":
+        try:
+            return ctypes.windll.shell32.IsUserAnAdmin()
+        except:
+            return False
+    else:
+        return os.geteuid() == 0
+
+
+def check_firewall_rule_exists(rule_name: str) -> bool:
+    """Check if a Windows Firewall rule exists"""
+    if sys.platform != "win32":
+        return True  # Assume no firewall issues on non-Windows
+    
+    try:
+        result = subprocess.run([
+            'netsh', 'advfirewall', 'firewall', 'show', 'rule', 
+            f'name={rule_name}'
+        ], capture_output=True, text=True, timeout=10)
+        
+        return result.returncode == 0 and rule_name in result.stdout
+    except:
+        return False
+
+
+def add_firewall_rule(rule_name: str, port: int, protocol: str = "UDP", direction: str = "out") -> tuple[bool, str]:
+    """
+    Add a Windows Firewall rule
+    Returns (success, message)
+    """
+    if sys.platform != "win32":
+        return True, "Firewall rules not needed on this platform"
+    
+    try:
+        cmd = [
+            'netsh', 'advfirewall', 'firewall', 'add', 'rule',
+            f'name={rule_name}',
+            f'dir={direction}',
+            'action=allow',
+            f'protocol={protocol}',
+            f'localport={port}'
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            return True, f"Firewall rule '{rule_name}' added successfully"
+        else:
+            return False, f"Failed to add firewall rule: {result.stderr.strip()}"
+            
+    except subprocess.TimeoutExpired:
+        return False, "Firewall command timed out"
+    except Exception as e:
+        return False, f"Error adding firewall rule: {str(e)}"
+
+
+def restart_as_admin(script_path: str = None) -> bool:
+    """Restart the current application with administrator privileges"""
+    if sys.platform != "win32":
+        return False
+    
+    try:
+        if script_path is None:
+            script_path = sys.executable
+            params = ' '.join(sys.argv)
+        else:
+            params = script_path
+        
+        ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", sys.executable, params, None, 1
+        )
+        return True
+    except:
+        return False
+
+
 def resource_path(relative_path: Union[str, Path]) -> Path:
     """
     Get the absolute path to a resource, supporting both development and PyInstaller.
