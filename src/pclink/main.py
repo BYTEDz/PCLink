@@ -46,6 +46,7 @@ from .core.utils import (generate_self_signed_cert, get_startup_manager,
 from .core.update_checker import UpdateChecker
 from .core.validators import ValidationError, validate_api_key
 from .core.version import __app_name__, __version__, version_info
+from .core.setup_guide import should_show_setup_guide, show_setup_guide
 from .gui.layout import retranslateUi, setupUi
 from .gui.localizations import LANGUAGES
 from .gui.theme import get_stylesheet
@@ -314,11 +315,17 @@ class UnifiedTrayManager(QObject):
             if hasattr(self.parent_app, 'restart_server'):
                 log.info("Calling parent_app.restart_server()")
                 self.parent_app.restart_server()
-            elif hasattr(self.parent_app, 'controller') and hasattr(self.parent_app.controller, 'restart_server'):
-                log.info("Calling parent_app.controller.restart_server()")
-                self.parent_app.controller.restart_server()
+            elif hasattr(self.parent_app, 'controller'):
+                log.info("Calling controller stop/start sequence")
+                controller = self.parent_app.controller
+                if hasattr(controller, 'stop_server') and hasattr(controller, 'start_server'):
+                    controller.stop_server()
+                    QTimer.singleShot(2000, controller.start_server)  # Wait 2 seconds before restart
+                else:
+                    log.error("Controller missing stop_server or start_server methods")
+                    self._show_error_message("Error", "Server restart not available")
             else:
-                log.error("No restart_server method found")
+                log.error("No restart method available")
                 self._show_error_message("Error", "Restart server method not available")
         except Exception as e:
             log.error(f"Failed to restart server: {e}", exc_info=True)
@@ -764,7 +771,11 @@ class HeadlessApp(QObject):
         # Show GUI window if requested (for normal mode)
         if hasattr(self, 'show_gui_after_start') and self.show_gui_after_start:
             log.info("Server started, now showing GUI window for normal mode")
-            QTimer.singleShot(100, self.show_main_gui)  # Small delay to ensure everything is ready
+            if should_show_setup_guide():
+                log.info("First run detected, will show setup guide with GUI")
+                QTimer.singleShot(100, self.show_main_gui)  # Setup guide will be shown in show_main_gui
+            else:
+                QTimer.singleShot(100, self.show_main_gui)  # Small delay to ensure everything is ready
             self.show_gui_after_start = False  # Only show once
         
         if self.show_startup_notification:
@@ -827,9 +838,14 @@ class HeadlessApp(QObject):
                 if self.controller:
                     self.controller.update_ui_for_server_state()
                 
-                # Show the window
-                self.main_window.show()
-                self.main_window.activateWindow()
+                # Check if setup guide should be shown (first run)
+                if should_show_setup_guide():
+                    log.info("First run detected, showing setup guide")
+                    QTimer.singleShot(500, lambda: self._show_setup_guide_and_window())
+                else:
+                    # Show the window normally
+                    self.main_window.show()
+                    self.main_window.activateWindow()
                 
                 # Update tray manager to GUI mode but keep reference to HeadlessApp for show_main_gui
                 if hasattr(self, 'tray_manager') and self.tray_manager:
@@ -847,6 +863,39 @@ class HeadlessApp(QObject):
             self._handle_gui_transition_error(e)
     
 
+    
+    def _show_setup_guide_and_window(self):
+        """Show setup guide and then the main window."""
+        try:
+            # Show setup guide
+            setup_completed = show_setup_guide(self.main_window)
+            
+            # Always show the main window after setup (whether completed or skipped)
+            self.main_window.show()
+            self.main_window.activateWindow()
+            
+            if setup_completed:
+                log.info("Setup guide completed successfully")
+                # Restart server with new configuration if needed
+                if self.controller and hasattr(self.controller, 'stop_server'):
+                    def restart_server():
+                        try:
+                            if self.dummy_window.is_server_running:
+                                self.controller.stop_server()
+                                QTimer.singleShot(2000, self.controller.start_server)  # Wait 2 seconds before restart
+                            else:
+                                self.controller.start_server()
+                        except Exception as e:
+                            log.error(f"Failed to restart server after setup: {e}")
+                    QTimer.singleShot(1000, restart_server)
+            else:
+                log.info("Setup guide was skipped by user")
+                
+        except Exception as e:
+            log.error(f"Error showing setup guide: {e}", exc_info=True)
+            # Still show the main window even if setup guide fails
+            self.main_window.show()
+            self.main_window.activateWindow()
     
     def _handle_gui_transition_error(self, error):
         """Handle GUI transition error with fallback."""
