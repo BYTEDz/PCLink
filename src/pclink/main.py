@@ -19,6 +19,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import asyncio
+import ctypes
 import logging
 import multiprocessing
 import sys
@@ -27,6 +28,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from .core.config import config_manager
+from .core.constants import APP_AUMID
 from .core.logging_config import setup_logging
 from .core.singleton import PCLinkSingleton
 from .core.utils import run_preflight_checks
@@ -48,6 +50,14 @@ def main() -> int:
     """Main entry point for the application."""
     multiprocessing.freeze_support()
     
+    # On Windows, set the AUMID to ensure notifications work correctly.
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_AUMID)
+        except (AttributeError, TypeError):
+            # This can fail on very old Windows versions or in unusual environments.
+            pass
+
     if getattr(sys, "frozen", False) and sys.platform == "win32":
         from .core.windows_console import hide_console_window
         hide_console_window()

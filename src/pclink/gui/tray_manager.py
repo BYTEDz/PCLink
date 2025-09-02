@@ -18,6 +18,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
 import logging
+import sys
 
 from PySide6.QtCore import QObject, QUrl
 from PySide6.QtGui import QDesktopServices
@@ -26,6 +27,16 @@ from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 from ..core import constants
 from ..core.version import __version__
 from .theme import create_app_icon
+
+# Try to import the new Windows notifier
+try:
+    if sys.platform == "win32":
+        from .windows_notifier import WindowsNotifier
+    else:
+        WindowsNotifier = None
+except ImportError:
+    WindowsNotifier = None
+
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +57,16 @@ class UnifiedTrayManager(QObject):
 
         self.tray_icon.setContextMenu(self.menu)
         self.tray_icon.activated.connect(self._on_tray_activated)
+
+        # Initialize the Windows notifier if on Windows and available
+        self.windows_notifier = None
+        if WindowsNotifier:
+            notifier = WindowsNotifier()
+            if notifier.is_available():
+                self.windows_notifier = notifier
+                log.info("Native Windows toast notifications enabled.")
+            else:
+                log.warning("WindowsNotifier could not be initialized. Falling back to tray bubbles.")
 
     def setup_menu(self, mode: str):
         """
@@ -118,7 +139,13 @@ class UnifiedTrayManager(QObject):
             self.actions['toggle_window'].setText(text)
 
     def show_message(self, title: str, message: str, icon: QSystemTrayIcon.MessageIcon = QSystemTrayIcon.Information, msecs: int = 3000):
-        """Displays a tray notification."""
+        """Displays a tray notification, using native toast notifications on Windows if available."""
+        if self.windows_notifier:
+            icon_path = constants.ASSETS_PATH / "icon.png"
+            self.windows_notifier.show(title, message, icon_path=icon_path)
+            return
+
+        # Fallback for other OS or if the notifier failed to initialize
         if self.tray_icon.isVisible():
             self.tray_icon.showMessage(title, message, icon, msecs)
 

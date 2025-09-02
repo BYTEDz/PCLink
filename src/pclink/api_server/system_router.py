@@ -59,7 +59,7 @@ async def power_command(command: str):
 
 @router.get("/volume")
 async def get_volume():
-    """Gets the current master volume level."""
+    """Gets the current master volume level and mute status."""
     try:
         if sys.platform == "win32":
             from comtypes import CLSCTX_ALL
@@ -67,21 +67,29 @@ async def get_volume():
             devices = AudioUtilities.GetSpeakers()
             interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             volume = interface.QueryInterface(IAudioEndpointVolume)
-            return {"level": round(volume.GetMasterVolumeLevelScalar() * 100)}
+            return {
+                "level": round(volume.GetMasterVolumeLevelScalar() * 100),
+                "muted": bool(volume.GetMute())
+            }
         elif sys.platform == "darwin":
-            result = subprocess.run(['osascript', '-e', 'output volume of (get volume settings)'], capture_output=True, text=True)
-            return {"level": int(result.stdout.strip())}
-        else: # linux
-            result = subprocess.run(['amixer', 'sget', 'Master'], capture_output=True, text=True)
-            match = re.search(r'\[(\d+)%\]', result.stdout)
-            return {"level": int(match.group(1)) if match else 50}
+            vol_str = subprocess.check_output(['osascript', '-e', 'output volume of (get volume settings)']).decode().strip()
+            mute_str = subprocess.check_output(['osascript', '-e', 'output muted of (get volume settings)']).decode().strip()
+            return {"level": int(vol_str), "muted": mute_str == "true"}
+        else:  # linux with amixer
+            result = subprocess.check_output(['amixer', 'sget', 'Master']).decode()
+            level_match = re.search(r'\[(\d+)%\]', result)
+            mute_match = re.search(r'\[(on|off)\]', result)
+            return {
+                "level": int(level_match.group(1)) if level_match else 50,
+                "muted": mute_match.group(1) == 'off' if mute_match else False
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get volume: {e}")
 
 
 @router.post("/volume/set/{level}")
 async def set_volume(level: int):
-    """Sets the master volume level, muting at 0."""
+    """Sets the master volume level (0-100), muting at 0 and unmuting otherwise."""
     if not 0 <= level <= 100:
         raise HTTPException(status_code=400, detail="Volume level must be between 0 and 100.")
     try:
@@ -97,7 +105,11 @@ async def set_volume(level: int):
                 volume.SetMute(0, None)
                 volume.SetMasterVolumeLevelScalar(level / 100, None)
         elif sys.platform == "darwin":
-            subprocess.run(['osascript', '-e', f'set volume output volume {level}'], check=True)
+            if level == 0:
+                subprocess.run(['osascript', '-e', 'set volume output muted true'], check=True)
+            else:
+                subprocess.run(['osascript', '-e', 'set volume output muted false'], check=True)
+                subprocess.run(['osascript', '-e', f'set volume output volume {level}'], check=True)
         else: # linux
             if level == 0:
                 subprocess.run(['amixer', '-q', 'set', 'Master', 'mute'], check=True)

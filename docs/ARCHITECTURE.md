@@ -21,9 +21,9 @@ src/pclink/
 │   ├── api.py              # Main API router aggregator and WebSocket hub
 │   ├── discovery.py        # Network discovery and device pairing
 │   ├── file_browser.py     # File system operations API
-│   ├── info_router.py      # System information endpoints (CPU, RAM, Disks)
-│   ├── input_router.py     # Remote keyboard input endpoint
-│   ├── media_router.py     # Media control endpoints (play/pause, volume)
+│   ├── info_router.py      # System and media information endpoints
+│   ├── input_router.py     # Remote keyboard/mouse input endpoint
+│   ├── media_router.py     # Media control endpoints (play/pause, seek)
 │   ├── process_manager.py  # System process management API
 │   ├── services.py         # Shared API logic and helper functions
 │   ├── system_router.py    # System command endpoints (power, volume)
@@ -33,20 +33,18 @@ src/pclink/
 ├── core/                   # Core business logic and utilities
 │   ├── __init__.py
 │   ├── config.py           # Configuration management
-│   ├── constants.py        # Application constants and paths
+│   ├── constants.py        # Application constants and paths (incl. AUMID)
 │   ├── controller.py       # Main application controller
 │   ├── device_manager.py   # Device connection management
 │   ├── exceptions.py       # Custom exception classes
 │   ├── logging_config.py   # Logging configuration
-│   ├── security.py         # Deprecated (logic moved to utils.py)
 │   ├── setup_guide.py      # First-time setup guide
 │   ├── singleton.py        # System-wide single instance lock
 │   ├── state.py            # Global application state
 │   ├── update_checker.py   # Auto-update functionality
-│   ├── utils.py            # General utility functions and certificate generation
+│   ├── utils.py            # General utility functions
 │   ├── validators.py       # Input validation and sanitization
-│   ├── version.py          # Version information
-│   └── windows_console.py  # Windows-specific console utilities
+│   └── version.py          # Version information
 │
 ├── gui/                    # PySide6 GUI components
 │   ├── __init__.py
@@ -57,7 +55,8 @@ src/pclink/
 │   ├── theme.py            # Dark theme and styling
 │   ├── tray_manager.py     # System tray icon and menu management
 │   ├── update_dialog.py    # Update notification dialogs
-│   └── version_dialog.py   # Version information dialog
+│   ├── version_dialog.py   # Version information dialog
+│   └── windows_notifier.py # Native Windows Toast Notification handler
 │
 └── assets/                 # Static resources
     ├── icon.ico            # Windows icon

@@ -1,6 +1,6 @@
 # filename: src/pclink/api_server/info_router.py
 """
-PCLink - Remote PC Control Server - Info API Module
+PCLink - Remote PC Control Server - System Info API Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 This program is free software: you can redistribute it and/or modify
@@ -16,40 +16,54 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-import psutil
-from fastapi import APIRouter, Request
 
-from .services import NetworkMonitor, get_system_info_data
+import psutil
+from fastapi import APIRouter
+
+from .services import NetworkMonitor, get_media_info_data, get_system_info_data
 
 router = APIRouter()
 network_monitor = NetworkMonitor()
 
+def _format_bytes(byte_count: int) -> str:
+    """Formats bytes into a human-readable string (GB or MB)."""
+    if byte_count >= 1024**3:
+        # Format as Gigabytes with one decimal place
+        return f"{byte_count / (1024**3):.1f} GB"
+    else:
+        # Format as Megabytes with no decimal places
+        return f"{byte_count / (1024**2):.0f} MB"
+
 
 @router.get("/system")
-async def get_system_info(request: Request):
+async def get_system_info():
     """Provides general system information like OS, CPU, RAM, and network speed."""
-    info = await get_system_info_data(network_monitor)
-    info["allow_insecure_shell"] = request.app.state.allow_insecure_shell
-    return info
+    return await get_system_info_data(network_monitor)
 
 
 @router.get("/disks")
-async def get_disks_info():
-    """Provides information about connected disk partitions."""
+async def get_disk_info():
+    """Provides information about all mounted disk partitions."""
     disks = []
-    for p in psutil.disk_partitions(all=False):
-        if "cdrom" in p.opts or not p.fstype:
+    for part in psutil.disk_partitions():
+        # Skip optical drives and other removable media that might not be ready
+        if 'cdrom' in part.opts or part.fstype == '':
             continue
         try:
-            usage = psutil.disk_usage(p.mountpoint)
-            if usage.total > 0:
-                disks.append({
-                    "device": p.mountpoint,
-                    "total": f"{usage.total / (1024**3):.2f} GB",
-                    "used": f"{usage.used / (1024**3):.2f} GB",
-                    "free": f"{usage.free / (1024**3):.2f} GB",
-                    "percent": round(usage.percent),
-                })
-        except Exception:
-            pass
+            usage = psutil.disk_usage(part.mountpoint)
+            disks.append({
+                "device": part.mountpoint, # Use mountpoint as the primary identifier
+                "total": _format_bytes(usage.total),
+                "used": _format_bytes(usage.used),
+                "free": _format_bytes(usage.free),
+                "percent": int(usage.percent),
+            })
+        except (PermissionError, FileNotFoundError):
+            continue
     return {"disks": disks}
+
+
+@router.get("/media")
+async def get_media_info():
+    """Provides information about the currently playing media."""
+    return await get_media_info_data()

@@ -25,6 +25,7 @@ from .version import __app_name__
 
 # --- Application Metadata ---
 APP_NAME = __app_name__
+APP_AUMID = "BYTEDz.PCLink" # AppUserModelID for Windows notifications
 
 # --- Core Application Settings ---
 DEFAULT_PORT = 8000
@@ -47,6 +48,7 @@ PORT_FILE = APP_DATA_PATH / PORT_FILENAME
 CERT_FILE = APP_DATA_PATH / CERT_FILENAME
 KEY_FILE = APP_DATA_PATH / KEY_FILENAME
 CONFIG_FILE = APP_DATA_PATH / CONFIG_FILENAME
+ASSETS_PATH = Path(__file__).parent.parent / "assets"
 
 # --- Platform-Specific Paths ---
 # These paths are used for platform-specific integrations like autostart.

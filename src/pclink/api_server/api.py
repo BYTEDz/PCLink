@@ -210,10 +210,10 @@ async def broadcast_updates_task(manager: ConnectionManager, state: Any, network
     while True:
         try:
             system_data = await get_system_info_data(network_monitor)
-            media_data = get_media_info_data()
+            media_data = await get_media_info_data()
             system_data["allow_insecure_shell"] = state.allow_insecure_shell
             payload = {"type": "update", "data": {"system": system_data, "media": media_data}}
             await manager.broadcast(payload)
         except Exception as e:
             log.error(f"Error in broadcast task: {e}")
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
