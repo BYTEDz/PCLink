@@ -1,4 +1,13 @@
-# gui/theme.py
+# filename: src/pclink/gui/theme.py
+import logging
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+
+from ..core.utils import resource_path
+
+log = logging.getLogger(__name__)
+
 DARK_STYLESHEET = """
 QWidget { background-color: #2e2f30; color: #e0e0e0; font-family: Segoe UI, sans-serif; font-size: 10pt; }
 QMainWindow { background-color: #2e2f30; } 
@@ -30,3 +39,46 @@ QMessageBox, QInputDialog { background-color: #3a3b3c; }
 def get_stylesheet() -> str:
     """Returns the application's stylesheet."""
     return DARK_STYLESHEET
+
+
+def create_app_icon() -> QIcon:
+    """
+    Loads the application icon from assets, creating a fallback if not found.
+    """
+    icon_path = resource_path("assets/icon.png")
+    log.debug(f"Attempting to load icon from: {icon_path}")
+
+    if icon_path.exists():
+        icon = QIcon(str(icon_path))
+        if not icon.isNull():
+            log.info(f"Successfully loaded app icon from: {icon_path}")
+            return icon
+        log.warning(f"Icon file exists but failed to load properly: {icon_path}")
+
+    log.warning(f"Icon file not found at '{icon_path}'. Creating a fallback icon.")
+    return _create_fallback_icon()
+
+
+def _create_fallback_icon() -> QIcon:
+    """Creates a programmatic fallback icon for the application."""
+    icon = QIcon()
+    for size in [16, 32, 48, 64, 128, 256]:
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QColor(60, 9, 108))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRect(0, 0, size, size)
+
+        painter.setPen(QColor(227, 227, 227))
+        font = painter.font()
+        font.setPixelSize(int(size * 0.6))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "PC")
+
+        painter.end()
+        icon.addPixmap(pixmap)
+    return icon

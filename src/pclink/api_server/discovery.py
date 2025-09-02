@@ -1,4 +1,4 @@
-# file: api_server/discovery.py
+# filename: src/pclink/api_server/discovery.py
 """
 PCLink - Remote PC Control Server - Process Manager API Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
@@ -26,10 +26,9 @@ BEACON_MAGIC = "PCLINK_DISCOVERY_BEACON_V1"
 
 
 class DiscoveryService:
-    def __init__(self, api_port: int, hostname: str, use_https: bool, server_id: str = None):
+    def __init__(self, api_port: int, hostname: str, server_id: str = None):
         self.api_port = api_port
         self.hostname = hostname
-        self.use_https = use_https
         self.server_id = server_id or self._generate_server_id()
         self._thread = None
         self._running = False
@@ -51,7 +50,7 @@ class DiscoveryService:
             "magic": BEACON_MAGIC,
             "port": self.api_port,
             "hostname": self.hostname,
-            "https": self.use_https,
+            "https": True,
             "os": platform.system().lower(),
             "server_id": self.server_id
         }

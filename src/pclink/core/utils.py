@@ -1,3 +1,4 @@
+# filename: src/pclink/core/utils.py
 """
 PCLink - Remote PC Control Server - Utilities Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
@@ -26,11 +27,22 @@ from typing import Callable, List, Optional, Union
 
 import psutil
 
+from . import constants
+
 if sys.platform == "win32":
     import ctypes
     import winreg
 
 log = logging.getLogger(__name__)
+
+
+def run_preflight_checks():
+    """
+    Run essential one-time setup tasks before the application starts.
+    This includes creating directories and generating security certificates.
+    """
+    constants.initialize_app_directories()
+    generate_self_signed_cert(constants.CERT_FILE, constants.KEY_FILE)
 
 
 def get_app_data_path(app_name: str) -> Path:

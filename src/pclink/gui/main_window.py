@@ -1,253 +1,333 @@
+# filename: src/pclink/gui/main_window.py
 import json
 import logging
 import sys
-import time
 import uuid
-import warnings
+from datetime import datetime, timezone
 
 import qrcode
 import requests
-from PIL import Image
-from PySide6.QtCore import QSettings, Qt, QTimer
-from PySide6.QtGui import (QAction, QActionGroup, QCloseEvent, QColor, QIcon,
-                           QImage, QPixmap)
-from PySide6.QtWidgets import (QListWidget, QListWidgetItem, QMainWindow,
-                               QMenu, QMessageBox, QSystemTrayIcon)
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtGui import (QAction, QActionGroup, QCloseEvent, QColor, QImage,
+                           QPixmap)
+from PySide6.QtWidgets import (QApplication, QListWidgetItem, QMainWindow,
+                               QMessageBox)
 
+from ..core import constants
+from ..core.config import config_manager
 from ..core.controller import Controller
-from ..core.exceptions import PCLinkError
-from ..core.state import connected_devices
-from ..core.utils import (API_KEY_FILE, APP_NAME, DEFAULT_PORT, PORT_FILE,
-                        generate_self_signed_cert, get_app_data_path,
-                        is_startup_enabled, load_or_create_config,
-                        resource_path)
-from ..core.version import version_info
-from .version_dialog import VersionDialog
+from ..core.device_manager import device_manager
+from ..core.update_checker import UpdateChecker
+from ..core.utils import (get_startup_manager, is_admin, load_config_value,
+                          save_config_value)
+from ..core.validators import ValidationError, validate_api_key
+from ..core.version import __version__
 from .layout import retranslateUi, setupUi
 from .localizations import LANGUAGES
-from .theme import get_stylesheet
+from .tray_manager import UnifiedTrayManager
+from .update_dialog import UpdateDialog
+from .version_dialog import VersionDialog
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
+
+
+class UpdateSignalEmitter(QObject):
+    """Signal emitter for update notifications to handle thread-safe GUI updates."""
+    update_available = Signal(dict)
+    no_update_available = Signal()
+
+update_signal_emitter = UpdateSignalEmitter()
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    """The main application window for PCLink."""
+
+    def __init__(self, from_headless=False):
         super().__init__()
+        self.hide()
+        self.from_headless = from_headless
+
         self.platform = sys.platform
+        self.is_admin = is_admin()
 
-        try:
-            self._initialize_window()
-            self._setup_components()
-            self._connect_signals()
-            self._start_timers()
-        except Exception as e:
-            logger.error(f"Failed to initialize main window: {e}")
-            self._show_error_message("Initialization Error", str(e))
-            raise
-
-    def _initialize_window(self):
-        """Initialize window settings and configuration"""
-        generate_self_signed_cert()
-
-        self.settings = QSettings(APP_NAME, "AppGUI")
-        self.api_key = load_or_create_config(API_KEY_FILE, uuid.uuid4, "API_KEY=")
-        self.api_port = int(load_or_create_config(PORT_FILE, DEFAULT_PORT))
-        self.load_settings()
-
+        self.setWindowTitle(f"PCLink {__version__}")
         self.is_server_running = False
-        self.tray_icon = None
 
-        logger.info("Main window initialized successfully")
+        self._initialize_core_properties()
 
-    def _setup_components(self):
-        """Setup UI components and controller"""
         self.controller = Controller(self)
+        self.update_checker = UpdateChecker()
+        self.tray_manager = UnifiedTrayManager(self)
+
+        self._load_settings()
+        self.initialize_ui()
+        self.controller.update_ui_for_server_state()
+
+        if not from_headless:
+            # Start server automatically on GUI launch after a short delay
+            QTimer.singleShot(100, self.controller.start_server)
+            QTimer.singleShot(3000, self.check_for_updates_startup)
+
+    def _initialize_core_properties(self):
+        """Initializes core properties like API key and port needed by the UI and Controller."""
+        self.api_port = config_manager.get("server_port")
+
+        # Load and validate API key from its separate file
+        try:
+            raw_key = load_config_value(constants.API_KEY_FILE, default=str(uuid.uuid4()))
+            self.api_key = validate_api_key(raw_key)
+            if self.api_key != raw_key:
+                save_config_value(constants.API_KEY_FILE, self.api_key)
+        except ValidationError:
+            log.warning("Invalid API key found. Generating a new one.")
+            self.api_key = str(uuid.uuid4())
+            save_config_value(constants.API_KEY_FILE, self.api_key)
+        except (ImportError, FileNotFoundError) as e:
+             log.error(f"Could not load API key due to missing dependency or file: {e}")
+             self.api_key = "fallback-key-error"
+
+    def initialize_ui(self):
+        """Initializes all UI elements, actions, menus, and signal connections."""
         self.create_actions()
         self.create_menus()
         setupUi(self)
+
         self.retranslate_ui()
-        self.apply_theme(self.current_theme)
-        self.setup_tray_icon()
+        self.controller.connect_signals()
 
-    def _connect_signals(self):
-        """Connect all signals and slots"""
-        try:
-            self.controller.connect_signals()
-        except Exception as e:
-            logger.error(f"Failed to connect signals: {e}")
-            raise
+        update_signal_emitter.update_available.connect(self.handle_update_available_signal)
+        update_signal_emitter.no_update_available.connect(self.handle_no_update_signal)
 
-    def _start_timers(self):
-        """Initialize and start application timers"""
         self.device_prune_timer = QTimer(self)
         self.device_prune_timer.setInterval(10000)
-        self.device_prune_timer.timeout.connect(
-            self.controller.prune_and_update_devices
-        )
+        self.device_prune_timer.timeout.connect(self.controller.prune_and_update_devices)
 
         self.server_check_timer = QTimer(self)
         self.server_check_timer.timeout.connect(self.controller._check_server_started)
 
-    def _show_error_message(self, title: str, message: str):
-        """Show error message to user"""
-        try:
-            QMessageBox.critical(self, title, message)
-        except Exception:
-            # Fallback if GUI isn't available
-            logger.critical(f"{title}: {message}")
+        self.update_check_timer = QTimer(self)
+        self.update_check_timer.timeout.connect(self.check_for_updates_periodic)
+        self.update_check_timer.start(4 * 60 * 60 * 1000)
 
-    def tr(self, key, **kwargs):
-        return self.translations.get(key, key).format(**kwargs)
+        self.tray_manager.setup_menu(mode="gui")
+        if not self.from_headless:
+            self.tray_manager.show()
+
+    def _load_settings(self):
+        """Loads settings using the global ConfigManager."""
+        self.minimize_to_tray = config_manager.get("minimize_to_tray")
+        self.current_language = config_manager.get("language")
+        self.check_updates_on_startup = config_manager.get("check_updates_on_startup")
+        self.translations = LANGUAGES.get(self.current_language, LANGUAGES["en"])
+
+    def tr(self, key, *args, **kwargs):
+        """
+        Translates a given key.
+        An optional positional argument can be provided as a fallback.
+        If no fallback is provided, the key itself is used.
+        Supports string formatting with keyword arguments.
+        """
+        fallback = args[0] if args else key
+        return self.translations.get(key, fallback).format(**kwargs)
 
     def retranslate_ui(self):
         retranslateUi(self)
+        self.retranslate_menus()
 
-    def load_settings(self):
-        """Load application settings from QSettings"""
-        try:
-            self.minimize_to_tray = self.settings.value(
-                "minimize_to_tray", True, type=bool
-            )
-            self.current_theme = self.settings.value("theme", "dark")
-            self.current_language = self.settings.value("language", "en")
-            self.use_https = self.settings.value("use_https", True, type=bool)
-            self.allow_insecure_shell = self.settings.value(
-                "allow_insecure_shell", False, type=bool
-            )
-            self.translations = LANGUAGES.get(self.current_language, LANGUAGES["en"])
-            self.is_rtl = self.current_language == "ar"
+    def create_actions(self):
+        self.exit_action = QAction(self)
+        self.restart_admin_action = QAction(self, enabled=(self.platform == "win32"))
+        self.change_port_action = QAction(self)
+        self.update_key_action = QAction(self)
+        self.about_action = QAction(self)
+        self.open_log_action = QAction(self)
+        self.check_updates_now_action = QAction(self)
+        self.fix_discovery_action = QAction(self)
 
-            logger.info(
-                f"Settings loaded: theme={self.current_theme}, lang={self.current_language}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to load settings: {e}")
-            # Use defaults
-            self.minimize_to_tray = True
-            self.current_theme = "dark"
-            self.current_language = "en"
-            self.use_https = True
-            self.allow_insecure_shell = False
-            self.translations = LANGUAGES["en"]
-            self.is_rtl = False
+        startup_manager = get_startup_manager()
+        self.startup_action = QAction(self, checkable=True, checked=startup_manager.is_enabled(constants.APP_NAME))
+        self.minimize_action = QAction(self, checkable=True, checked=self.minimize_to_tray)
+        self.allow_insecure_shell_action = QAction(self, checkable=True, checked=config_manager.get("allow_insecure_shell"))
+        self.show_startup_notification_action = QAction(self, checkable=True, checked=config_manager.get("show_startup_notification"))
+        self.check_updates_action = QAction(self, checkable=True, checked=self.check_updates_on_startup)
+        self.language_action_group = QActionGroup(self)
+
+    def create_menus(self):
+        menu_bar = self.menuBar()
+        self.file_menu = menu_bar.addMenu("")
+        self.file_menu.addAction(self.restart_admin_action)
+        self.file_menu.addSeparator()
+        self.file_menu.addAction(self.open_log_action)
+        self.file_menu.addAction(self.about_action)
+        self.file_menu.addSeparator()
+        self.file_menu.addAction(self.exit_action)
+        
+        self.settings_menu = menu_bar.addMenu("")
+        self.settings_menu.addAction(self.change_port_action)
+        self.settings_menu.addAction(self.update_key_action)
+        self.settings_menu.addSeparator()
+
+        self.language_menu = self.settings_menu.addMenu("")
+        for lang_code, lang_data in LANGUAGES.items():
+            action = QAction(lang_data["lang_name"], self, checkable=True, data=lang_code)
+            action.setChecked(self.current_language == lang_code)
+            self.language_menu.addAction(action)
+            self.language_action_group.addAction(action)
+
+        self.settings_menu.addSeparator()
+        self.settings_menu.addAction(self.allow_insecure_shell_action)
+        self.settings_menu.addSeparator()
+        self.settings_menu.addAction(self.startup_action)
+        self.settings_menu.addAction(self.minimize_action)
+        self.settings_menu.addAction(self.show_startup_notification_action)
+        self.settings_menu.addAction(self.check_updates_action)
+        self.settings_menu.addSeparator()
+        self.settings_menu.addAction(self.check_updates_now_action)
+        self.settings_menu.addAction(self.fix_discovery_action)
+
+    def retranslate_menus(self):
+        self.file_menu.setTitle(self.tr("menu_file"))
+        self.exit_action.setText(self.tr("menu_file_exit"))
+        self.restart_admin_action.setText(self.tr("menu_file_restart_admin"))
+        self.open_log_action.setText("Open Log File")
+        self.about_action.setText(self.tr("menu_file_about"))
+        self.settings_menu.setTitle(self.tr("menu_settings"))
+        self.change_port_action.setText(self.tr("change_port_btn"))
+        self.update_key_action.setText(self.tr("regen_api_key_btn"))
+        self.startup_action.setText(self.tr("start_with_os_chk"))
+        self.minimize_action.setText(self.tr("minimize_on_close_chk"))
+        self.allow_insecure_shell_action.setText(self.tr("allow_insecure_shell_chk"))
+        self.show_startup_notification_action.setText(self.tr("show_startup_notification_chk"))
+        self.check_updates_action.setText(self.tr("check_updates_on_startup_chk"))
+        self.check_updates_now_action.setText(self.tr("check_updates_now_btn"))
+        self.fix_discovery_action.setText(self.tr("fix_discovery_action", "Fix Discovery Issues"))
+        self.language_menu.setTitle(self.tr("menu_language"))
+
+    def update_device_list_ui(self):
+        self.device_list.clear()
+        if not self.is_server_running:
+            self.device_list.addItem(self.tr("devices_stopped_text"))
+            return
+
+        now = datetime.now(timezone.utc)
+        active_devices = [
+            d for d in device_manager.get_approved_devices()
+            if (now - d.last_seen).total_seconds() < constants.DEVICE_TIMEOUT
+        ]
+        
+        if not active_devices:
+            self.device_list.addItem(self.tr("devices_waiting_text"))
+            return
+
+        for device in sorted(active_devices, key=lambda x: x.device_name):
+            platform_icon = {'ios': '📱', 'android': '📱'}.get(device.platform.lower(), '💻')
+            device_info = f"{platform_icon} {device.device_name} ({device.current_ip})"
+            item = QListWidgetItem(device_info)
+            item.setForeground(QColor("#a6e22e"))
+            self.device_list.addItem(item)
+
+    def on_language_selected(self, action: QAction):
+        lang_code = action.data()
+        if lang_code and self.current_language != lang_code:
+            config_manager.set("language", lang_code)
+            QMessageBox.information(self, self.tr("language_changed_title"), self.tr("language_changed_msg"))
 
     def generate_qr_code(self):
-        """Generate QR code for device pairing with improved error handling"""
+        self.qr_label.setText(self.tr("qr_loading_text"))
         try:
-            protocol = "https" if self.use_https else "http"
-            url = f"{protocol}://127.0.0.1:{self.api_port}/qr-payload"
-            headers = {"x-api-key": self.api_key}
-
-            with warnings.catch_warnings():
-                warnings.simplefilter(
-                    "ignore",
-                    requests.packages.urllib3.exceptions.InsecureRequestWarning,
-                )
-                response = requests.get(url, headers=headers, verify=False, timeout=5)
-
-            response.raise_for_status()
-            payload_str = json.dumps(response.json())
-
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=2,
-            )
+            payload = self.controller.get_qr_payload()
+            if not payload:
+                raise ValueError("Payload is empty")
+            
+            payload_str = json.dumps(payload, separators=(",", ":"))
+            qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
             qr.add_data(payload_str)
             qr.make(fit=True)
 
-            # Calculate optimal size
-            label_size = self.qr_label.size().width()
-            num_modules = len(qr.get_matrix())
-            optimal_box_size = max(1, label_size // num_modules)
-            qr.box_size = optimal_box_size
-
-            # Generate QR code image
-            fill_color = (
-                (224, 224, 224) if self.current_theme == "dark" else (30, 30, 30)
-            )
-            pil_img = qr.make_image(
-                fill_color=fill_color, back_color=(0, 0, 0, 0)
-            ).convert("RGBA")
-
-            q_img = QImage(
-                pil_img.tobytes("raw", "RGBA"),
-                pil_img.size[0],
-                pil_img.size[1],
-                QImage.Format.Format_RGBA8888,
-            )
+            img = qr.make_image(fill_color="black", back_color="white").convert('RGBA')
+            q_img = QImage(img.tobytes("raw", "RGBA"), img.size[0], img.size[1], QImage.Format.Format_RGBA8888)
             pixmap = QPixmap.fromImage(q_img)
-            self.qr_label.setPixmap(pixmap)
+            self.qr_label.setPixmap(pixmap.scaled(self.qr_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation))
 
-            logger.debug("QR code generated successfully")
-
-        except requests.exceptions.Timeout:
-            error_msg = "QR Error:\nServer timeout"
-            self.qr_label.setText(error_msg)
-            logger.warning("QR code generation timed out")
-        except requests.exceptions.RequestException as e:
-            error_msg = f"QR Error:\nServer not responding\n{str(e)[:50]}..."
-            self.qr_label.setText(error_msg)
-            logger.error(f"QR code generation failed: {e}")
         except Exception as e:
-            error_msg = f"QR Error:\n{str(e)[:50]}..."
-            self.qr_label.setText(error_msg)
-            logger.error(f"Unexpected error generating QR code: {e}")
+            log.error(f"Failed to generate QR code: {e}")
+            self.qr_label.setText(self.tr("qr_error_text"))
+            self.qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def show_about_dialog(self):
+        VersionDialog(self).exec()
+
+    def check_for_updates_startup(self):
+        if self.check_updates_on_startup:
+            self.update_checker.check_for_updates_async(self._emit_update_signal_auto)
+    
+    def check_for_updates_periodic(self):
+        if self.check_updates_on_startup and self.update_checker.should_check_for_updates():
+            self.update_checker.check_for_updates_async(self._emit_update_signal_auto)
+    
+    def check_for_updates(self):
+        self.update_checker.check_for_updates_async(self._emit_update_signal_manual)
+    
+    def _emit_update_signal_auto(self, update_info):
+        if update_info:
+            skipped = config_manager.get("skipped_version")
+            if skipped != update_info["version"]:
+                update_signal_emitter.update_available.emit(update_info)
+    
+    def _emit_update_signal_manual(self, update_info):
+        if update_info:
+            self._manual_update_check = True
+            update_signal_emitter.update_available.emit(update_info)
+        else:
+            update_signal_emitter.no_update_available.emit()
+    
+    def handle_update_available_signal(self, update_info):
+        dialog = UpdateDialog(update_info, self)
+        if getattr(self, '_manual_update_check', False):
+            self._manual_update_check = False
+            dialog.exec()
+        else:
+            dialog.show()
+    
+    def handle_no_update_signal(self):
+        QMessageBox.information(self, self.tr("no_updates_title"), self.tr("no_updates_msg"))
+
+    def restart_server(self):
+        self.controller.toggle_server_state()
 
     def quit_application(self):
-        """Safely shutdown the application"""
-        logger.info("Application shutdown initiated")
-        try:
-            self.controller.stop_server()
-            if self.tray_icon:
-                self.tray_icon.hide()
-        except Exception as e:
-            logger.error(f"Error during shutdown: {e}")
-        finally:
-            from PySide6.QtWidgets import QApplication
+        self.controller.stop_server()
+        self.tray_manager.hide()
+        QApplication.instance().quit()
 
-            QApplication.quit()
+    def toggle_window_visibility(self):
+        if self.isVisible() and not self.isMinimized():
+            self.hide()
+        else:
+            self.showNormal()
+            self.activateWindow()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.tray_manager.update_toggle_action_text(True)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.tray_manager.update_toggle_action_text(False)
 
     def closeEvent(self, event: QCloseEvent):
-        """Handle window close event with proper error handling"""
-        try:
-            if self.minimize_to_tray and self.isVisible():
-                event.ignore()
-                self.hide()
-                logger.debug("Window minimized to tray")
-            else:
-                self.quit_application()
-                event.accept()
-                logger.info("Window closed, application exiting")
-        except Exception as e:
-            logger.error(f"Error handling close event: {e}")
-            event.accept()  # Force close on error
+        if self.minimize_to_tray:
+            self.hide()
+            event.ignore()
+            return
 
-    # ... (other methods would be moved here from main.py)
-    def create_actions(self):
-        """Create menu actions"""
-        self.exit_action = QAction(self)
-        self.exit_action.triggered.connect(self.quit_application)
+        reply = QMessageBox.question(self, self.tr("confirm_exit_title"),
+            self.tr("confirm_exit_text"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
         
-        self.about_action = QAction("About PCLink", self)
-        self.about_action.triggered.connect(self.show_about_dialog)
-        
-        # Add other actions as needed
-        
-    def create_menus(self):
-        """Create application menus"""
-        menu_bar = self.menuBar()
-        
-        # File menu
-        file_menu = menu_bar.addMenu("File")
-        file_menu.addAction(self.exit_action)
-        
-        # Help menu
-        help_menu = menu_bar.addMenu("Help")
-        help_menu.addAction(self.about_action)
-        
-    def show_about_dialog(self):
-        """Show the version information dialog"""
-        dialog = VersionDialog(self)
-        dialog.exec()
+        if reply == QMessageBox.StandardButton.Yes:
+            self.quit_application()
+            event.accept()
+        else:
+            event.ignore()
