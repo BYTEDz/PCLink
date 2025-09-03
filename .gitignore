@@ -241,3 +241,6 @@ upx/*
 build_tools/*
 create_release.py
 DYNAMIC_IP_IMPLEMENTATION.md
+docs/WAKE_ON_LAN.md
+structure.md
+vis.py

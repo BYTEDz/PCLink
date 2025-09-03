@@ -119,7 +119,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
     
     # Include all routers
     terminal_router = create_terminal_router(server_api_key, allow_insecure_shell)
-    app.include_router(system_router, dependencies=[PROTECTED])
+    app.include_router(system_router, prefix="/system", dependencies=[PROTECTED])
     app.include_router(file_browser_router, prefix="/files", dependencies=[PROTECTED])
     app.include_router(upload_router, prefix="/files/upload", dependencies=[PROTECTED])
     app.include_router(download_router, prefix="/files/download", dependencies=[PROTECTED])
