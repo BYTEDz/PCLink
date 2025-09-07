@@ -1,4 +1,3 @@
-# filename: src/pclink/api_server/system_router.py
 """
 PCLink - Remote PC Control Server - System Commands API Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
@@ -27,17 +26,31 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
+# Import the getmac library for MAC address retrieval.
+from getmac import get_mac_address
+
 router = APIRouter()
 log = logging.getLogger(__name__)
 
-# Set creation flags for subprocess on Windows to hide console window
+# Set creation flags for subprocess on Windows to hide the console window.
 SUBPROCESS_FLAGS = 0
 if sys.platform == "win32":
     SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
 
 
 async def run_subprocess(cmd: list[str]) -> str:
-    """Asynchronously runs a subprocess and returns its stdout."""
+    """
+    Asynchronously runs a subprocess and returns its stdout.
+
+    Args:
+        cmd: A list of strings representing the command and its arguments.
+
+    Returns:
+        The decoded stdout from the subprocess.
+
+    Raises:
+        HTTPException: If the command fails to execute or returns a non-zero exit code.
+    """
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -54,12 +67,14 @@ async def run_subprocess(cmd: list[str]) -> str:
     return stdout.decode()
 
 
-# --- FIX: Synchronous Helper for Power Commands ---
 def _execute_sync_power_command(cmd: list[str]):
     """
     Synchronously runs a command in a hidden window.
     This is used because asyncio.create_subprocess_exec was causing a
     NotImplementedError on the default Windows event loop.
+
+    Args:
+        cmd: A list of strings representing the command and its arguments.
     """
     try:
         subprocess.run(
@@ -75,10 +90,20 @@ def _execute_sync_power_command(cmd: list[str]):
         log.error(f"Failed to spawn power command: {' '.join(cmd)}. Exception: {e}")
 
 
-# --- FIX: Updated Asynchronous Power Command Endpoint ---
 @router.post("/power/{command}")
 async def power_command(command: str):
-    """Handles power commands like shutdown, reboot, and lock."""
+    """
+    Handles power commands such as shutdown, reboot, lock, sleep, and logout.
+
+    Args:
+        command: The power command to execute (shutdown, reboot, lock, sleep, logout).
+
+    Returns:
+        A dictionary indicating the status of the command.
+
+    Raises:
+        HTTPException: If the command is not supported for the current operating system.
+    """
     cmd_map = {
         "win32": {
             "shutdown": ["shutdown", "/s", "/t", "1"],
@@ -107,15 +132,17 @@ async def power_command(command: str):
     if not cmd_to_run:
         raise HTTPException(status_code=404, detail=f"Unsupported command: {command}")
 
-    # Run the synchronous, blocking command in a separate thread to avoid
-    # freezing the server and to ensure compatibility with the event loop.
     await asyncio.to_thread(_execute_sync_power_command, cmd_to_run)
-
     return {"status": "command sent"}
 
 
 def _get_volume_win32() -> Dict[str, Any]:
-    """Synchronous helper for getting volume on Windows."""
+    """
+    Synchronously retrieves the current master volume level and mute status on Windows.
+
+    Returns:
+        A dictionary containing the volume level (0-100) and mute status.
+    """
     from comtypes import CLSCTX_ALL
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
@@ -129,7 +156,12 @@ def _get_volume_win32() -> Dict[str, Any]:
 
 
 def _set_volume_win32(level: int):
-    """Synchronous helper for setting volume on Windows."""
+    """
+    Synchronously sets the master volume level on Windows.
+
+    Args:
+        level: The desired volume level (0-100). Mutes at 0.
+    """
     from comtypes import CLSCTX_ALL
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
@@ -145,7 +177,15 @@ def _set_volume_win32(level: int):
 
 @router.get("/volume")
 async def get_volume():
-    """Gets the current master volume level and mute status."""
+    """
+    Gets the current master volume level and mute status.
+
+    Returns:
+        A dictionary containing the volume level (0-100) and mute status.
+
+    Raises:
+        HTTPException: If there's an error retrieving the volume information.
+    """
     try:
         if sys.platform == "win32":
             return await asyncio.to_thread(_get_volume_win32)
@@ -171,7 +211,18 @@ async def get_volume():
 
 @router.post("/volume/set/{level}")
 async def set_volume(level: int):
-    """Sets the master volume level (0-100), muting at 0 and unmuting otherwise."""
+    """
+    Sets the master volume level (0-100). Mutes at 0 and unmutes otherwise.
+
+    Args:
+        level: The desired volume level (0-100).
+
+    Returns:
+        A dictionary indicating the status of the command.
+
+    Raises:
+        HTTPException: If the volume level is out of range or if there's an error setting it.
+    """
     if not 0 <= level <= 100:
         raise HTTPException(
             status_code=400, detail="Volume level must be between 0 and 100."
@@ -202,136 +253,33 @@ async def set_volume(level: int):
         raise HTTPException(status_code=500, detail=f"Failed to set volume: {e}")
 
 
-def _get_wol_info_linux() -> Dict[str, Any]:
-    """Synchronous helper for getting WoL info on Linux."""
-    for iface in os.listdir("/sys/class/net"):
-        if iface == "lo" or iface.startswith(("veth", "docker")):
-            continue
-        try:
-            with open(f"/sys/class/net/{iface}/address") as f:
-                mac = f.read().strip()
-            if not mac or mac == "00:00:00:00:00:00":
-                continue
+@router.get("/wake-on-lan/info")
+async def get_wake_on_lan_info():
+    """
+    Retrieves Wake-on-LAN capability and MAC address using a reliable library.
 
-            wol_enabled = False
-            try:
-                result = subprocess.run(
-                    ["ethtool", iface],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                    creationflags=SUBPROCESS_FLAGS,
-                )
-                wol_enabled = (
-                    "Wake-on:" in result.stdout
-                    and "g" in result.stdout.split("Wake-on:")[1].split()[0]
-                )
-            except Exception:
-                pass  # ethtool might not be installed or fail
+    Returns:
+        A dictionary containing WoL support status, MAC address, interface name,
+        and WoL enabled status.
+    """
+    log.info("Attempting to retrieve MAC address for WoL.")
+    try:
+        # Use the getmac library to find the MAC address of the active interface.
+        # This is a synchronous call, so we run it in a thread to avoid blocking.
+        mac = await asyncio.to_thread(get_mac_address)
 
+        if mac:
+            log.info(f"Successfully found MAC address: {mac}")
             return {
                 "supported": True,
                 "mac_address": mac,
-                "interface_name": iface,
-                "wol_enabled": wol_enabled,
+                "interface_name": "unknown", # Library does not provide interface name.
+                "wol_enabled": None, # Assume enabled if MAC is found.
             }
-        except Exception:
-            continue
-    return {"supported": False, "mac_address": None, "interface_name": None}
-
-
-@router.get("/wake-on-lan/info")
-async def get_wake_on_lan_info():
-    """Get Wake-on-LAN capability and MAC address of this machine for client-side WoL."""
-    wol_info = {
-        "supported": False,
-        "mac_address": None,
-        "interface_name": None,
-        "wol_enabled": None,
-    }
-
-    try:
-        if sys.platform == "win32":
-            try:  # PowerShell (preferred)
-                ps_command = (
-                    "Get-NetAdapter | Where-Object {$_.Virtual -eq $false} | "
-                    "Select-Object Name, MacAddress, "
-                    "@{Name='WoLSupported'; Expression={("
-                    "  Get-NetAdapterPowerManagement -Name $_.Name -ErrorAction SilentlyContinue"
-                    ").WakeOnMagicPacket -eq 'Enabled'"
-                    "}} | ConvertTo-Json"
-                )
-                result_stdout = await run_subprocess(
-                    ["powershell", "-Command", ps_command]
-                )
-                adapters = json.loads(result_stdout)
-                if not isinstance(adapters, list):
-                    adapters = [adapters]
-
-                for adapter in sorted(
-                    adapters, key=lambda x: x.get("WoLSupported", False), reverse=True
-                ):
-                    if adapter.get("MacAddress"):
-                        wol_info.update(
-                            {
-                                "supported": True,
-                                "mac_address": adapter["MacAddress"].replace("-", ":"),
-                                "interface_name": adapter["Name"],
-                                "wol_enabled": adapter.get("WoLSupported", False),
-                            }
-                        )
-                        return wol_info
-            except Exception:  # WMIC (fallback)
-                wmic_result = await run_subprocess(
-                    [
-                        "wmic",
-                        "path",
-                        "Win32_NetworkAdapter",
-                        "where",
-                        "PhysicalAdapter=TRUE",
-                        "get",
-                        "Name,MACAddress",
-                        "/format:csv",
-                    ]
-                )
-                for line in wmic_result.strip().split("\n")[1:]:
-                    if line.strip():
-                        parts = [p.strip() for p in line.split(",") if p.strip()]
-                        if len(parts) >= 2 and re.match(
-                            r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$", parts[1]
-                        ):
-                            wol_info.update(
-                                {
-                                    "supported": True,
-                                    "mac_address": parts[1],
-                                    "interface_name": parts[0],
-                                }
-                            )
-                            return wol_info
-
-        elif sys.platform == "darwin":
-            ifconfig_out = await run_subprocess(["ifconfig"])
-            interfaces = re.findall(r"^(\w+): flags=", ifconfig_out, re.MULTILINE)
-            for interface in interfaces:
-                if interface.startswith(("en", "eth")):
-                    if_result = await run_subprocess(["ifconfig", interface])
-                    mac_match = re.search(
-                        r"ether (([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2})", if_result
-                    )
-                    if mac_match:
-                        wol_info.update(
-                            {
-                                "supported": True,
-                                "mac_address": mac_match.group(1),
-                                "interface_name": interface,
-                            }
-                        )
-                        return wol_info
-        else:  # Linux
-            return await asyncio.to_thread(_get_wol_info_linux)
+        else:
+            log.warning("get_mac_address() returned None. No active network interface found?")
+            return {"supported": False, "mac_address": None, "interface_name": None, "wol_enabled": False}
 
     except Exception as e:
-        # Don't raise an exception if WoL info fails, just return the default
-        log.warning(f"Could not retrieve Wake-on-LAN info: {e}")
-
-    return wol_info
+        log.error(f"An exception occurred while trying to get MAC address: {e}")
+        return {"supported": False, "mac_address": None, "interface_name": None, "wol_enabled": False}

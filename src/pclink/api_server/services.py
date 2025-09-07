@@ -1,4 +1,3 @@
-# filename: src/pclink/api_server/services.py
 """
 PCLink - Remote PC Control Server - API Services Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
@@ -44,14 +43,25 @@ DEFAULT_MEDIA_INFO = {
     "repeat_mode": "NONE",  # Can be NONE, ONE, or ALL
 }
 
-# Set creation flags for subprocess on Windows to hide console window
+# Set creation flags for subprocess on Windows to hide the console window.
 SUBPROCESS_FLAGS = 0
 if sys.platform == "win32":
     SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
 
 
 async def run_subprocess(cmd: list[str]) -> str:
-    """Asynchronously runs a subprocess and returns its stdout."""
+    """
+    Asynchronously runs a subprocess and returns its stdout.
+
+    Args:
+        cmd: A list of strings representing the command and its arguments.
+
+    Returns:
+        The decoded and stripped stdout from the subprocess.
+
+    Raises:
+        subprocess.CalledProcessError: If the command returns a non-zero exit code.
+    """
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -71,8 +81,15 @@ async def run_subprocess(cmd: list[str]) -> str:
 
 
 async def _get_media_info_win32() -> Dict[str, str]:
-    """Fetches media info on Windows using Windows SDK."""
+    """
+    Fetches media information on Windows using the Windows SDK.
+
+    Returns:
+        A dictionary containing media playback information. Returns default
+        values if media is not playing or if the SDK is unavailable/fails.
+    """
     try:
+        # Import Windows SDK components within the function to avoid errors on non-Windows systems.
         from winsdk.windows.media import MediaPlaybackAutoRepeatMode
         from winsdk.windows.media.control import (
             GlobalSystemMediaTransportControlsSessionManager as MediaManager,
@@ -113,15 +130,21 @@ async def _get_media_info_win32() -> Dict[str, str]:
             "repeat_mode": repeat_map.get(playback_info.auto_repeat_mode, "NONE"),
         }
     except (ImportError, RuntimeError):
-        # Silently fail if winsdk is not installed or fails
+        # Silently fail if winsdk is not installed or fails to initialize.
         return DEFAULT_MEDIA_INFO
     except Exception:
-        # Catch other unexpected errors from the async operations
+        # Catch other unexpected errors from the async operations.
         return DEFAULT_MEDIA_INFO
 
 
 async def _get_media_info_linux() -> Dict[str, str]:
-    """Fetches media info on Linux using playerctl asynchronously."""
+    """
+    Fetches media information on Linux using `playerctl` asynchronously.
+
+    Returns:
+        A dictionary containing media playback information. Returns default
+        values if no media player is active or if `playerctl` is not found.
+    """
     try:
         status_raw = await run_subprocess(["playerctl", "status"])
         status_map = {"Playing": "PLAYING", "Paused": "PAUSED", "Stopped": "STOPPED"}
@@ -130,7 +153,7 @@ async def _get_media_info_linux() -> Dict[str, str]:
         if status == "STOPPED":
             return DEFAULT_MEDIA_INFO
 
-        # Optimize by fetching multiple metadata fields in one call
+        # Optimize by fetching multiple metadata fields in one call.
         metadata_format = "{{title}}||{{artist}}||{{album}}||{{mpris:length}}"
         metadata_raw = await run_subprocess(
             ["playerctl", "metadata", "--format", metadata_format]
@@ -139,7 +162,7 @@ async def _get_media_info_linux() -> Dict[str, str]:
             metadata_raw.split("||", 3) + ["", "", "", ""]
         )[:4]
 
-        # Get remaining properties
+        # Fetch remaining properties concurrently.
         position_str, shuffle_str, loop_str = await asyncio.gather(
             run_subprocess(["playerctl", "position"]),
             run_subprocess(["playerctl", "shuffle"]),
@@ -159,11 +182,20 @@ async def _get_media_info_linux() -> Dict[str, str]:
             "repeat_mode": repeat_map.get(loop_str, "NONE"),
         }
     except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
+        # Handle cases where playerctl is not installed or no player is running.
         return DEFAULT_MEDIA_INFO
 
 
 async def _get_media_info_darwin() -> Dict[str, str]:
-    """Fetches media info on macOS using AppleScript asynchronously."""
+    """
+    Fetches media information on macOS using AppleScript asynchronously.
+
+    Supports Spotify and Music applications.
+
+    Returns:
+        A dictionary containing media playback information. Returns default
+        values if no supported media player is active or if AppleScript fails.
+    """
     script = """
     on getTrackInfo(appName)
         tell application appName
@@ -211,22 +243,32 @@ async def _get_media_info_darwin() -> Dict[str, str]:
             "status": status_map.get(state, "STOPPED"),
             "position_sec": int(float(position)),
             "duration_sec": int(float(duration)),
-            "is_shuffle_active": False,  # Default value
-            "repeat_mode": "NONE",  # Default value
+            "is_shuffle_active": False,  # Default value, not reliably obtainable via this script
+            "repeat_mode": "NONE",  # Default value, not reliably obtainable via this script
         }
     except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
         return DEFAULT_MEDIA_INFO
 
 
 class NetworkMonitor:
+    """
+    Monitors network speed by calculating the difference in I/O counters over time.
+    """
     def __init__(self):
         self.last_update_time = time.time()
         self.last_io_counters = psutil.net_io_counters()
 
     def get_speed(self) -> Dict[str, float]:
+        """
+        Calculates and returns the current upload and download speeds in Mbps.
+
+        Returns:
+            A dictionary with 'upload_mbps' and 'download_mbps'.
+        """
         current_time = time.time()
         current_io_counters = psutil.net_io_counters()
         time_delta = current_time - self.last_update_time
+        # Prevent division by zero and return 0 if delta is too small.
         if time_delta < 0.1:
             return {"upload_mbps": 0.0, "download_mbps": 0.0}
 
@@ -237,6 +279,7 @@ class NetworkMonitor:
             current_io_counters.bytes_recv - self.last_io_counters.bytes_recv
         )
 
+        # Convert bytes to megabits and calculate speed per second.
         upload_speed_mbps = (bytes_sent_delta * 8 / time_delta) / 1_000_000
         download_speed_mbps = (bytes_recv_delta * 8 / time_delta) / 1_000_000
 
@@ -250,6 +293,12 @@ class NetworkMonitor:
 
 
 async def get_media_info_data() -> Dict[str, str]:
+    """
+    Retrieves media playback information based on the operating system.
+
+    Returns:
+        A dictionary containing media playback details.
+    """
     if sys.platform == "win32":
         return await _get_media_info_win32()
     if sys.platform == "darwin":
@@ -261,7 +310,15 @@ async def get_media_info_data() -> Dict[str, str]:
 
 
 def _get_sync_system_info(network_monitor: NetworkMonitor) -> Dict:
-    """Synchronous helper to gather system info."""
+    """
+    Synchronously gathers system information using psutil and socket.
+
+    Args:
+        network_monitor: An instance of NetworkMonitor to get network speed.
+
+    Returns:
+        A dictionary containing system, CPU, RAM, and network speed information.
+    """
     mem = psutil.virtual_memory()
     cpu_freq = psutil.cpu_freq()
     return {
@@ -283,7 +340,16 @@ def _get_sync_system_info(network_monitor: NetworkMonitor) -> Dict:
 
 
 async def get_system_info_data(network_monitor: NetworkMonitor) -> Dict:
-    """Asynchronously gets system info by running sync calls in a thread pool."""
+    """
+    Asynchronously retrieves system information by running synchronous calls
+    in a thread pool executor.
+
+    Args:
+        network_monitor: An instance of NetworkMonitor to get network speed.
+
+    Returns:
+        A dictionary containing system, CPU, RAM, and network speed information.
+    """
     return await asyncio.to_thread(_get_sync_system_info, network_monitor)
 
 
@@ -322,4 +388,13 @@ key_map = {
 
 
 def get_key(key_str: str):
+    """
+    Converts a string representation of a key to a pynput Key object.
+
+    Args:
+        key_str: The string representation of the key (e.g., "enter", "a").
+
+    Returns:
+        A pynput Key object or the original string if it's not a special key.
+    """
     return key_map.get(key_str.lower(), key_str)

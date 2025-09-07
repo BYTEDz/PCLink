@@ -1,3 +1,4 @@
+# filename: api/file_browser.py
 # PCLink - Remote PC Control Server - File Browser API Module
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 #
@@ -14,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+
 import asyncio
 import json
 import logging
@@ -26,11 +28,11 @@ import uuid
 import urllib.parse
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 from fastapi import (APIRouter, BackgroundTasks, HTTPException, Query, Request,
                      Header)
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..core.validators import validate_filename
@@ -95,10 +97,22 @@ class DownloadStatusResponse(BaseModel):
     status: str
 
 
+class PastePayload(BaseModel):
+    source_paths: List[str] = Field(..., min_items=1)
+    destination_path: str
+    action: Literal["cut", "copy"]
+    conflict_resolution: Literal["skip", "overwrite", "rename"] = "skip"
+
+
+class PathsPayload(BaseModel):
+    paths: List[str] = Field(..., min_items=1)
+
+
 # --- API Routers ---
 router = APIRouter()
 upload_router = APIRouter()
 download_router = APIRouter()
+
 
 # --- Constants and State ---
 ROOT_IDENTIFIER = "_ROOT_"
@@ -106,30 +120,22 @@ HOME_DIR = Path.home().resolve()
 TEMP_UPLOAD_DIR = HOME_DIR / ".pclink_uploads"
 TEMP_UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
 
-# In-memory state for active transfers. For robustness in production,
-# consider a more persistent store like Redis or a simple database.
-ACTIVE_UPLOADS: Dict[str, str] = {}  # Maps final_file_path -> upload_id
-ACTIVE_DOWNLOADS: Dict[str, Dict] = {}  # Maps download_id -> download metadata
+ACTIVE_UPLOADS: Dict[str, str] = {}
+ACTIVE_DOWNLOADS: Dict[str, Dict] = {}
 TRANSFER_LOCKS: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 # --- Utility Functions ---
 def _encode_filename_for_header(filename: str) -> str:
-    """
-    Properly encode filename for Content-Disposition header.
-    Uses RFC 5987 encoding for non-ASCII filenames.
-    """
     try:
-        # Try to encode as ASCII first (for simple filenames)
         filename.encode('ascii')
         return f'attachment; filename="{filename}"'
     except UnicodeEncodeError:
-        # Use RFC 5987 encoding for non-ASCII filenames
         encoded_filename = urllib.parse.quote(filename, safe='')
         return f"attachment; filename*=UTF-8''{encoded_filename}"
 
+
 def _get_system_roots() -> List[Path]:
-    """Returns the root directories for the current operating system."""
     if platform.system() == "Windows":
         return [
             Path(f"{d}:\\")
@@ -140,88 +146,34 @@ def _get_system_roots() -> List[Path]:
 
 
 def _is_path_within_safe_roots(path_to_check: Path) -> bool:
-    """Checks if a resolved path is within one of the safe root directories."""
     safe_roots = _get_system_roots() + [HOME_DIR]
-    
     try:
-        log.info(f"DEBUG: Checking if path is within safe roots: {path_to_check}")
-        
-        # Use strict=False to handle Unicode paths better
-        try:
-            resolved_path = path_to_check.resolve(strict=False)
-            log.info(f"DEBUG: Resolved path for safety check: {resolved_path}")
-        except Exception as e:
-            log.warning(f"DEBUG: Could not resolve path for safety check: {e}")
-            resolved_path = path_to_check
-        
-        # Check against each safe root
-        for root in safe_roots:
-            try:
-                resolved_root = root.resolve(strict=False)
-                log.info(f"DEBUG: Checking against safe root: {resolved_root}")
-                
-                # Check if paths are equal or if root is a parent
-                if resolved_path == resolved_root or resolved_root in resolved_path.parents:
-                    log.info(f"DEBUG: Path is within safe root: {resolved_root}")
-                    return True
-                    
-            except Exception as e:
-                log.warning(f"DEBUG: Error checking safe root {root}: {e}")
-                continue
-        
-        log.warning(f"DEBUG: Path is not within any safe root: {resolved_path}")
-        return False
-        
-    except (FileNotFoundError, RuntimeError, OSError) as e:
-        log.warning(f"DEBUG: Exception in safe roots check, using fallback: {e}")
-        # Fallback for paths that don't exist yet (e.g., for uploads)
-        # This check is less secure but necessary for some operations.
-        try:
-            path_str = str(path_to_check)
-            for root in safe_roots:
-                try:
-                    root_str = str(root.resolve(strict=False))
-                    if path_str.startswith(root_str):
-                        log.info(f"DEBUG: Fallback check passed for root: {root_str}")
-                        return True
-                except Exception as e2:
-                    log.warning(f"DEBUG: Error in fallback check for root {root}: {e2}")
-                    continue
-            
-            log.warning(f"DEBUG: Fallback check failed for path: {path_str}")
-            return False
-            
-        except Exception as e:
-            log.error(f"DEBUG: Complete failure in safe roots check: {e}")
-            return False
+        resolved_path = path_to_check.resolve()
+    except (FileNotFoundError, RuntimeError):
+        resolved_path = path_to_check.absolute()
+
+    for root in safe_roots:
+        if root in resolved_path.parents or root == resolved_path:
+            return True
+    return False
 
 
-def _validate_and_resolve_path(user_path_str: str) -> Path:
-    """Validates a user-provided path to ensure it's safe and absolute."""
+def _validate_and_resolve_path(
+    user_path_str: str, check_existence: bool = True
+) -> Path:
+    """
+    Validates a user-provided path to ensure it's safe, absolute, and optionally exists.
+    Also expands environment variables and user home directory shortcuts.
+    """
     if not user_path_str:
         raise HTTPException(status_code=400, detail="Path cannot be empty.")
-    
+
     try:
-        log.info(f"DEBUG: _validate_and_resolve_path called with: '{user_path_str}'")
-        log.info(f"DEBUG: Path type: {type(user_path_str)}, repr: {repr(user_path_str)}")
-        
-        # Handle potential encoding issues
-        if isinstance(user_path_str, bytes):
-            try:
-                user_path_str = user_path_str.decode('utf-8')
-                log.info(f"DEBUG: Decoded bytes to string: '{user_path_str}'")
-            except UnicodeDecodeError as e:
-                log.error(f"DEBUG: Failed to decode bytes path: {e}")
-                raise HTTPException(status_code=400, detail=f"Invalid path encoding: {e}")
-        
-        # Create Path object with proper Unicode handling
-        try:
-            path = Path(user_path_str)
-            log.info(f"DEBUG: Created Path object: {path}")
-        except Exception as e:
-            log.error(f"DEBUG: Failed to create Path object from '{user_path_str}': {e}")
-            raise HTTPException(status_code=400, detail=f"Invalid path format: {e}")
-        
+        # Expand environment variables (e.g., '%USERPROFILE%') and user home ('~')
+        expanded_path_str = os.path.expanduser(user_path_str)
+        expanded_path_str = os.path.expandvars(expanded_path_str)
+        path = Path(expanded_path_str)
+
         if ".." in path.parts:
             raise HTTPException(
                 status_code=403, detail="Relative pathing ('..') is not allowed."
@@ -229,70 +181,51 @@ def _validate_and_resolve_path(user_path_str: str) -> Path:
 
         if not path.is_absolute():
             path = HOME_DIR / path
-            log.info(f"DEBUG: Made path absolute: {path}")
 
-        # Use resolve() with strict=False for better Unicode path handling
-        try:
-            resolved_path = path.resolve(strict=False)
-            log.info(f"DEBUG: Resolved path: {resolved_path}")
-        except (OSError, RuntimeError) as e:
-            log.error(f"DEBUG: Error resolving path '{user_path_str}': {e}")
-            raise HTTPException(status_code=400, detail=f"Invalid path: {e}")
+        resolved_path = path.resolve(strict=False)
 
-        # Check if the resolved path exists - use a more robust method
-        try:
-            # Try multiple methods to check existence for Unicode paths
-            exists = False
-            try:
-                exists = resolved_path.exists()
-                log.info(f"DEBUG: Path.exists() returned: {exists}")
-            except (OSError, UnicodeError) as e1:
-                log.warning(f"DEBUG: Path.exists() failed, trying os.path.exists(): {e1}")
-                try:
-                    import os
-                    exists = os.path.exists(str(resolved_path))
-                    log.info(f"DEBUG: os.path.exists() returned: {exists}")
-                except Exception as e2:
-                    log.error(f"DEBUG: os.path.exists() also failed: {e2}")
-                    raise e1  # Re-raise the original exception
-            
-            if not exists:
-                log.error(f"DEBUG: Path does not exist: {resolved_path}")
-                raise HTTPException(status_code=404, detail="File or directory not found.")
-                
-        except HTTPException:
-            raise  # Re-raise HTTP exceptions
-        except Exception as e:
-            log.error(f"DEBUG: Error checking path existence for '{resolved_path}': {e}")
-            raise HTTPException(status_code=500, detail=f"Error accessing path: {e}")
+        if check_existence and not resolved_path.exists():
+            raise HTTPException(status_code=404, detail="File or directory not found.")
 
-        # Check if path is within safe roots
-        try:
-            if not _is_path_within_safe_roots(resolved_path):
-                log.error(f"DEBUG: Path not within safe roots: {resolved_path}")
-                raise HTTPException(
-                    status_code=403, detail="Access to the specified path is denied."
-                )
-        except Exception as e:
-            log.error(f"DEBUG: Error checking safe roots for '{resolved_path}': {e}")
-            raise HTTPException(status_code=500, detail=f"Error validating path safety: {e}")
-
-        log.info(f"DEBUG: Path validation successful: {resolved_path}")
+        if not _is_path_within_safe_roots(resolved_path):
+            raise HTTPException(
+                status_code=403, detail="Access to the specified path is denied."
+            )
         return resolved_path
-        
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid path format: {e}")
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        log.error(f"DEBUG: Unexpected error validating path '{user_path_str}': {e}")
-        log.error(f"DEBUG: Exception type: {type(e)}, args: {e.args}")
-        raise HTTPException(status_code=500, detail=f"Error processing path: {e}")
+        log.error(f"Unexpected error validating path '{user_path_str}': {e}")
+        raise HTTPException(status_code=500, detail="An error occurred while processing the path.")
 
 
 async def _cleanup_transfer_session(transfer_id: str):
     """Removes a transfer session and its lock."""
     if transfer_id in TRANSFER_LOCKS:
         del TRANSFER_LOCKS[transfer_id]
+
+
+def _get_unique_filename(path: Path) -> Path:
+    """
+    Generates a unique filename by appending a counter if the path already exists.
+    Example: 'file.txt' -> 'file (1).txt' -> 'file (2).txt'
+    """
+    if not path.exists():
+        return path
+
+    parent = path.parent
+    stem = path.stem
+    suffix = path.suffix
+    counter = 1
+
+    while True:
+        new_name = f"{stem} ({counter}){suffix}"
+        new_path = parent / new_name
+        if not new_path.exists():
+            return new_path
+        counter += 1
 
 
 # --- Chunked File Upload Endpoints ---
@@ -304,9 +237,12 @@ async def initiate_upload(payload: UploadInitiatePayload):
 
     safe_filename = validate_filename(payload.file_name)
     final_file_path = dest_path / safe_filename
+
+    if final_file_path.exists():
+        raise HTTPException(status_code=409, detail=f"File '{safe_filename}' already exists at the destination.")
+
     final_file_path_str = str(final_file_path)
 
-    # Lock based on the final file path to prevent race conditions on initiation
     init_lock = TRANSFER_LOCKS[f"init_upload_{final_file_path_str}"]
     async with init_lock:
         if final_file_path_str in ACTIVE_UPLOADS:
@@ -314,7 +250,7 @@ async def initiate_upload(payload: UploadInitiatePayload):
             if (TEMP_UPLOAD_DIR / f"{existing_id}.part").exists():
                 log.info(f"Resuming upload for {safe_filename} with ID {existing_id}")
                 return UploadInitiateResponse(upload_id=existing_id)
-            else: # Clean up stale entry
+            else:
                 del ACTIVE_UPLOADS[final_file_path_str]
 
         upload_id = str(uuid.uuid4())
@@ -598,8 +534,6 @@ async def download_chunk(download_id: str, request: Request, range_header: str =
                         break
                     bytes_to_send -= len(data)
                     yield data
-            # This server-side progress tracking relies on the client making distinct
-            # range requests. The client is responsible for its own real-time progress.
             info["bytes_downloaded"] = end_byte + 1
         except Exception as e:
             log.error(f"Error streaming file chunk for download {download_id}: {e}")
@@ -649,13 +583,14 @@ async def browse_directory(path: str | None = Query(None)):
             FileItem(name=str(r), path=str(r), is_dir=True, size=0, modified_at=0, item_type="drive")
             for r in _get_system_roots()
         ]
-        home_stat = HOME_DIR.stat()
-        items.append(
-            FileItem(
-                name="Home", path=str(HOME_DIR), is_dir=True, size=home_stat.st_size,
-                modified_at=home_stat.st_mtime, item_type="home"
+        if HOME_DIR.exists():
+            home_stat = HOME_DIR.stat()
+            items.append(
+                FileItem(
+                    name="Home", path=str(HOME_DIR), is_dir=True, size=home_stat.st_size,
+                    modified_at=home_stat.st_mtime, item_type="home"
+                )
             )
-        )
         return DirectoryListing(current_path=ROOT_IDENTIFIER, parent_path=None, items=items)
 
     current_path = _validate_and_resolve_path(path)
@@ -672,15 +607,16 @@ async def browse_directory(path: str | None = Query(None)):
                     name=entry.name, path=entry.path, is_dir=is_dir, size=stat.st_size,
                     modified_at=stat.st_mtime, item_type="folder" if is_dir else "file"
                 ))
-            except (OSError, PermissionError):
+            except (OSError, PermissionError) as e:
+                log.warning(f"Could not access item {entry.path}: {e}")
                 continue
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading directory: {e}")
 
     content.sort(key=lambda x: (not x.is_dir, x.name.lower()))
-    is_root = any(current_path.resolve() == r.resolve() for r in _get_system_roots())
-    parent_path_str = str(current_path.parent) if not is_root else ROOT_IDENTIFIER
-    if current_path.resolve() == HOME_DIR.resolve():
+    is_root_drive = any(current_path.samefile(r) for r in _get_system_roots())
+    parent_path_str = str(current_path.parent) if not is_root_drive else ROOT_IDENTIFIER
+    if HOME_DIR.exists() and current_path.samefile(HOME_DIR):
         parent_path_str = ROOT_IDENTIFIER
 
     return DirectoryListing(current_path=str(current_path), parent_path=parent_path_str, items=content)
@@ -690,7 +626,9 @@ async def browse_directory(path: str | None = Query(None)):
 async def create_folder(payload: CreateFolderPayload):
     parent_dir = _validate_and_resolve_path(payload.parent_path)
     safe_folder_name = validate_filename(payload.folder_name)
-    new_folder_path = parent_dir / safe_folder_name
+    new_folder_path = _validate_and_resolve_path(
+        str(parent_dir / safe_folder_name), check_existence=False
+    )
     if new_folder_path.exists():
         raise HTTPException(status_code=409, detail="A file or folder with this name already exists.")
     try:
@@ -704,10 +642,9 @@ async def create_folder(payload: CreateFolderPayload):
 async def rename_item(payload: RenamePayload):
     source_path = _validate_and_resolve_path(payload.path)
     safe_new_name = validate_filename(payload.new_name)
-    dest_path = source_path.parent / safe_new_name
-
-    if not source_path.exists():
-        raise HTTPException(status_code=404, detail="Item to rename not found.")
+    dest_path = _validate_and_resolve_path(
+        str(source_path.parent / safe_new_name), check_existence=False
+    )
     if dest_path.exists():
         raise HTTPException(status_code=409, detail="An item with the new name already exists.")
     try:
@@ -718,18 +655,41 @@ async def rename_item(payload: RenamePayload):
 
 
 @router.post("/delete")
-async def delete_item(payload: PathPayload):
-    target_path = _validate_and_resolve_path(payload.path)
-    if not target_path.exists():
-        return {"status": "success", "message": "Item already deleted."}
-    try:
-        if target_path.is_dir():
-            shutil.rmtree(target_path)
-        else:
-            target_path.unlink()
-        return {"status": "success", "message": "Item deleted successfully."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete item: {e}")
+async def delete_items(payload: PathsPayload):
+    """
+    Deletes a list of files and/or directories in a single batch operation.
+    """
+    succeeded = []
+    failed = []
+
+    for path_str in payload.paths:
+        try:
+            target_path = _validate_and_resolve_path(path_str)
+
+            if not target_path.exists():
+                succeeded.append({"path": path_str, "status": "Already deleted"})
+                continue
+
+            if target_path.is_dir():
+                shutil.rmtree(target_path)
+            else:
+                target_path.unlink()
+            
+            succeeded.append({"path": path_str, "status": "Deleted successfully"})
+
+        except HTTPException as e:
+            failed.append({"path": path_str, "reason": e.detail})
+        except Exception as e:
+            log.error(f"Failed to delete item '{path_str}': {e}")
+            failed.append({"path": path_str, "reason": str(e)})
+
+    if not succeeded and failed:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "All delete operations failed.", "details": failed}
+        )
+    
+    return {"succeeded": succeeded, "failed": failed}
 
 
 @router.get("/download")
@@ -740,7 +700,7 @@ async def download_file(path: str = Query(...)):
         raise HTTPException(status_code=404, detail="The specified path is not a file.")
     
     file_size = file_path.stat().st_size
-    if file_size > 50 * 1024 * 1024:  # 50MB
+    if file_size > 50 * 1024 * 1024: # 50MB
         raise HTTPException(
             status_code=400,
             detail={
@@ -750,9 +710,6 @@ async def download_file(path: str = Query(...)):
             }
         )
     
-    # Create a custom FileResponse with proper filename encoding
-    from fastapi.responses import Response
-    
     def create_file_iterator():
         with file_path.open("rb") as f:
             while chunk := f.read(8192):
@@ -761,7 +718,7 @@ async def download_file(path: str = Query(...)):
     headers = {
         "Content-Disposition": _encode_filename_for_header(file_path.name)
     }
-    
+
     return StreamingResponse(
         create_file_iterator(),
         media_type="application/octet-stream",
@@ -784,3 +741,87 @@ async def open_file_on_server(payload: PathPayload):
         return {"status": "success", "message": f"'{target_path.name}' is being opened."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not open '{target_path.name}': {e}")
+
+
+@router.post("/paste")
+async def paste_items(payload: PastePayload):
+    """
+    Handles moving (cut) or copying files and folders with conflict resolution.
+    """
+    dest_dir = _validate_and_resolve_path(payload.destination_path)
+    if not dest_dir.is_dir():
+        raise HTTPException(status_code=400, detail="Destination path must be a directory.")
+
+    succeeded = []
+    failed = []
+    conflicts_to_report = []
+
+    is_same_directory_operation = False
+    if payload.source_paths:
+        first_src_path = _validate_and_resolve_path(payload.source_paths[0])
+        if first_src_path.parent.samefile(dest_dir):
+            is_same_directory_operation = True
+
+    for src_path_str in payload.source_paths:
+        try:
+            src_path = _validate_and_resolve_path(src_path_str)
+            final_dest_path = dest_dir / src_path.name
+
+            # Safety check: Prevent pasting a parent directory into its own child.
+            if src_path.is_dir() and dest_dir.resolve().is_relative_to(src_path.resolve()):
+                failed.append({"path": src_path_str, "reason": "Cannot paste a parent directory into its own child."})
+                continue
+            
+            # Handle existing files/folders at the destination.
+            if final_dest_path.exists():
+                if payload.conflict_resolution == "skip":
+                    conflicts_to_report.append(final_dest_path.name)
+                    continue
+                elif payload.conflict_resolution == "overwrite":
+                    if is_same_directory_operation:
+                        failed.append({"path": src_path_str, "reason": "Cannot overwrite an item with itself in the same directory."})
+                        continue
+                    try:
+                        if final_dest_path.is_dir():
+                            shutil.rmtree(final_dest_path)
+                        else:
+                            os.remove(final_dest_path)
+                    except Exception as e:
+                        failed.append({"path": src_path_str, "reason": f"Failed to overwrite: {e}"})
+                        continue
+                elif payload.conflict_resolution == "rename":
+                    final_dest_path = _get_unique_filename(final_dest_path)
+
+            # Perform the file operation
+            if payload.action == "cut":
+                shutil.move(str(src_path), str(final_dest_path))
+                succeeded.append({"path": src_path_str, "action": "moved"})
+            elif payload.action == "copy":
+                if src_path.is_dir():
+                    shutil.copytree(str(src_path), str(final_dest_path))
+                else:
+                    shutil.copy2(str(src_path), str(final_dest_path))
+                succeeded.append({"path": src_path_str, "action": "copied"})
+
+        except Exception as e:
+            log.error(f"Error processing paste for '{src_path_str}': {e}")
+            failed.append({"path": src_path_str, "reason": str(e)})
+
+    if conflicts_to_report:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Some items could not be pasted due to existing files.",
+                "conflicting_items": list(set(conflicts_to_report)),
+                "succeeded": succeeded,
+                "failed": failed,
+            }
+        )
+
+    if not succeeded and failed:
+        raise HTTPException(
+            status_code=500, 
+            detail={"message": "All paste operations failed.", "details": failed}
+        )
+
+    return {"succeeded": succeeded, "failed": failed}

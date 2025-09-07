@@ -17,6 +17,7 @@ mss>=9.0.0
 keyboard>=0.13.5
 Pillow>=10.0.0
 requests>=2.31.0
+getmac>=0.9.4
 
 # Security & QR Code
 cryptography>=41.0.0
