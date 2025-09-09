@@ -4,184 +4,208 @@
 
 ![PCLink Icon](docs/assets/pclink_icon.svg)
 
-Thank you for considering contributing to PCLink! This document provides guidelines and instructions for contributing to this project.
+💻 Thank you for considering contributing to **PCLink**!  
+This guide explains how to set up your environment, follow coding standards, and submit high-quality contributions.
 
 </div>
 
-## Code of Conduct
+---
 
-Please be respectful and considerate of others when contributing to this project. We welcome contributions from developers of all skill levels.
+## 📜 Code of Conduct
+Be respectful and collaborative. Contributions from all skill levels are welcome.  
+We follow a **professional, inclusive, and constructive** approach in code reviews and discussions.
 
-## Getting Started
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-- Python 3.8 or higher
+- Python **3.8+**
 - Git
-- Basic knowledge of Qt/PySide6 for GUI contributions
-- FastAPI knowledge for API contributions
+- [PySide6/Qt](https://doc.qt.io/qtforpython/) knowledge for GUI work
+- [FastAPI](https://fastapi.tiangolo.com/) knowledge for API work
 
-### Setup Development Environment
+### Setup Environment
+```bash
+# Clone your fork
+git clone https://github.com/<your-username>/pclink.git
+cd pclink
 
-1. **Fork and Clone**
+# Create venv
+python -m venv venv
+source venv/bin/activate   # macOS/Linux
+venv\Scripts\activate      # Windows
+
+# Install dev dependencies
+pip install -e ".[dev]"
+pre-commit install
+
+# Verify
+python -m pclink
+pytest
+````
+
+---
+
+## 🛠️ Development Workflow
+
+1. **Create a Branch**
+
    ```bash
-   git clone https://github.com/yourusername/pclink.git
-   cd pclink
+   git checkout -b feature/your-feature
    ```
+2. **Make Changes & Test**
 
-2. **Create Virtual Environment**
    ```bash
-   python -m venv venv
-   # Windows
-   venv\Scripts\activate
-   # Unix/macOS
-   source venv/bin/activate
+   python -m pclink                    # Run app
+   python scripts/build.py --debug     # Test build
    ```
-
-3. **Install Dependencies**
-   ```bash
-   pip install -e ".[dev]"
-   pre-commit install
-   ```
-
-4. **Verify Installation**
-   ```bash
-   python -m pclink  # Should start the application
-   pytest            # Should run tests successfully
-   ```
-
-## Development Workflow
-
-### Making Changes
-
-1. **Create Feature Branch**
-   ```bash
-   git checkout -b feature/your-feature-name
-   # or
-   git checkout -b fix/bug-description
-   ```
-
-2. **Development Process**
-   ```bash
-   # Make your changes
-   python -m pclink                    # Test your changes
-   python scripts/build.py --debug     # Test build process
-   ```
-
 3. **Quality Checks**
-   ```bash
-   pytest                              # Run tests
-   black src tests                     # Format code
-   isort src tests                     # Sort imports
-   pre-commit run --all-files         # Run all checks
-   ```
 
-4. **Commit and Push**
+   ```bash
+   pytest
+   black src tests
+   isort src tests
+   pre-commit run --all-files
+   ```
+4. **Commit & Push**
+
    ```bash
    git add .
-   git commit -m "feat: add your feature description"
-   git push origin feature/your-feature-name
+   git commit -m "feat: short description"
+   git push origin feature/your-feature
    ```
 
-### Commit Message Format
-Use conventional commits format:
-- `feat:` for new features
-- `fix:` for bug fixes
-- `docs:` for documentation changes
-- `style:` for formatting changes
-- `refactor:` for code refactoring
-- `test:` for adding tests
-- `chore:` for maintenance tasks
+---
 
-## Pull Request Process
+## 📝 Commit Guidelines
 
-1. Ensure your code passes all tests and linting
-2. Update documentation if necessary
-3. Update the CHANGELOG.md file with details of your changes
-4. Your pull request will be reviewed by maintainers
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-## Coding Standards
+* `feat:` → new feature
+* `fix:` → bug fix
+* `docs:` → documentation only
+* `style:` → formatting, no logic change
+* `refactor:` → restructuring code
+* `test:` → add/update tests
+* `chore:` → tooling, maintenance
 
-### Python Code Style
-- **PEP 8**: Follow Python style guidelines (enforced by black)
-- **Type Hints**: Use type hints for function parameters and return values
-- **Docstrings**: Write comprehensive docstrings for all public functions and classes
-- **Error Handling**: Use proper exception handling with specific exception types
+---
 
-### Qt/GUI Guidelines
-- **Theme Consistency**: Use the app's dark theme styling
-- **Responsive Design**: Ensure UI works across different screen sizes
-- **Accessibility**: Follow Qt accessibility guidelines
-- **Localization**: Add translation strings to `localizations.py`
+## 🔄 Pull Requests
 
-### API Development
-- **FastAPI Standards**: Follow FastAPI best practices
-- **Documentation**: Use proper OpenAPI documentation
-- **Security**: Validate all inputs and use proper authentication
-- **Error Responses**: Return consistent error response formats
+* ✅ Pass tests and lint checks
+* ✅ Update docs if needed
+* ✅ Add entry to **CHANGELOG.md**
+* ✅ Keep PRs focused (one topic per PR)
 
-## Testing
+---
 
-### Test Structure
+## 📐 Coding Standards
+
+### Python
+
+* **PEP 8** style (auto-enforced with Black & isort)
+* Use **type hints** and **docstrings**
+* Catch **specific exceptions**
+
+### GUI (Qt/PySide6)
+
+* Follow app’s **dark theme**
+* Support **different screen sizes**
+* Use **Qt accessibility guidelines**
+* Add strings to `localizations.py`
+
+### API (FastAPI)
+
+* Use **routers per module**
+* Add OpenAPI docs with request/response models
+* Validate inputs & enforce auth
+* Return consistent error formats
+
+---
+
+## 🧪 Testing
+
+### Structure
+
 ```
 tests/
-├── unit/           # Unit tests for individual components
-├── integration/    # Integration tests for API endpoints
-├── gui/           # GUI-specific tests
-└── fixtures/      # Test data and fixtures
+├── unit/          # Functions/classes
+├── integration/   # API endpoints
+├── gui/           # UI tests
+└── fixtures/      # Reusable test data
 ```
 
-### Running Tests
+### Running
+
 ```bash
-pytest                              # Run all tests
-pytest tests/unit/                  # Run unit tests only
-pytest tests/integration/          # Run integration tests
-pytest --cov=src                   # Run with coverage
+pytest                 # All tests
+pytest tests/unit/     # Unit only
+pytest tests/integration/
+pytest --cov=src       # With coverage
 ```
 
-### Writing Tests
-- **Unit Tests**: Test individual functions and classes
-- **Integration Tests**: Test API endpoints and workflows
-- **GUI Tests**: Test user interface components (when applicable)
-- **Mock External Dependencies**: Use mocks for external services
+### Guidelines
 
-## Areas for Contribution
+* Unit tests → small, isolated
+* Integration tests → workflows & API
+* GUI tests → user interactions
+* Mock external dependencies
+
+---
+
+## 🎯 Contribution Areas
 
 ### High Priority
-- **Mobile App Integration**: Improve mobile app communication
-- **Performance Optimization**: Optimize server response times
-- **Security Enhancements**: Additional security features
-- **Cross-Platform Testing**: Test on different operating systems
 
-### Medium Priority
-- **New Features**: File transfer improvements, media controls
-- **UI/UX Improvements**: Better user interface design
-- **Documentation**: User guides, API documentation
-- **Localization**: Additional language translations
+* Mobile ↔ PC integration
+* Performance optimizations
+* Security improvements
+* Cross-platform validation
+
+### Medium
+
+* File/media features
+* UI/UX refinements
+* Docs & guides
+* More localizations
 
 ### Good First Issues
-- **Bug Fixes**: Small bug fixes and improvements
-- **Documentation**: README updates, code comments
-- **Testing**: Add tests for existing functionality
-- **Code Cleanup**: Refactoring and code organization
 
-## Release Process
+* Minor bug fixes
+* Documentation updates
+* Add missing tests
+* Code cleanup
 
-### For Maintainers
-1. **Update Version**: Use `python scripts/release.py --version X.Y.Z`
-2. **Review Changes**: Ensure CHANGELOG.md is updated
-3. **Create Release**: Script automatically creates Git tag and GitHub release
-4. **Monitor Build**: GitHub Actions builds and publishes artifacts
+---
 
-### Version Numbering
-- **Major (X.0.0)**: Breaking changes, major new features
-- **Minor (X.Y.0)**: New features, backward compatible
-- **Patch (X.Y.Z)**: Bug fixes, small improvements
+## 📦 Release Process (Maintainers Only)
 
-## Documentation
+1. Bump version:
 
-- Update documentation for any changes to functionality
-- Document new features in the appropriate section
+   ```bash
+   python scripts/release.py --version X.Y.Z
+   ```
+2. Update `CHANGELOG.md`
+3. Push tag & create GitHub release
+4. Verify CI builds & published artifacts
 
-## License
+### Versioning
 
-By contributing to PCLink, you agree that your contributions will be licensed under the project's license.
+* **Major (X.0.0)** → breaking changes
+* **Minor (X.Y.0)** → features, backward compatible
+* **Patch (X.Y.Z)** → bug fixes
+
+---
+
+## 📖 Documentation
+
+* Keep README & docs updated with new features
+* Add API/OpenAPI docs where applicable
+
+---
+
+## 📜 License
+
+By contributing, you agree your code will be licensed under **AGPLv3** (default project license).

@@ -1,57 +1,49 @@
-# Building PCLink
+# 🏗️ Building PCLink
 
-This document provides instructions for building PCLink from source.
+This guide explains how to build **PCLink** from source for development and production.
 
-## Prerequisites
+## 📋 Prerequisites
 
-- Python 3.8 or higher
-- pip package manager
-- Git (for development)
+- **Python** 3.8+
+- **pip** package manager
+- **Git** (for development)
+- Recommended: **virtualenv**
 
-## Development Setup
+## ⚙️ Development Setup
 
-1. Clone the repository:
 ```bash
-git clone https://github.com/bYTEDz/pclink.git
+# Clone the repository
+git clone https://github.com/BYTEDz/pclink.git
 cd pclink
-```
 
-2. Create a virtual environment:
-```bash
+# Create a virtual environment
 python -m venv venv
-# On Windows:
+# Windows
 venv\Scripts\activate
-# On Unix/macOS:
+# macOS/Linux
 source venv/bin/activate
-```
 
-3. Install development dependencies:
-```bash
+# Install dependencies
 pip install -e ".[dev]"
-```
 
-4. Install pre-commit hooks:
-```bash
+# Install pre-commit hooks
 pre-commit install
-```
+````
 
-## Building the Package
+## 🏗️ Building the Package
 
-### Development Build
 ```bash
+# Development Build
 python -m build --wheel
-```
 
-### Production Build
-
-You can run the build script directly:
-```bash
+# Production Build (Recommended)
 python scripts/build.py
 ```
 
-Or create a local wrapper script for convenience:
+### Optional: Wrapper Script
+
 ```bash
-# Create local wrapper script (this is gitignored)
+# Create wrapper script (gitignored)
 echo "#!/usr/bin/env python3
 import sys
 from scripts.build import main
@@ -61,26 +53,23 @@ if __name__ == '__main__':
 # Make it executable (Linux/macOS)
 chmod +x build.py
 
-# Then use it:
+# Run
 python build.py
 ```
 
-## Running Tests
+## 🧪 Running Tests
 
 ```bash
 pytest tests/
 ```
 
-## Creating a Release
+## 🚀 Creating a Release
 
-You can run the release script directly:
 ```bash
+# Run release script
 python scripts/release.py
-```
 
-Or create a local wrapper script for convenience:
-```bash
-# Create local wrapper script (this is gitignored)
+# Optional: Wrapper Script
 echo "#!/usr/bin/env python3
 import sys
 from scripts.release import main
@@ -90,6 +79,6 @@ if __name__ == '__main__':
 # Make it executable (Linux/macOS)
 chmod +x release.py
 
-# Then use it:
+# Run
 python release.py
 ```

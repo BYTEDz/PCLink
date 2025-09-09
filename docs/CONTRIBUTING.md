@@ -1,321 +1,309 @@
 # Contributing to PCLink
 
-Thank you for your interest in contributing to PCLink! We welcome contributions from the community and are pleased to have you join us.
+<div align="center">
+
+![PCLink Icon](docs/assets/pclink_icon.svg)
+
+Thank you for considering contributing to PCLink! This guide will help you get started and ensure contributions remain consistent and high-quality.
+
+</div>
 
 ## 🤝 Code of Conduct
 
-This project and everyone participating in it is governed by our Code of Conduct. By participating, you are expected to uphold this code.
+Please treat others with respect and professionalism.  
+We welcome contributions from developers of all backgrounds and skill levels.
 
 ### Our Standards
+- Be respectful and kind  
+- Be inclusive and helpful to newcomers  
+- Provide constructive feedback  
+- Be patient with others’ learning pace  
 
-- **Be respectful**: Treat everyone with respect and kindness
-- **Be inclusive**: Welcome newcomers and help them get started
-- **Be constructive**: Provide helpful feedback and suggestions
-- **Be patient**: Remember that everyone has different skill levels
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-
-- Python 3.8 or higher
+- Python 3.8+
 - Git
-- Basic knowledge of Python, Qt/PySide6, and FastAPI
+- Basic knowledge of **Python**, **Qt/PySide6**, and **FastAPI**
 
 ### Development Setup
 
-1. **Fork the repository** on GitHub
-2. **Clone your fork** locally:
+1. **Fork & Clone**
    ```bash
-   git clone https://github.com/bYTEDz/pclink.git
+   git clone https://github.com/YOUR_USERNAME/pclink.git
    cd pclink
-   ```
+````
 
-3. **Create a virtual environment**:
+2. **Create Virtual Environment**
+
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   source venv/bin/activate       # Linux/Mac
+   venv\Scripts\activate          # Windows
    ```
 
-4. **Install dependencies**:
+3. **Install Dependencies**
+
    ```bash
-   pip install -r requirements.txt
-   pip install -r requirements-dev.txt
+   pip install -e ".[dev]"
+   pre-commit install
    ```
 
-5. **Run tests** to ensure everything works:
+4. **Run Tests**
+
    ```bash
-   python run_tests.py
+   pytest
    ```
+
+---
 
 ## 🛠️ Development Workflow
 
-### 1. Create a Branch
+### 1. Branching
 
-Create a new branch for your feature or bug fix:
 ```bash
-git checkout -b feature/your-feature-name
+git checkout -b feature/awesome-feature
 # or
-git checkout -b bugfix/issue-description
+git checkout -b fix/bug-description
 ```
 
 ### 2. Make Changes
 
-- Write clean, readable code
-- Follow the existing code style
-- Add comments for complex logic
-- Update documentation if needed
+* Follow code style
+* Add docstrings & comments
+* Update docs if needed
 
-### 3. Test Your Changes
-
-```bash
-# Run all tests
-python run_tests.py
-
-# Run specific tests
-python test_startup_comprehensive.py
-python test_state_transfer.py
-
-# Test the application manually
-python main.py
-python main.py --startup
-```
-
-### 4. Commit Your Changes
-
-Write clear, descriptive commit messages:
-```bash
-git add .
-git commit -m "Add feature: description of what you added"
-```
-
-### 5. Push and Create Pull Request
+### 3. Quality Checks
 
 ```bash
-git push origin feature/your-feature-name
+pytest
+black src tests
+isort src tests
+pre-commit run --all-files
 ```
 
-Then create a Pull Request on GitHub with:
-- Clear title and description
-- Reference any related issues
-- Screenshots if UI changes are involved
+### 4. Commit
+
+Use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```bash
+git commit -m "feat: add secure device pairing"
+```
+
+### 5. Push & PR
+
+```bash
+git push origin feature/awesome-feature
+```
+
+Then open a Pull Request on GitHub.
+
+---
 
 ## 📝 Coding Standards
 
-### Python Style Guide
+### Python
 
-- Follow [PEP 8](https://pep8.org/) style guidelines
-- Use meaningful variable and function names
-- Keep functions focused and small
-- Add docstrings for classes and functions
+* Follow **PEP 8**
+* Use type hints
+* Keep functions small and focused
+* Write docstrings
 
-### Code Organization
+### Example
 
 ```python
-# Good example
 class ServerController:
-    """Manages server lifecycle and state."""
-    
-    def __init__(self, config):
-        """Initialize controller with configuration."""
+    """Handles server lifecycle and state."""
+
+    def __init__(self, config: dict):
         self.config = config
         self.is_running = False
-    
-    def start_server(self):
-        """Start the API server."""
+
+    def start(self) -> None:
+        """Start the server if not already running."""
         if self.is_running:
-            raise RuntimeError("Server is already running")
-        # Implementation here
+            raise RuntimeError("Server already running")
+        self.is_running = True
 ```
 
-### GUI Development
+### GUI
 
-- Use Qt's signal/slot mechanism properly
-- Separate UI logic from business logic
-- Make UI responsive and accessible
-- Test on different screen sizes and themes
+* Use Qt signal/slot properly
+* Separate UI and business logic
+* Support dark theme & translations
 
-### API Development
+### API
 
-- Follow REST conventions
-- Use appropriate HTTP status codes
-- Validate input data
-- Handle errors gracefully
-- Document endpoints clearly
+* Follow REST conventions
+* Use correct HTTP status codes
+* Validate input
+* Document endpoints with OpenAPI
 
-## 🧪 Testing Guidelines
+---
 
-### Writing Tests
+## 🧪 Testing
 
-- Write tests for new features
-- Test both success and failure cases
-- Use descriptive test names
-- Keep tests independent and isolated
+### Structure
 
-### Test Categories
+```
+tests/
+├── unit/         # Unit tests
+├── integration/  # API & workflow tests
+├── gui/          # GUI tests
+└── fixtures/     # Shared test data
+```
 
-1. **Unit Tests**: Test individual functions/classes
-2. **Integration Tests**: Test component interactions
-3. **GUI Tests**: Test user interface components
-4. **API Tests**: Test REST endpoints
+### Running
 
-### Example Test
+```bash
+pytest                  # All tests
+pytest tests/unit/      # Unit tests only
+pytest --cov=src        # With coverage
+```
+
+### Example
 
 ```python
-def test_server_startup():
-    """Test that server starts correctly in headless mode."""
-    controller = ServerController(test_config)
-    
-    # Test successful startup
-    controller.start_server()
-    assert controller.is_running is True
-    
-    # Test cleanup
-    controller.stop_server()
-    assert controller.is_running is False
+def test_server_starts():
+    controller = ServerController(config={})
+    controller.start()
+    assert controller.is_running
 ```
+
+---
 
 ## 🌍 Internationalization
 
-### Adding New Languages
+1. Add translations in `gui/localizations.py`
+2. Test UI with new language
+3. Submit PR with screenshots
 
-1. Edit `gui/localizations.py`
-2. Add your language code and translations
-3. Test the UI with your language
-4. Update the README with the new language
+Guidelines:
 
-### Translation Guidelines
+* Keep it concise
+* Check layout with long text
+* Prefer gender-neutral phrasing
 
-- Keep translations concise but clear
-- Consider cultural context
-- Test UI layout with longer translations
-- Use gender-neutral language when possible
+---
 
 ## 📚 Documentation
 
-### Code Documentation
+* **Code**: Add docstrings for all public functions/classes
+* **User Docs**: Update README for new features
+* **API Docs**: Ensure OpenAPI docs are correct
+* **Screenshots**: Add when UI changes
 
-- Add docstrings to all public functions and classes
-- Use clear, concise language
-- Include parameter and return value descriptions
-- Add usage examples for complex functions
-
-### User Documentation
-
-- Update README.md for new features
-- Add API documentation for new endpoints
-- Include screenshots for UI changes
-- Write clear setup and usage instructions
+---
 
 ## 🐛 Bug Reports
 
-### Before Reporting
-
-1. Check if the issue already exists
-2. Try to reproduce the bug
-3. Test with the latest version
-4. Gather relevant information
-
-### Bug Report Template
+### Template
 
 ```markdown
 **Bug Description**
-A clear description of what the bug is.
+What went wrong?
 
 **Steps to Reproduce**
-1. Go to '...'
-2. Click on '....'
-3. See error
+1. ...
+2. ...
 
 **Expected Behavior**
-What you expected to happen.
-
-**Screenshots**
-If applicable, add screenshots.
+What should happen?
 
 **Environment**
-- OS: [e.g. Windows 10]
-- Python Version: [e.g. 3.9.0]
-- PCLink Version: [e.g. 1.0.0]
+- OS: Windows 11
+- Python: 3.11
+- PCLink: 1.2.0
 ```
+
+---
 
 ## 💡 Feature Requests
 
-### Before Requesting
-
-1. Check if the feature already exists
-2. Search existing feature requests
-3. Consider if it fits the project scope
-4. Think about implementation complexity
-
-### Feature Request Template
+### Template
 
 ```markdown
-**Feature Description**
-A clear description of the feature you'd like to see.
+**Feature**
+Short description
 
 **Use Case**
-Explain why this feature would be useful.
+Why it’s useful
 
 **Proposed Solution**
-Describe how you think this could be implemented.
+How it could work
 
 **Alternatives**
-Any alternative solutions you've considered.
+Other ideas considered
 ```
+
+---
 
 ## 🏷️ Release Process
 
-### Version Numbers
+### Versioning
 
-We use [Semantic Versioning](https://semver.org/):
-- **MAJOR**: Breaking changes
-- **MINOR**: New features (backward compatible)
-- **PATCH**: Bug fixes (backward compatible)
+We follow **Semantic Versioning**:
 
-### Release Checklist
+* `MAJOR`: Breaking changes
+* `MINOR`: New features
+* `PATCH`: Bug fixes
 
-- [ ] All tests pass
-- [ ] Documentation updated
-- [ ] Version number bumped
-- [ ] Changelog updated
-- [ ] Release notes prepared
+### Checklist
 
-## 🎯 Areas for Contribution
+* [ ] Tests pass
+* [ ] Docs updated
+* [ ] Version bumped
+* [ ] CHANGELOG updated
+* [ ] Release notes prepared
+
+---
+
+## 🎯 Contribution Areas
 
 ### High Priority
 
-- [ ] Mobile companion app development
-- [ ] Enhanced error handling and logging
-- [ ] Performance optimizations
-- [ ] Security improvements
-- [ ] Cross-platform testing
+* Mobile app integration
+* Security features
+* Performance optimizations
+* Cross-platform testing
 
 ### Medium Priority
 
-- [ ] Plugin system architecture
-- [ ] Additional language translations
-- [ ] UI/UX improvements
-- [ ] Documentation enhancements
-- [ ] Test coverage improvements
+* UI/UX improvements
+* Plugin architecture
+* Translations
+* Documentation
 
 ### Low Priority
 
-- [ ] Code refactoring
-- [ ] Build system improvements
-- [ ] Development tooling
-- [ ] Example applications
+* Refactoring
+* Tooling improvements
+* Example apps
 
-## 📞 Getting Help
+---
 
-- **GitHub Issues**: For bugs and feature requests
-- **GitHub Discussions**: For questions and general discussion
-- **Code Review**: We provide constructive feedback on all PRs
+## 📞 Support
+
+* **Issues**: Bug reports & requests
+* **Discussions**: Q\&A and ideas
+* **Code Review**: All PRs reviewed
+
+---
 
 ## 🙏 Recognition
 
-Contributors will be recognized in:
-- README.md contributors section
-- Release notes
-- Project documentation
+Contributors are credited in:
 
-Thank you for contributing to PCLink! 🎉
+* README.md
+* Release notes
+* Documentation
+
+---
+
+<div align="center">
+
+🎉 Thank you for helping improve **PCLink**!
+
+</div>
