@@ -1,3 +1,4 @@
+# filename: src/pclink/api_server/info_router.py
 """
 PCLink - Remote PC Control Server - System Info API Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
@@ -22,6 +23,7 @@ from typing import Dict, Any, List
 
 # Import necessary utility functions and classes.
 from .services import NetworkMonitor, get_media_info_data, get_system_info_data
+from ..core.version import __version__
 
 router = APIRouter()
 # Initialize the NetworkMonitor to track network speed.
@@ -98,3 +100,9 @@ async def get_media_info() -> Dict[str, Any]:
         A dictionary containing media playback details.
     """
     return await get_media_info_data()
+
+
+@router.get("/version")
+async def get_server_version():
+    """Returns the current version of the PCLink server."""
+    return {"version": __version__}
