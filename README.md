@@ -20,7 +20,7 @@ It combines a modular **FastAPI server**, a **Qt-based GUI**, and a flexible **h
 
 **Created by [AZHAR ZOUHIR](https://github.com/AzharZouhir) / BYTEDz**
 
-> 📱 **Need the mobile app?** Get it at [bytedz.xyz/products/pclink](https://bytedz.xyz/products/pclink/)
+> 📱 **Need the mobile app?** Get it at [bytedz.xyz/products/pclink](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)
 
 ---
 
