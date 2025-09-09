@@ -6,6 +6,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/BYTEDz/pclink)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![Release](https://img.shields.io/github/v/release/BYTEDz/pclink?include_prereleases)](https://github.com/BYTEDz/pclink/releases)
+[![Play Store](https://img.shields.io/badge/Android-Play%20Store-brightgreen?logo=google-play)](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)
 
 </div>
 
@@ -13,8 +14,8 @@
 
 <div align="center">
 
-**PCLink** is a secure, cross-platform application that enables **remote control and management of PCs** from mobile devices.  
-It combines a modular **FastAPI server**, a **Qt-based GUI**, and a flexible **headless mode** for background operation.
+**PCLink** is a modern, cross-platform application for **secure remote PC control** from mobile devices.  
+It features a **FastAPI server**, **Qt-based GUI**, and **headless background mode**.
 
 </div>
 
@@ -28,35 +29,35 @@ It combines a modular **FastAPI server**, a **Qt-based GUI**, and a flexible **h
 
 ### Core Functionality
 - **Remote Control**: File browser, process manager, terminal access
-- **Media & Input**: Media playback control, keyboard/mouse input, clipboard sync
+- **Media & Input**: Media playback, keyboard/mouse input, clipboard sync
 - **System Actions**: Shutdown, restart, volume control, system info
-- **Screen Capture**: Remote screenshot support
-- **Device Discovery**: Local network pairing with QR codes
+- **Screen Capture**: Remote screenshots
+- **Device Discovery**: Network pairing via QR codes
 
 ### Security
-- **Mandatory HTTPS** with self-signed certificates (auto-generated)
-- **API Key Authentication** for secure device pairing
-- **System-wide Single Instance** lock prevents conflicts
+- **HTTPS only** with auto-generated self-signed certificates
+- **API Key Authentication** for devices
+- **Single Instance Lock** to prevent conflicts
 - **Secure Defaults**: No HTTP fallback
 
 ### User Experience
 - **Cross-Platform**: Windows, macOS, Linux
-- **Headless Mode**: Run as a background service with tray integration
-- **Unified Tray System**: Consistent controls across GUI & headless
-- **Multi-Language Support**: English, Arabic, Spanish, French
-- **Auto-Update**: Integrated update checker with GitHub releases
+- **Headless Mode**: Background server with tray integration
+- **Unified Tray**: Consistent interface across modes
+- **Multi-Language**: English, Arabic, Spanish, French
+- **Auto-Update**: GitHub release-based updates
 
 ### Developer Features
 - **Modular API Server**: Router-based FastAPI endpoints
 - **Extensible Architecture**: Clear separation between API, Core, GUI
-- **Unified Build System**: PyInstaller / Nuitka with automated release
-- **Testing & Dev Tools**: pytest, pre-commit hooks, CI-ready
+- **Unified Build System**: PyInstaller + Inno Setup
+- **Testing & Dev Tools**: pytest, pre-commit, CI-ready
 
 ---
 
 ## 📱 Mobile App Required
 
-PCLink server is **not standalone** – it requires the companion mobile app.
+The server requires the companion mobile app:
 
 - 🌐 [Official Website](https://bytedz.xyz/products/pclink/)
 - 📱 [Google Play](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)  
@@ -67,17 +68,20 @@ PCLink server is **not standalone** – it requires the companion mobile app.
 ## 🛠️ Installation
 
 ### Quick Start
-1. Download [PCLink Server Releases](https://github.com/BYTEDz/pclink/releases)  
-2. Install the [Mobile App](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)  
-3. Run PCLink → Scan QR code with your phone  
+```bash
+# Download PCLink Server release
+# Install mobile app from Play Store
+# Run server and scan QR code
+````
 
 ### From Source
+
 ```bash
 git clone https://github.com/BYTEDz/pclink.git
 cd pclink
 pip install -r requirements.txt
 python -m pclink
-````
+```
 
 ### Development Setup
 
@@ -87,66 +91,67 @@ pre-commit install
 pytest
 ```
 
-### Build Executable
+### Build Executable (PyInstaller + Inno Setup)
 
 ```bash
-python scripts/build.py --builder nuitka
+python scripts/build.py --builder pyinstaller
+# Use Inno Setup script for installer generation
 ```
 
 ---
 
 ## 🏗️ Architecture
 
-### Technology Stack
+### Stack
 
-* **GUI**: PySide6 (Qt for Python)
-* **API Server**: FastAPI + Uvicorn
-* **Packaging**: PyInstaller / Nuitka
-* **Security**: HTTPS, API key auth
+* **GUI**: PySide6 (Qt)
+* **API**: FastAPI + Uvicorn
+* **Packaging**: PyInstaller + Inno Setup
+* **Security**: HTTPS + API keys
 * **Updates**: GitHub releases API
 
 ### Project Structure
 
 ```
 src/pclink/
-├── api_server/   # FastAPI routers (system, media, input, terminal, utils)
-├── core/         # Business logic, config, controller, security
-├── gui/          # PySide6 GUI, tray, dialogs
-├── assets/       # Icons and static resources
+├── api_server/      # FastAPI routers: system, media, input, terminal, utils
+├── core/            # Controller, config, security, state
+├── gui/             # PySide6 GUI, tray, dialogs
+├── assets/          # Icons, Play Store icon, resources
 ```
 
 ### Key Components
 
-* **Headless Mode** (`headless.py`): Background server with tray
-* **Unified Tray Manager** (`tray_manager.py`): Shared tray between modes
-* **Controller** (`controller.py`): Central app orchestrator
-* **Security** (`security.py`): HTTPS + API key enforcement
+* **Headless Mode**: Background server with tray
+* **Unified Tray Manager**: Shared tray across modes
+* **Controller**: Central orchestration
+* **Security**: HTTPS + API key enforcement
 * **Modular API Routers**:
 
-  * `system_router.py`: Power & volume
-  * `info_router.py`: System/Media info
-  * `input_router.py`: Remote input
-  * `media_router.py`: Playback control
-  * `utils_router.py`: Clipboard, screenshots
-  * `file_browser.py`: File operations
-  * `process_manager.py`: Process control
-  * `terminal.py`: WebSocket shell
+  * system\_router.py: Power & volume
+  * info\_router.py: System/Media info
+  * input\_router.py: Remote input
+  * media\_router.py: Playback control
+  * utils\_router.py: Clipboard, screenshots
+  * file\_browser.py: File operations
+  * process\_manager.py: Process control
+  * terminal.py: WebSocket shell
 
 ---
 
 ## 🔒 Security
 
-* Encrypted HTTPS traffic only
-* Local certificates auto-generated
-* API key authentication for all requests
-* Device management via QR pairing
+* Encrypted HTTPS communication only
+* Local certificate generation
+* API key authentication for device access
+* Secure device pairing with QR codes
 
 ---
 
 ## 📄 License
 
 **GNU AGPL v3** – Free to use, modify, and distribute.
-⚠️ Proprietary services using PCLink must open-source their modifications.
+⚠️ Proprietary services must open-source modifications.
 For commercial licensing, contact BYTEDz.
 
 ---
