@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [2.0.0] - 2025-09-09
+
+- **Added**
+    - `media_check.py`: Script to diagnose media session access.
+    - `src/pclink/api_server/info_router.py`: Module for system and media information endpoints.
+    - `src/pclink/api_server/input_router.py`: Module for handling keyboard input.
+    - `src/pclink/api_server/media_router.py`: Module for controlling media playback.
+    - `src/pclink/api_server/services.py`: Centralized API helper functions and controllers.
+    - `src/pclink/api_server/system_router.py`: Module for system power and volume commands.
+    - `src/pclink/api_server/terminal.py`: Module for WebSocket-based terminal access.
+    - `src/pclink/api_server/utils_router.py`: Module for clipboard and screenshot utilities.
+    - `src/pclink/core/config.py`: Centralized configuration management.
+    - `src/pclink/core/controller.py`: Main application logic controller.
+    - `src/pclink/core/setup_guide.py`: First-run setup guide and configuration logic.
+    - `src/pclink/core/singleton.py`: Module to ensure single instance execution.
+    - `src/pclink/gui/tray_manager.py`: Unified system tray icon management.
+    - `src/pclink/gui/update_dialog.py`: Dialog for displaying update information.
+    - `src/pclink/gui/windows_notifier.py`: Native Windows toast notification implementation.
+    - `src/pclink/headless.py`: Headless application mode management.
+- **Modified**
+    - `requirements.txt`: Added `getmac>=0.9.4` and WinRT packages for media control.
+    - `scripts/build.py`: Added `--uninstall` flag and `UninstallManager` class.
+    - `src/pclink/api_server/api.py`:
+        - Refactored to include new routers and services.
+        - Removed duplicate Pydantic models.
+        - Updated broadcast task logic.
+        - Removed `use_https` from `create_api_app` as HTTPS is mandatory.
+    - `src/pclink/api_server/discovery.py`: Improved initialization and logging.
+    - `src/pclink/api_server/file_browser.py`:
+        - Added `PastePayload` and `PathsPayload` models.
+        - Implemented `delete_items` and `paste_items` endpoints.
+        - Improved path validation and uniqueness handling.
+    - `src/pclink/gui/main_window.py`:
+        - Reworked initialization and signal handling.
+        - Integrated `UnifiedTrayManager`.
+        - Updated QR code generation and display logic.
+        - Refactored settings loading and UI updates.
+        - Updated device list display logic.
+        - Implemented update check signals and dialog handling.
+    - `src/pclink/gui/theme.py`: Added `create_app_icon` and `_create_fallback_icon`.
+    - `src/pclink/main.py`:
+        - Refactored startup logic.
+        - Implemented singleton pattern for instance management.
+        - Improved headless/GUI mode detection and transitions.
+        - Integrated setup guide and configuration prompts.
+        - Enhanced error handling and logging.
+- **Renamed**
+    - `src/pclink/api_server/discovery.py`: Renamed `_broadcast_loop` to include loop suffix.
+    - `src/pclink/api_server/file_browser.py`: Renamed `path_payload` to `PathPayload`.
+    - `src/pclink/core/version.py`: Renamed `version_info` to `__version__`.
 ## [1.3.0] - 2025-08-13
 
 ### Fixed
