@@ -53,8 +53,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ "$RUNNER_OS" == "Linux" ]; then
-            # On Linux, install requirements but skip PyGObject (use system version)
-            pip install fastapi uvicorn psutil cryptography requests qrcode pillow mss keyboard pyautogui pystray
+            # On Linux, install core dependencies without GUI packages that need PyGObject
+            pip install fastapi uvicorn psutil cryptography requests qrcode pillow
+            # Skip pystray, mss, keyboard, pyautogui on Linux CI (not needed for building)
             pip install -r requirements-dev.txt
           else
             # On Windows, install normally
