@@ -4,23 +4,14 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-22.04, windows-2022]
-        include:
-          - os: ubuntu-22.04
-            artifact_name: PCLink-Linux
-          - os: windows-2022
-            artifact_name: PCLink-Windows
+  build-windows:
+    name: Build Windows Packages
+    runs-on: windows-2022
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -31,106 +22,99 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install System Dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            ruby ruby-dev rubygems \
-            dpkg-dev rpm \
-            python3-gi \
-            libgirepository1.0-dev libcairo2-dev pkg-config \
-            gir1.2-gtk-3.0 gir1.2-appindicator3-0.1
-
-      # --- NEW STEP TO FIX THE ENVIRONMENT ---
-      - name: Configure PKG_CONFIG_PATH for Linux
-        if: runner.os == 'Linux'
-        run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-
-      # --- SIMPLIFIED THIS STEP BACK TO NORMAL ---
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            # On Linux, install core dependencies without GUI packages that need PyGObject
-            pip install fastapi uvicorn psutil cryptography requests qrcode pillow
-            # Skip pystray, mss, keyboard, pyautogui on Linux CI (not needed for building)
-            pip install -r requirements-dev.txt
-          else
-            # On Windows, install normally
-            pip install -r requirements.txt
-            pip install -r requirements-dev.txt
-          fi
-        shell: bash
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-      - name: Install FPM
-        if: runner.os == 'Linux'
-        run: |
-          sudo gem install --no-document fpm
-
-      - name: Verify FPM installation
-        if: runner.os == 'Linux'
-        run: |
-          echo "Testing FPM installation:"
-          fpm --version
-          echo "Testing required tools:"
-          dpkg --version
-          python3 --version
-          echo "Testing Python GI availability:"
-          python3 -c "import gi; print('GI available')" || echo "GI not available"
-
-      - name: Build for Linux - DEB Package
-        if: runner.os == 'Linux'
-        run: |
-          python scripts/build_fpm.py
-
-      - name: Verify Linux build outputs
-        if: runner.os == 'Linux'
-        run: |
-          echo "Checking for build outputs in releases/ directory:"
-          ls -la releases/ || echo "No releases directory found"
-          if [ -d "releases" ]; then
-            echo "Build artifacts:"
-            find releases/ -name "*.deb" -o -name "*.rpm" | head -10
-          fi
-
-      - name: Build for Windows - Portable (.zip)
-        if: runner.os == 'Windows'
+      - name: Build Portable Archive
         run: python scripts/build.py --format portable --clean
 
-      - name: Build for Windows - One-File (.exe)
-        if: runner.os == 'Windows'
+      - name: Build One-File Executable
         run: python scripts/build.py --format onefile
 
-      - name: Install Inno Setup via Chocolatey
-        if: runner.os == 'Windows'
+      - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
-      - name: Build for Windows - Installer (.exe)
-        if: runner.os == 'Windows'
+      - name: Build Windows Installer
         run: python scripts/build.py --format installer
 
       - name: Verify Windows build outputs
-        if: runner.os == 'Windows'
         run: |
-          echo "Checking for build outputs in releases/ directory:"
-          dir releases\ || echo "No releases directory found"
+          echo "Build artifacts:"
           if (Test-Path "releases") {
-            echo "Build artifacts:"
-            Get-ChildItem releases\ -Recurse -Include "*.exe", "*.zip" | Select-Object -First 10 | Format-Table Name, Length
+            Get-ChildItem releases\ -Recurse | Format-Table Name, Length
+          } else {
+            echo "No releases directory found"
           }
         shell: powershell
 
-      - name: Upload Build Artifacts
+      - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: PCLink-Windows
+          path: releases/
+
+  build-linux:
+    name: Build Linux Packages
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ruby ruby-dev rubygems build-essential \
+            dpkg-dev rpm
+
+      - name: Install FPM
+        run: sudo gem install --no-document fpm
+
+      - name: Install minimal Python dependencies for building
+        run: |
+          python -m pip install --upgrade pip
+          # Only install what's absolutely needed for the build process
+          pip install wheel setuptools
+
+      - name: Verify build environment
+        run: |
+          echo "FPM version:"
+          fpm --version
+          echo "Python version:"
+          python --version
+          echo "Build tools:"
+          dpkg --version
+
+      - name: Build Linux DEB package
+        run: python scripts/build_fpm.py
+
+      - name: Verify Linux build outputs
+        run: |
+          echo "Build artifacts:"
+          if [ -d "releases" ]; then
+            ls -la releases/
+            find releases/ -name "*.deb" -o -name "*.rpm"
+          else
+            echo "No releases directory found"
+          fi
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PCLink-Linux
           path: releases/
 
   publish-release:
     name: Publish GitHub Release
-    needs: build
+    needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -147,24 +131,21 @@ jobs:
       - name: Generate Checksum File
         run: |
           cd artifacts
-          find . -type f -exec sha256sum {} + | sort > ../SHA2S.txt
+          find . -type f -exec sha256sum {} + | sort > ../SHA256SUMS.txt
           echo "Generated SHA256SUMS.txt:"
           cat ../SHA256SUMS.txt
 
       - name: Extract Release Notes from CHANGELOG
-        id: extract_notes
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          # This awk command extracts the content between the correct version header and the next header.
           NOTES=$(awk -v ver="$VERSION" 'BEGIN{p=0} /^## \['"$VERSION"'\]/{p=1;next} /^## \[/{p=0} p' CHANGELOG.md)
           if [ -z "$NOTES" ]; then
-            NOTES="See CHANGELog.md for details."
+            NOTES="See CHANGELOG.md for details."
           fi
           echo "$NOTES" > RELEASE_NOTES.md
-          echo "Release notes extracted."
 
-      - name: Create GitHub Release and Upload All Assets
+      - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
