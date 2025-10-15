@@ -39,7 +39,8 @@ jobs:
             build-essential \
             ruby ruby-dev rubygems \
             dpkg-dev rpm \
-            libgirepository1.0-dev \
+            python3-gi python3-gi-dev \
+            libgirepository1.0-dev libcairo2-dev pkg-config \
             gir1.2-gtk-3.0 gir1.2-appindicator3-0.1
 
       # --- NEW STEP TO FIX THE ENVIRONMENT ---
@@ -51,8 +52,16 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            # On Linux, install requirements but skip PyGObject (use system version)
+            pip install fastapi uvicorn psutil cryptography requests qrcode pillow mss keyboard pyautogui pystray
+            pip install -r requirements-dev.txt
+          else
+            # On Windows, install normally
+            pip install -r requirements.txt
+            pip install -r requirements-dev.txt
+          fi
+        shell: bash
 
       - name: Install FPM
         if: runner.os == 'Linux'
