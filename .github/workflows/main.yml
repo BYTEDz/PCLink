@@ -42,12 +42,14 @@ jobs:
             libgirepository1.0-dev \
             gir1.2-gtk-3.0 gir1.2-appindicator3-0.1
 
+      # --- NEW STEP TO FIX THE ENVIRONMENT ---
+      - name: Configure PKG_CONFIG_PATH for Linux
+        if: runner.os == 'Linux'
+        run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+
+      # --- SIMPLIFIED THIS STEP BACK TO NORMAL ---
       - name: Install Python dependencies
-        shell: bash # <-- THIS IS THE FIX
         run: |
-          if [ "$RUNNER_OS" == "Linux" ]; then
-            export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
-          fi
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
@@ -135,7 +137,7 @@ jobs:
       - name: Generate Checksum File
         run: |
           cd artifacts
-          find . -type f -exec sha256sum {} + | sort > ../SHA256SUMS.txt
+          find . -type f -exec sha256sum {} + | sort > ../SHA2S.txt
           echo "Generated SHA256SUMS.txt:"
           cat ../SHA256SUMS.txt
 
