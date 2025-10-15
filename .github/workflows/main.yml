@@ -31,11 +31,6 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: 🧪 Verify Workflow Version (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          echo "DEBUG: Running the workflow with the apt-get fix."
-
       - name: Install System Dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -48,6 +43,7 @@ jobs:
             gir1.2-gtk-3.0 gir1.2-appindicator3-0.1
 
       - name: Install Python dependencies
+        shell: bash # <-- THIS IS THE FIX
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
             export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
