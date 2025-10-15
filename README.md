@@ -61,8 +61,9 @@ It features a **FastAPI server**, **responsive web interface**, and **lightweigh
 
 ### 📦 Installation Methods
 - **Windows**: `.exe` installer with automatic setup
-- **Linux**: `.deb` package with proper system integration
-- **Cross-platform**: `pipx install pclink` for development/testing
+- **Linux**: `.deb` package with proper system integration  
+- **Cross-platform**: Python wheel (`.whl`) for pip installation
+- **Development**: Direct GitHub installation via pip
 
 ### 💻 Deployment Options
 - **Web-Only Mode**: Modern interface with system tray (default)
@@ -102,6 +103,23 @@ The server requires the companion mobile app:
 2. Install: `sudo dpkg -i pclink_*.deb`
 3. Fix dependencies if needed: `sudo apt-get install -f`
 4. Start: `pclink` or find in applications menu
+
+### 🐍 Alternative: Python Wheel (Cross-Platform)
+
+For users who prefer pip installation or need cross-platform compatibility:
+
+```bash
+# Download the .whl file from Releases, then:
+pip install pclink-2.1.0-py3-none-any.whl
+
+# Or install directly from GitHub (latest):
+pip install git+https://github.com/BYTEDz/PCLink.git
+
+# Run PCLink
+pclink
+```
+
+**Note**: Wheel installation requires manual setup of system dependencies on Linux (AppIndicator, etc.)
 
 ### 🎛️ Usage
 
