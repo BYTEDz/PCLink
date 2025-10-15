@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch: # <-- ADD THIS LINE
 
 permissions:
   contents: read
@@ -142,7 +143,7 @@ jobs:
           # This awk command extracts the content between the correct version header and the next header.
           NOTES=$(awk -v ver="$VERSION" 'BEGIN{p=0} /^## \['"$VERSION"'\]/{p=1;next} /^## \[/{p=0} p' CHANGELOG.md)
           if [ -z "$NOTES" ]; then
-            NOTES="See CHANGELOG.md for details."
+            NOTES="See CHANGELog.md for details."
           fi
           echo "$NOTES" > RELEASE_NOTES.md
           echo "Release notes extracted."
