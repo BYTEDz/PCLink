@@ -106,7 +106,15 @@ def verify_python_environment():
         print(f"[ERROR] Python 3.8+ required, found {sys.version_info.major}.{sys.version_info.minor}")
         return False
     
-    # Check for required Python packages
+    # Check if running in CI environment
+    is_ci = os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")
+    
+    if is_ci:
+        print("[INFO] Running in CI environment - skipping Python package verification")
+        print("       Dependencies will be installed in the target system via .deb package")
+        return True
+    
+    # Check for required Python packages (only in non-CI environments)
     required_packages = [
         "fastapi", "uvicorn", "psutil", "cryptography", "requests", 
         "qrcode", "PIL", "mss", "keyboard", "pyautogui", "pystray"

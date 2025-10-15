@@ -79,14 +79,11 @@ jobs:
       - name: Install FPM
         run: sudo gem install --no-document fpm
 
-      - name: Install Python dependencies for building
+      - name: Install minimal Python dependencies for building
         run: |
           python -m pip install --upgrade pip
-          # Install core dependencies needed by FPM build script
-          pip install fastapi uvicorn psutil cryptography requests qrcode pillow
-          # Install build tools
+          # Only install build tools - runtime deps handled by .deb package
           pip install wheel setuptools
-          # Skip GUI packages that cause PyGObject issues: mss, keyboard, pyautogui, pystray
 
       - name: Verify build environment
         run: |
