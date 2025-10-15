@@ -3,7 +3,7 @@ name: PCLink CI & Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: read
@@ -27,18 +27,54 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
-          
+          python-version: "3.11"
+          cache: "pip"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
-      - name: Build for Linux (One-File Only)
+      - name: Install Linux packaging dependencies
         if: runner.os == 'Linux'
-        run: python scripts/build.py --format onefile --clean
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ruby ruby-dev rubygems build-essential \
+            dpkg-dev rpm \
+            python3-gi gir1.2-appindicator3-0.1 gir1.2-gtk-3.0
+
+      - name: Install FPM
+        if: runner.os == 'Linux'
+        run: |
+          sudo gem install --no-document fpm
+
+      - name: Verify FPM installation
+        if: runner.os == 'Linux'
+        run: |
+          echo "Testing FPM installation:"
+          fpm --version
+          echo "Testing required tools:"
+          dpkg --version
+          python3 --version
+          echo "Testing Python GI availability:"
+          python3 -c "import gi; print('GI available')" || echo "GI not available"
+
+      - name: Build for Linux - DEB Package
+        if: runner.os == 'Linux'
+        run: |
+          python scripts/build_fpm.py
+
+      - name: Verify Linux build outputs
+        if: runner.os == 'Linux'
+        run: |
+          echo "Checking for build outputs in releases/ directory:"
+          ls -la releases/ || echo "No releases directory found"
+          if [ -d "releases" ]; then
+            echo "Build artifacts:"
+            find releases/ -name "*.deb" -o -name "*.rpm" | head -10
+          fi
 
       - name: Build for Windows - Portable (.zip)
         if: runner.os == 'Windows'
@@ -51,10 +87,21 @@ jobs:
       - name: Install Inno Setup via Chocolatey
         if: runner.os == 'Windows'
         run: choco install innosetup -y --no-progress
-      
+
       - name: Build for Windows - Installer (.exe)
         if: runner.os == 'Windows'
         run: python scripts/build.py --format installer
+
+      - name: Verify Windows build outputs
+        if: runner.os == 'Windows'
+        run: |
+          echo "Checking for build outputs in releases/ directory:"
+          dir releases\ || echo "No releases directory found"
+          if (Test-Path "releases") {
+            echo "Build artifacts:"
+            Get-ChildItem releases\ -Recurse -Include "*.exe", "*.zip" | Select-Object -First 10 | Format-Table Name, Length
+          }
+        shell: powershell
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
@@ -72,7 +119,7 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:

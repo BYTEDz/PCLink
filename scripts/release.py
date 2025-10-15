@@ -30,6 +30,42 @@ class Colors:
 def print_color(text, color):
     print(f"{color}{text}{Colors.ENDC}")
 
+def extract_release_notes_content(raw_content):
+    """Extract actual release notes content from RELEASE_NOTES.md, skipping template parts."""
+    lines = raw_content.split('\n')
+    content_lines = []
+    skip_template_header = True
+    
+    for line in lines:
+        # Skip template header and instructions
+        if skip_template_header:
+            if line.startswith('# Release Notes Template') or \
+               'This file contains the release notes' in line or \
+               'When you run `scripts/release.py`' in line or \
+               line.strip() == '':
+                continue
+            # Once we hit "## What's New" or similar, start collecting
+            if line.startswith('## '):
+                skip_template_header = False
+                # Don't include the "## What's New" header itself
+                continue
+        
+        # Collect all content after template header
+        if not skip_template_header:
+            # Skip completely empty template entries (just "- " with nothing after)
+            if line.strip() == '-':
+                continue
+            content_lines.append(line)
+    
+    # Clean up the result
+    result = '\n'.join(content_lines).strip()
+    
+    # If result is empty or only contains template placeholders, return empty
+    if not result or result.count('-') == result.count('\n') + 1:  # Only bullet points with no content
+        return ""
+    
+    return result
+
 def run_command(command, capture_output=False, allow_errors=False):
     try:
         print_color(f"\n> {' '.join(command)}", Colors.OKCYAN)
@@ -49,40 +85,108 @@ def run_command(command, capture_output=False, allow_errors=False):
 def update_changelog(version):
     print_color("\nUpdating CHANGELOG.md...", Colors.BOLD)
     changelog_file = Path("CHANGELOG.md")
+    release_notes_file = Path("RELEASE_NOTES.md")
+    
     if not changelog_file.exists():
         print_color(f"Error: {changelog_file} not found in project root.", Colors.FAIL)
         sys.exit(1)
 
+    # Check if version already exists in changelog
     content = changelog_file.read_text(encoding="utf-8")
     if f"## [{version}]" in content:
         print_color(f"Warning: Version {version} already in changelog. Skipping.", Colors.WARNING)
         return
 
+    # Get release notes content
+    release_notes_content = ""
+    if release_notes_file.exists():
+        print_color(f"✓ Found {release_notes_file}, using it for release notes.", Colors.OKGREEN)
+        raw_content = release_notes_file.read_text(encoding="utf-8").strip()
+        
+        # Extract only the actual release notes content
+        release_notes_content = extract_release_notes_content(raw_content)
+        
+        if not release_notes_content:
+            print_color("Warning: No actual release notes found in RELEASE_NOTES.md (only template content).", Colors.WARNING)
+            release_notes_content = "- No changes documented"
+    else:
+        print_color(f"No {release_notes_file} found, checking [Unreleased] section...", Colors.WARNING)
+        
+        # Fallback to using [Unreleased] section
+        unreleased_header = "## [Unreleased]"
+        if unreleased_header not in content:
+            print_color(f"Error: Could not find '{unreleased_header}' section and no RELEASE_NOTES.md found.", Colors.FAIL)
+            sys.exit(1)
+
+        parts = content.split(unreleased_header, 1)
+        unreleased_and_rest = parts[1]
+
+        if "\n## [" in unreleased_and_rest:
+            release_notes_content = unreleased_and_rest.split("\n## [", 1)[0].strip()
+        else:
+            release_notes_content = unreleased_and_rest.strip()
+
+    if not release_notes_content:
+        print_color("Warning: No release notes content found.", Colors.WARNING)
+        release_notes_content = "- No changes documented"
+
+    # Find the [Unreleased] section
     unreleased_header = "## [Unreleased]"
     if unreleased_header not in content:
-        print_color(f"Error: Could not find '{unreleased_header}' section.", Colors.FAIL)
+        print_color(f"Error: Could not find '{unreleased_header}' section in CHANGELOG.md.", Colors.FAIL)
         sys.exit(1)
 
+    # Split the changelog content
     parts = content.split(unreleased_header, 1)
     header_part = parts[0]
     unreleased_and_rest = parts[1]
 
+    # Find where the rest of the changelog starts (after [Unreleased] section)
     if "\n## [" in unreleased_and_rest:
-        unreleased_content = unreleased_and_rest.split("\n## [", 1)[0].strip()
         rest_of_changelog = "\n## [" + unreleased_and_rest.split("\n## [", 1)[1]
     else:
-        unreleased_content = unreleased_and_rest.strip()
         rest_of_changelog = ""
 
-    if not unreleased_content:
-        print_color("Warning: 'Unreleased' section is empty.", Colors.WARNING)
-
+    # Create the new version section
     today = datetime.now().strftime("%Y-%m-%d")
-    new_version_section = f"## [{version}] - {today}\n\n{unreleased_content}"
-    new_content = f"{header_part}{unreleased_header}\n\n\n{new_version_section}{rest_of_changelog}"
+    new_version_section = f"## [{version}] - {today}\n\n{release_notes_content}"
     
+    # Reconstruct the changelog WITHOUT the [Unreleased] section
+    new_content = f"{header_part}{new_version_section}{rest_of_changelog}"
+    
+    # Write the updated changelog
     changelog_file.write_text(new_content, encoding="utf-8")
-    print_color(f"✓ Updated changelog with version {version} and reset [Unreleased] section.", Colors.OKGREEN)
+    print_color(f"✓ Updated changelog with version {version} and removed [Unreleased] section.", Colors.OKGREEN)
+    
+    # Handle RELEASE_NOTES.md after processing
+    if release_notes_file.exists():
+        try:
+            # Create a new empty RELEASE_NOTES.md for the next version
+            new_release_notes_content = """# Release Notes Template
+
+This file contains the release notes for the next version. When you run `scripts/release.py`, the content below will be moved to `CHANGELOG.md` under the new version section.
+
+## What's New
+
+### ✅ Added
+- 
+
+### 🔄 Changed
+- 
+
+### 🐛 Fixed
+- 
+
+### ❌ Removed
+- 
+
+### 🔒 Security
+- 
+"""
+            release_notes_file.write_text(new_release_notes_content, encoding="utf-8")
+            print_color(f"✓ Reset {release_notes_file} with template for next version.", Colors.OKGREEN)
+        except Exception as e:
+            print_color(f"Warning: Could not reset {release_notes_file}: {e}", Colors.WARNING)
 
 def main():
     parser = argparse.ArgumentParser(description="PCLink Release Manager")
@@ -118,6 +222,14 @@ def main():
     run_command([sys.executable, "scripts/version_updater.py", version])
     
     print_color("\n[4/5] Updating changelog...", Colors.BOLD)
+    release_notes_file = Path("RELEASE_NOTES.md")
+    if release_notes_file.exists():
+        print_color("✓ Found RELEASE_NOTES.md - will use it for this release.", Colors.OKGREEN)
+        print_color("  After release, RELEASE_NOTES.md will be reset with template for next version.", Colors.OKCYAN)
+    else:
+        print_color("ℹ  No RELEASE_NOTES.md found - will use [Unreleased] section from CHANGELOG.md.", Colors.WARNING)
+        print_color("  A new RELEASE_NOTES.md template will be created for future releases.", Colors.OKCYAN)
+    
     update_changelog(version)
 
     print_color("\n[5/5] Review and Confirm...", Colors.BOLD)

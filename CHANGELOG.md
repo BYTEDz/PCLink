@@ -4,9 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-## [Unreleased]
+## [2.1.0] - 2025-10-15
 
+### Added
+-   **Web-First Interface**: Replaced Qt GUI with a modern, web-based interface accessible via web browser.
+-   **Web UI Authentication**:  Added password-protected login and session management for the web interface.
+-   **Device Management in Web UI**:  Added ability to manage connected devices within the web UI, including approving and revoking access.
+-   **System Tray Manager**: Implemented a cross-platform system tray manager without Qt dependencies.
+-   **Background Server**: Added support for running the server in background mode with system tray integration.
+-   **API Key Authentication**: Implemented a secure API key authentication for device access.
+-   **Mobile Device Pairing**: Implemented secure pairing using QR codes.
+-   **Update Checker**: Implemented update checker with version information.
+-   **System Notification Integration**: Implemented cross-platform notifications
+-   **Log Viewer**: Implemented log viewer
+-   **Settings Management**: Added settings page to manage server settings
+-   **First time setup**: added first time setup guide
 
+### Changed
+-   **Architecture Overhaul**: Transitioned from a Qt-based GUI to a web-first architecture.
+-   **Core Components**: Refactored core components for the new architecture.
+-   **Security Enhancements**: Implemented HTTPS-only communication, API key authentication, and secure pairing.
+-   **Build System**: Enhanced the build system to support web-first mode and packaging.
+-   **Licensing**: Updated license information to AGPLv3.
+
+### Removed
+-   **Qt GUI**: Removed the Qt-based GUI.
+-   **Old GUI elements**: Removed old GUI elements such as QMainWindow and QListWidget from the layout
+-   **Deprecated features**: Removed deprecated features to simplify the codebase.
+
+### Fixed
+-   **Various Bug Fixes**: Addressed various bug fixes and improved overall stability.
 ## [2.0.0] - 2025-09-09
 
 - **Added**

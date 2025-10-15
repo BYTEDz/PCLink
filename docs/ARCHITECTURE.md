@@ -4,7 +4,7 @@ This document provides a comprehensive overview of the PCLink project's source c
 
 ## Overview
 
-PCLink is a cross-platform desktop application that enables secure remote control of PCs from mobile devices. The architecture follows a modular design with clear separation of concerns between GUI, API server, and core business logic.
+PCLink is a cross-platform desktop app for secure remote PC control and management, featuring a lightweight built-in WebUI and API for local or remote access. The architecture follows a modular design with clear separation of concerns between GUI, API server, and core business logic.
 
 ## Source Code Structure (`src/pclink/`)
 
@@ -37,8 +37,8 @@ src/pclink/
 │   ├── controller.py       # Main application controller
 │   ├── device_manager.py   # Device connection management
 │   ├── exceptions.py       # Custom exception classes
-│   ├── logging_config.py   # Logging configuration
-│   ├── security.py         # Security helpers (auth, certs, crypto)
+│   ├── logging.py          # Logging configuration
+
 │   ├── setup_guide.py      # First-time setup guide
 │   ├── singleton.py        # System-wide single instance lock
 │   ├── state.py            # Global application state
@@ -48,7 +48,7 @@ src/pclink/
 │   ├── version.py          # Version information (__version__)
 │   └── windows_console.py  # Windows-specific console integration
 │
-├── gui/                    # PySide6 GUI components
+├── web_ui/                 # Web interface components
 │   ├── __init__.py
 │   ├── discovery_dialog.py # Device pairing dialog
 │   ├── layout.py           # UI layout and widget setup
@@ -78,15 +78,15 @@ src/pclink/
 
 * **`__main__.py`**: Module entry point for `python -m pclink`.
 * **`launcher.py`**: Standalone launcher for packaged applications.
-* **`main.py`**: Refactored startup logic, manages singleton enforcement, GUI/headless detection, setup guide prompts, and error handling.
+* **`main.py`**: Refactored startup logic, manages singleton enforcement, web-first mode, setup guide prompts, and error handling.
 
 #### 2. Application Modes
 
 PCLink operates in two distinct modes:
 
-**GUI Mode (`MainWindow` in `gui/main_window.py`)**
+**Web Mode (default)**
 
-* Qt-based interface.
+* Modern web-based interface.
 * Integrates `UnifiedTrayManager`.
 * Automatically launches API server.
 * Handles update checks and QR-based pairing.
@@ -105,17 +105,15 @@ PCLink operates in two distinct modes:
 
 Guarantees only one active PCLink process (mutex/file lock).
 
-#### 2. Unified Tray System (`UnifiedTrayManager` in `gui/tray_manager.py`)
+#### 2. System Tray Manager (`SystemTrayManager`)
 
-Refactored to provide consistent tray menus across GUI and headless modes.
+Provides cross-platform system tray functionality without Qt dependencies.
 
 #### 3. Controller Pattern (`Controller` in `core/controller.py`)
 
 Central orchestrator for app logic—manages server lifecycle, device connections, and UI state sync.
 
-#### 4. Security Layer (`security.py` in `core/`)
 
-Introduced to consolidate authentication, certificate, and crypto logic.
 
 ---
 
@@ -163,5 +161,5 @@ API helpers for input, system info, device state.
 ### Cross-Platform Enhancements
 
 * **`windows_console.py`**: Windows-specific console utilities.
-* **`security.py`**: Shared across OSes.
-* **Logging**: Unified via `core/logging_config.py`.
+
+* **Logging**: Unified via `core/logging.py`.

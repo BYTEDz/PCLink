@@ -1,0 +1,5 @@
+# PCLink power management permissions
+# Allow members of plugdev group to execute power commands without password
+%plugdev ALL=(ALL) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot, /usr/bin/systemctl suspend
+%plugdev ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /sbin/shutdown
+%plugdev ALL=(ALL) NOPASSWD: /usr/sbin/pm-suspend

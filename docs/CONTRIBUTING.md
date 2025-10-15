@@ -26,7 +26,7 @@ We welcome contributions from developers of all backgrounds and skill levels.
 ### Prerequisites
 - Python 3.8+
 - Git
-- Basic knowledge of **Python**, **Qt/PySide6**, and **FastAPI**
+- Basic knowledge of **Python**, **Web Development**, and **FastAPI**
 
 ### Development Setup
 

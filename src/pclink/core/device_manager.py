@@ -188,8 +188,8 @@ class DeviceManager:
             
             # Emit signal to update GUI
             try:
-                from .state import api_signal_emitter
-                api_signal_emitter.device_list_updated.emit()
+                from .state import emit_device_list_updated
+                emit_device_list_updated()
             except Exception as e:
                 log.warning(f"Failed to emit device list update signal: {e}")
             
@@ -208,8 +208,8 @@ class DeviceManager:
                 
                 # Emit signal to update GUI
                 try:
-                    from .state import api_signal_emitter
-                    api_signal_emitter.device_list_updated.emit()
+                    from .state import emit_device_list_updated
+                    emit_device_list_updated()
                 except Exception as e:
                     log.warning(f"Failed to emit device list update signal: {e}")
             
@@ -270,8 +270,8 @@ class DeviceManager:
             
             # Emit signal to update GUI
             try:
-                from .state import api_signal_emitter
-                api_signal_emitter.device_list_updated.emit()
+                from .state import emit_device_list_updated
+                emit_device_list_updated()
             except Exception as e:
                 log.warning(f"Failed to emit device list update signal: {e}")
             

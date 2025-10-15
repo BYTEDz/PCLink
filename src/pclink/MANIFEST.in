@@ -1,0 +1,2 @@
+graft src/pclink/assets
+graft src/pclink/web_ui/static

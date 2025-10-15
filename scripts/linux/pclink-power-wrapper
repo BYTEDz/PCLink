@@ -1,0 +1,32 @@
+#!/bin/bash
+# PCLink power management wrapper
+
+ACTION="$1"
+
+case "$ACTION" in
+    "poweroff"|"shutdown")
+        if groups | grep -q plugdev; then
+            sudo systemctl poweroff
+        else
+            systemctl poweroff
+        fi
+        ;;
+    "reboot"|"restart")
+        if groups | grep -q plugdev; then
+            sudo systemctl reboot
+        else
+            systemctl reboot
+        fi
+        ;;
+    "suspend"|"sleep")
+        if groups | grep -q plugdev; then
+            sudo systemctl suspend
+        else
+            systemctl suspend
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {poweroff|reboot|suspend}"
+        exit 1
+        ;;
+esac

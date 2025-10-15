@@ -21,8 +21,6 @@ import json
 import logging
 from typing import Any, Dict
 
-from PySide6.QtCore import QSettings
-
 from . import constants
 from .exceptions import ConfigurationError
 
@@ -31,35 +29,29 @@ log = logging.getLogger(__name__)
 # --- Default Configuration Values ---
 # Central source of truth for all application settings and their defaults.
 
-DEFAULT_GUI_SETTINGS = {
+DEFAULT_SETTINGS = {
+    # Web UI settings
     "theme": "dark",
     "language": "en",
     "minimize_to_tray": True,
-    "window_geometry": None,  # Let Qt handle initial window size/position
     "check_updates_on_startup": True,
     "show_startup_notification": True,
     "skipped_version": "",
-}
-
-DEFAULT_CORE_SETTINGS = {
+    
+    # Core settings
     "allow_insecure_shell": False,
     "server_port": constants.DEFAULT_PORT,
+    "auto_start": False,
 }
-
-# Automatically derive which keys belong to QSettings for clean separation.
-QT_SETTING_KEYS = set(DEFAULT_GUI_SETTINGS.keys())
-CORE_SETTING_KEYS = set(DEFAULT_CORE_SETTINGS.keys())
 
 
 class ConfigManager:
     """
-    Manages application settings, intelligently using QSettings for GUI state
-    and a JSON file for core application configuration.
+    Manages application settings using a JSON file for all configuration.
     """
 
     def __init__(self):
         self.config_file = constants.CONFIG_FILE
-        self.qt_settings = QSettings(constants.APP_NAME, "AppGUI")
         self._json_cache: Dict[str, Any] = {}
         self._load_from_file()
 
@@ -68,9 +60,9 @@ class ConfigManager:
         Loads configuration from the JSON file into the cache, ensuring that
         defaults are present for any missing keys.
         """
-        self._json_cache = DEFAULT_CORE_SETTINGS.copy()
+        self._json_cache = DEFAULT_SETTINGS.copy()
         if not self.config_file.exists():
-            log.info("No config file found. Will use and save default core settings.")
+            log.info("No config file found. Will use and save default settings.")
             self._save_to_file()
             return
 
@@ -81,7 +73,7 @@ class ConfigManager:
             log.info(f"Configuration loaded from {self.config_file}")
         except (IOError, json.JSONDecodeError) as e:
             log.error(f"Failed to load config file, using defaults instead: {e}")
-            self._json_cache = DEFAULT_CORE_SETTINGS.copy()
+            self._json_cache = DEFAULT_SETTINGS.copy()
 
     def _save_to_file(self):
         """Saves the configuration cache to the JSON file."""
@@ -97,37 +89,21 @@ class ConfigManager:
 
     def get(self, key: str, default: Any = None) -> Any:
         """
-        Gets a configuration value from the appropriate store (QSettings or JSON).
+        Gets a configuration value from the JSON cache.
         """
-        if key in QT_SETTING_KEYS:
-            default_value = DEFAULT_GUI_SETTINGS.get(key, default)
-            
-            # If a default value exists, infer the type to ensure QSettings returns the
-            # correct data type (e.g., bool instead of "true"). This prevents crashes.
-            if default_value is not None:
-                return self.qt_settings.value(key, default_value, type=type(default_value))
-            
-            # If no default, we cannot infer a type, so get the raw value.
-            return self.qt_settings.value(key, default)
-
-        # The JSON cache is pre-populated with defaults, so types should be correct.
         return self._json_cache.get(key, default)
 
     def set(self, key: str, value: Any):
         """
-        Sets a configuration value in the appropriate store.
+        Sets a configuration value and saves to file.
         """
-        if key not in QT_SETTING_KEYS and key not in CORE_SETTING_KEYS:
+        if key not in DEFAULT_SETTINGS:
             log.warning(f"Setting an unknown configuration key: '{key}'")
 
         try:
-            if key in QT_SETTING_KEYS:
-                self.qt_settings.setValue(key, value)
-                log.debug(f"GUI setting '{key}' set in QSettings.")
-            else:
-                self._json_cache[key] = value
-                self._save_to_file()
-                log.debug(f"Core setting '{key}' set in config file.")
+            self._json_cache[key] = value
+            self._save_to_file()
+            log.debug(f"Setting '{key}' saved to config file.")
         except Exception as e:
             log.error(f"Error setting config key '{key}': {e}")
             raise ConfigurationError(f"Cannot set configuration: {e}")
@@ -135,12 +111,8 @@ class ConfigManager:
     def reset_to_defaults(self):
         """Resets all configurations to their default states."""
         try:
-            # Reset core settings to defaults and save
-            self._json_cache = DEFAULT_CORE_SETTINGS.copy()
+            self._json_cache = DEFAULT_SETTINGS.copy()
             self._save_to_file()
-
-            # Clear all GUI-specific settings; they will fallback to defaults on get()
-            self.qt_settings.clear()
             log.info("Configuration has been reset to defaults.")
         except Exception as e:
             log.error(f"Failed to reset configuration: {e}")

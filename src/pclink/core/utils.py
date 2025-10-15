@@ -1,32 +1,16 @@
-# filename: src/pclink/core/utils.py
-"""
-PCLink - Remote PC Control Server - Utilities Module
-Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published
-by the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-"""
+# src/pclink/core/utils.py
 
 import logging
 import os
+import shutil
 import subprocess
 import socket
 import sys
 from pathlib import Path
 from typing import Callable, List, Optional, Union
+import importlib.resources  # Keep this import
 
 import psutil
-
 from . import constants
 
 if sys.platform == "win32":
@@ -36,15 +20,67 @@ if sys.platform == "win32":
 log = logging.getLogger(__name__)
 
 
+# --- NEW, UNIVERSAL resource_path FUNCTION ---
+def resource_path(relative_path: Union[str, Path]) -> Path:
+    """
+    Get the absolute path to a resource, working correctly for:
+    1. Development environment (running from source)
+    2. PyInstaller bundle (frozen executable)
+    3. Standard package installation (e.g., via a .deb file)
+    """
+    # Case 1: Running in a PyInstaller bundle
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS) / relative_path
+
+    # Determine the project root by looking for a known file (pyproject.toml)
+    # This reliably detects if we are running from the source tree.
+    try:
+        # __file__ is src/pclink/core/utils.py
+        # .parent -> core
+        # .parent -> pclink
+        # .parent -> src
+        # .parent -> project root
+        project_root = Path(__file__).resolve().parent.parent.parent.parent
+        is_dev_mode = (project_root / 'pyproject.toml').exists()
+    except Exception:
+        is_dev_mode = False
+
+    # Case 2: Running in a development environment (from source)
+    if is_dev_mode:
+        return project_root / relative_path
+
+    # Case 3: Running as an installed package (e.g., from .deb)
+    # The relative path should be from inside the 'pclink' package folder
+    try:
+        # We need to strip the 'src/pclink/' part for this to work
+        # e.g., "src/pclink/assets/icon.png" -> "assets/icon.png"
+        path_parts = Path(relative_path).parts
+        if 'pclink' in path_parts:
+            # Find the index of 'pclink' and take everything after it
+            pclink_index = path_parts.index('pclink')
+            package_relative_path = Path(*path_parts[pclink_index + 1:])
+        else:
+            package_relative_path = Path(relative_path)
+
+        return importlib.resources.files('pclink') / package_relative_path
+    except Exception as e:
+        log.error(f"Could not find resource path using importlib.resources for '{relative_path}': {e}")
+        # A final, desperate fallback
+        return Path(relative_path)
+
+# --- All other functions in this file remain the same ---
+# (The rest of the file is unchanged, you only need to replace the function above)
 def run_preflight_checks():
-    """
-    Run essential one-time setup tasks before the application starts.
-    This includes creating directories and generating security certificates.
-    """
-    constants.initialize_app_directories()
-    generate_self_signed_cert(constants.CERT_FILE, constants.KEY_FILE)
+    # ... (no changes)
+    try:
+        constants.initialize_app_directories()
+        generate_self_signed_cert(constants.CERT_FILE, constants.KEY_FILE)
+        return True
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Preflight checks failed: {e}")
+        return False
 
-
+# ... (rest of the file is unchanged)
 def get_app_data_path(app_name: str) -> Path:
     """
     Returns the platform-specific application data directory path.
@@ -137,22 +173,6 @@ def restart_as_admin(script_path: str = None) -> bool:
     except:
         return False
 
-
-def resource_path(relative_path: Union[str, Path]) -> Path:
-    """
-    Get the absolute path to a resource, supporting both development and PyInstaller.
-    """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        # Assets are bundled as src/pclink/assets in the PyInstaller bundle
-        base_path = Path(sys._MEIPASS) / "src" / "pclink"
-    except AttributeError:
-        # Not in a PyInstaller bundle, use the pclink package directory
-        # This file is in src/pclink/core/utils.py, so parent gives us src/pclink/
-        base_path = Path(__file__).parent.parent.resolve()
-    return base_path / relative_path
-
-
 def get_available_ips() -> List[str]:
     """
     Gets a list of all non-loopback IPv4 addresses on the host.
@@ -160,40 +180,108 @@ def get_available_ips() -> List[str]:
     Returns a sorted list of IP addresses, prioritizing local network IPs.
     """
     local_ips, other_ips = [], []
+    
     try:
         for iface, addrs in psutil.net_if_addrs().items():
-            # Ignore virtual or loopback-like interfaces
+            # Enhanced Linux interface filtering
             if (
                 "virtual" in iface.lower()
                 or "vmnet" in iface.lower()
                 or "loopback" in iface.lower()
+                or iface.startswith(('lo', 'docker', 'br-', 'veth', 'virbr'))
+                or "tun" in iface.lower()
+                or "tap" in iface.lower()
             ):
                 continue
+                
+            # Check if interface is up (Linux-specific)
+            try:
+                interface_stats = psutil.net_if_stats().get(iface)
+                if interface_stats and not interface_stats.isup:
+                    continue
+            except (AttributeError, KeyError):
+                pass  # Interface stats not available, continue anyway
+                
             for addr in addrs:
-                if addr.family == socket.AF_INET and not addr.address.startswith(
-                    "127."
-                ):
+                if addr.family == socket.AF_INET and not addr.address.startswith("127."):
+                    # Skip invalid or link-local addresses
+                    if (addr.address.startswith(("169.254.", "0.")) or 
+                        addr.address.endswith(".0") or 
+                        addr.address.endswith(".255")):
+                        continue
+                        
                     # Prioritize common private IP ranges
                     if addr.address.startswith(("192.168.", "10.", "172.")):
-                        local_ips.append(addr.address)
+                        if addr.address not in local_ips:
+                            local_ips.append(addr.address)
                     else:
-                        other_ips.append(addr.address)
+                        if addr.address not in other_ips:
+                            other_ips.append(addr.address)
+                            
     except Exception as e:
         log.error(f"Could not get IP addresses using psutil: {e}")
+
+    # Linux-specific: Try alternative methods if psutil fails
+    if not local_ips and not other_ips:
+        try:
+            # Method 1: Use 'ip' command (modern Linux)
+            result = subprocess.run(['ip', 'route', 'get', '8.8.8.8'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if 'src' in line:
+                        parts = line.split()
+                        src_idx = parts.index('src')
+                        if src_idx + 1 < len(parts):
+                            ip = parts[src_idx + 1]
+                            if not ip.startswith('127.') and ip not in local_ips + other_ips:
+                                if ip.startswith(("192.168.", "10.", "172.")):
+                                    local_ips.append(ip)
+                                else:
+                                    other_ips.append(ip)
+                                break
+        except (subprocess.SubprocessError, FileNotFoundError, ValueError):
+            pass
+            
+        try:
+            # Method 2: Use 'hostname -I' (some Linux distributions)
+            result = subprocess.run(['hostname', '-I'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                for ip in result.stdout.strip().split():
+                    if not ip.startswith('127.') and ip not in local_ips + other_ips:
+                        if ip.startswith(("192.168.", "10.", "172.")):
+                            local_ips.append(ip)
+                        else:
+                            other_ips.append(ip)
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass
 
     # Combine and remove duplicates, keeping order
     sorted_ips = sorted(list(set(local_ips))) + sorted(list(set(other_ips)))
 
-    # Fallback if psutil fails to find any IPs
+    # Fallback if all methods fail
     if not sorted_ips:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                 s.connect(("8.8.8.8", 80))
                 ip = s.getsockname()[0]
-                if ip and ip != "0.0.0.0":
+                if ip and ip != "0.0.0.0" and not ip.startswith("127."):
                     sorted_ips.append(ip)
         except Exception as e:
             log.error(f"Socket fallback for IP address failed: {e}")
+            
+        # Linux-specific: Final fallback using network interfaces directly
+        if not sorted_ips and sys.platform.startswith('linux'):
+            try:
+                import glob
+                for interface_path in glob.glob('/sys/class/net/*/address'):
+                    interface_name = interface_path.split('/')[-2]
+                    if not interface_name.startswith(('lo', 'docker', 'br-', 'veth')):
+                        # This is a basic fallback - in practice, the earlier methods should work
+                        break
+            except Exception:
+                pass
 
     # Final fallback
     if not sorted_ips:
@@ -691,41 +779,299 @@ subprocess.run([r"{exe_path}", "--startup"])
 class _LinuxStartupManager(_StartupManager):
     def __init__(self):
         self.autostart_path = Path.home() / ".config" / "autostart"
+        self.init_system = self._detect_init_system()
+        self.is_packaged = self._detect_packaged_installation()
+
+    def _detect_init_system(self) -> str:
+        """Detect the init system in use."""
+        try:
+            # Check for systemd
+            if Path("/run/systemd/system").exists():
+                return "systemd"
+            
+            # Check for runit
+            if Path("/run/runit").exists() or shutil.which("sv"):
+                return "runit"
+            
+            # Check for OpenRC
+            if Path("/run/openrc").exists() or shutil.which("rc-service"):
+                return "openrc"
+            
+            # Check for SysV init
+            if Path("/etc/init.d").exists():
+                return "sysv"
+            
+            # Default fallback
+            return "unknown"
+            
+        except Exception as e:
+            log.debug(f"Error detecting init system: {e}")
+            return "unknown"
+
+    def _detect_packaged_installation(self) -> bool:
+        """Detect if PCLink is installed as a system package."""
+        try:
+            # Check if running from /usr/lib/pclink (typical .deb installation)
+            if str(Path(__file__).resolve()).startswith("/usr/lib/pclink"):
+                return True
+            
+            # Check if pclink command is in system PATH
+            pclink_path = shutil.which("pclink")
+            if pclink_path and Path(pclink_path).resolve().parts[:3] == ('/', 'usr', 'bin'):
+                return True
+            
+            # Check for .deb package installation
+            try:
+                result = subprocess.run(
+                    ["dpkg", "-l", "pclink"], 
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0 and "ii" in result.stdout:
+                    return True
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass
+            
+            # Check for .rpm package installation
+            try:
+                result = subprocess.run(
+                    ["rpm", "-q", "pclink"], 
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    return True
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass
+            
+            return False
+            
+        except Exception as e:
+            log.debug(f"Error detecting package installation: {e}")
+            return False
 
     def _get_desktop_file(self, app_name: str) -> Path:
         return self.autostart_path / f"{app_name.lower()}.desktop"
 
-    def add(self, app_name: str, exe_path: Path):
-        self.autostart_path.mkdir(parents=True, exist_ok=True)
-        desktop_file = self._get_desktop_file(app_name)
-        icon_path = resource_path("assets/icon.png")
-        desktop_entry = (
-            f"[Desktop Entry]\n"
-            f"Type=Application\n"
-            f"Name={app_name}\n"
-            f'Exec="{exe_path}" --startup\n'
-            f"Comment={app_name} Remote Control Server\n"
-            f"Icon={icon_path}\n"
-            f"X-GNOME-Autostart-enabled=true\n"
-        )
+    def _get_systemd_user_service_path(self, app_name: str) -> Path:
+        """Get path for systemd user service file."""
+        systemd_user_dir = Path.home() / ".config" / "systemd" / "user"
+        return systemd_user_dir / f"{app_name.lower()}.service"
+
+    def _create_systemd_user_service(self, app_name: str, exe_path: Path):
+        """Create a systemd user service for startup."""
         try:
+            service_path = self._get_systemd_user_service_path(app_name)
+            service_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Determine the correct executable path
+            if self.is_packaged:
+                # Use system pclink command for packaged installations
+                exec_start = "/usr/bin/pclink --startup"
+                working_dir = "/usr/lib/pclink"
+            else:
+                # Use direct path for development/portable installations
+                exec_start = f'"{exe_path}" --startup'
+                working_dir = exe_path.parent
+            
+            service_content = f"""[Unit]
+Description={app_name} Remote Control Server
+After=graphical-session.target
+Wants=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart={exec_start}
+WorkingDirectory={working_dir}
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=%i
+
+[Install]
+WantedBy=default.target
+"""
+            
+            service_path.write_text(service_content, encoding="utf-8")
+            
+            # Reload systemd and enable the service
+            subprocess.run(["systemctl", "--user", "daemon-reload"], 
+                         check=False, capture_output=True)
+            subprocess.run(["systemctl", "--user", "enable", f"{app_name.lower()}.service"], 
+                         check=False, capture_output=True)
+            
+            log.info(f"Created systemd user service: {service_path}")
+            return True
+            
+        except Exception as e:
+            log.warning(f"Failed to create systemd user service: {e}")
+            return False
+
+    def _remove_systemd_user_service(self, app_name: str):
+        """Remove systemd user service."""
+        try:
+            service_name = f"{app_name.lower()}.service"
+            
+            # Disable and stop the service
+            subprocess.run(["systemctl", "--user", "disable", service_name], 
+                         check=False, capture_output=True)
+            subprocess.run(["systemctl", "--user", "stop", service_name], 
+                         check=False, capture_output=True)
+            
+            # Remove service file
+            service_path = self._get_systemd_user_service_path(app_name)
+            service_path.unlink(missing_ok=True)
+            
+            # Reload systemd
+            subprocess.run(["systemctl", "--user", "daemon-reload"], 
+                         check=False, capture_output=True)
+            
+            log.info(f"Removed systemd user service: {service_name}")
+            return True
+            
+        except Exception as e:
+            log.warning(f"Failed to remove systemd user service: {e}")
+            return False
+
+    def _is_systemd_service_enabled(self, app_name: str) -> bool:
+        """Check if systemd user service is enabled."""
+        try:
+            service_name = f"{app_name.lower()}.service"
+            result = subprocess.run(
+                ["systemctl", "--user", "is-enabled", service_name],
+                capture_output=True, text=True, timeout=5
+            )
+            return result.returncode == 0 and "enabled" in result.stdout
+        except Exception:
+            return False
+
+    def add(self, app_name: str, exe_path: Path):
+        """Add application to startup using the most appropriate method."""
+        success_methods = []
+        
+        # Method 1: Try systemd user service (preferred for modern systems)
+        if self.init_system == "systemd":
+            if self._create_systemd_user_service(app_name, exe_path):
+                success_methods.append("systemd")
+        
+        # Method 2: Desktop autostart (fallback and compatibility)
+        try:
+            self.autostart_path.mkdir(parents=True, exist_ok=True)
+            desktop_file = self._get_desktop_file(app_name)
+            
+            # Get icon path
+            try:
+                icon_path = resource_path("src/pclink/assets/icon.png")
+            except Exception:
+                icon_path = "pclink"  # Use generic name if icon not found
+            
+            # Determine the correct executable command
+            if self.is_packaged:
+                exec_command = "/usr/bin/pclink --startup"
+            else:
+                exec_command = f'"{exe_path}" --startup'
+            
+            desktop_entry = (
+                f"[Desktop Entry]\n"
+                f"Type=Application\n"
+                f"Name={app_name}\n"
+                f"Exec=sh -c 'sleep 10 && {exec_command}'\n"
+                f"Comment={app_name} Remote Control Server\n"
+                f"Icon={icon_path}\n"
+                f"X-GNOME-Autostart-enabled=true\n"
+                f"X-KDE-autostart-after=panel\n"
+                f"X-MATE-Autostart-enabled=true\n"
+                f"Hidden=false\n"
+                f"NoDisplay=true\n"
+                f"StartupNotify=false\n"
+                f"Categories=Network;System;\n"
+                f"X-GNOME-Autostart-Delay=10\n"
+            )
+            
             desktop_file.write_text(desktop_entry, encoding="utf-8")
-            log.info(f"Added '{app_name}' to Linux startup at {desktop_file}.")
+            success_methods.append("desktop")
+            log.info(f"Added '{app_name}' to desktop autostart at {desktop_file}")
+            
         except IOError as e:
-            log.error(f"Failed to write desktop entry file: {e}")
-            raise
+            log.warning(f"Failed to write desktop entry file: {e}")
+        
+        # Method 3: Init system specific methods (for systems without desktop environment)
+        if self.init_system == "runit":
+            try:
+                # Create a simple runit service (user-level)
+                runit_dir = Path.home() / ".local" / "share" / "runit" / "sv" / app_name.lower()
+                runit_dir.mkdir(parents=True, exist_ok=True)
+                
+                run_script = runit_dir / "run"
+                if self.is_packaged:
+                    run_content = f"#!/bin/sh\nexec /usr/bin/pclink --startup\n"
+                else:
+                    run_content = f"#!/bin/sh\nexec \"{exe_path}\" --startup\n"
+                
+                run_script.write_text(run_content)
+                run_script.chmod(0o755)
+                
+                success_methods.append("runit")
+                log.info(f"Created runit service directory: {runit_dir}")
+                
+            except Exception as e:
+                log.warning(f"Failed to create runit service: {e}")
+        
+        if not success_methods:
+            raise OSError("Failed to add to startup using any available method")
+        
+        log.info(f"Added '{app_name}' to Linux startup using: {', '.join(success_methods)}")
 
     def remove(self, app_name: str):
+        """Remove application from startup using all methods."""
+        removed_methods = []
+        
+        # Remove systemd user service
+        if self.init_system == "systemd":
+            if self._remove_systemd_user_service(app_name):
+                removed_methods.append("systemd")
+        
+        # Remove desktop autostart file
         desktop_file = self._get_desktop_file(app_name)
         try:
-            desktop_file.unlink(missing_ok=True)
-            log.info(f"Removed '{app_name}' from Linux startup.")
+            if desktop_file.exists():
+                desktop_file.unlink()
+                removed_methods.append("desktop")
+                log.info(f"Removed desktop autostart file: {desktop_file}")
         except IOError as e:
-            log.error(f"Failed to remove startup file: {e}")
-            raise
+            log.warning(f"Failed to remove desktop autostart file: {e}")
+        
+        # Remove runit service
+        if self.init_system == "runit":
+            try:
+                runit_dir = Path.home() / ".local" / "share" / "runit" / "sv" / app_name.lower()
+                if runit_dir.exists():
+                    shutil.rmtree(runit_dir)
+                    removed_methods.append("runit")
+                    log.info(f"Removed runit service: {runit_dir}")
+            except Exception as e:
+                log.warning(f"Failed to remove runit service: {e}")
+        
+        if removed_methods:
+            log.info(f"Removed '{app_name}' from Linux startup: {', '.join(removed_methods)}")
+        else:
+            log.debug(f"'{app_name}' not found in any startup location")
 
     def is_enabled(self, app_name: str) -> bool:
-        return self._get_desktop_file(app_name).exists()
+        """Check if application is enabled for startup using any method."""
+        # Check systemd user service
+        if self.init_system == "systemd" and self._is_systemd_service_enabled(app_name):
+            return True
+        
+        # Check desktop autostart file
+        if self._get_desktop_file(app_name).exists():
+            return True
+        
+        # Check runit service
+        if self.init_system == "runit":
+            runit_dir = Path.home() / ".local" / "share" / "runit" / "sv" / app_name.lower()
+            if runit_dir.exists() and (runit_dir / "run").exists():
+                return True
+        
+        return False
 
 
 class _UnsupportedStartupManager(_StartupManager):

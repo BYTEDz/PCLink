@@ -38,6 +38,21 @@ if sys.platform == "win32":
     SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
 
 
+def _get_current_user():
+    """Safely get the current user name, handling headless/service environments."""
+    try:
+        # Try os.getlogin() first (works in normal terminal sessions)
+        return os.getlogin()
+    except OSError:
+        # Fallback for headless/service environments
+        try:
+            import pwd
+            return pwd.getpwuid(os.getuid()).pw_name
+        except (ImportError, KeyError):
+            # Final fallback
+            return os.environ.get('USER', os.environ.get('USERNAME', 'unknown'))
+
+
 async def run_subprocess(cmd: list[str]) -> str:
     """
     Asynchronously runs a subprocess and returns its stdout.
@@ -65,6 +80,164 @@ async def run_subprocess(cmd: list[str]) -> str:
             status_code=500, detail=f"Command failed: {cmd[0]} - {error_msg}"
         )
     return stdout.decode()
+
+
+async def try_power_command_with_fallbacks(command: str, primary_cmd: list[str]) -> bool:
+    """
+    Try to execute a power command with fallbacks for Linux systems.
+    Enhanced for Debian-based systems with proper permission handling.
+    
+    Args:
+        command: The power command name (shutdown, reboot, etc.)
+        primary_cmd: The primary command to try
+        
+    Returns:
+        True if any command succeeded, False otherwise
+    """
+    # Enhanced fallback commands for Debian-based systems
+    fallback_commands = {
+        "shutdown": [
+            # PCLink power wrapper (preferred for .deb installations)
+            ["pclink-power-wrapper", "poweroff"],
+            # Systemd with sudo (works with sudoers config)
+            ["sudo", "systemctl", "poweroff"],
+            # Systemd without sudo (fallback)
+            ["systemctl", "poweroff"],
+            # Traditional shutdown
+            ["shutdown", "-h", "now"],
+            ["sudo", "shutdown", "-h", "now"],
+            # Direct poweroff
+            ["poweroff"],
+            ["sudo", "poweroff"],
+            # ConsoleKit (older systems)
+            ["dbus-send", "--system", "--print-reply", "--dest=org.freedesktop.ConsoleKit", 
+             "/org/freedesktop/ConsoleKit/Manager", "org.freedesktop.ConsoleKit.Manager.Stop"],
+            # Fallback for minimal systems
+            ["/sbin/poweroff"],
+            ["sudo", "/sbin/poweroff"]
+        ],
+        "reboot": [
+            # PCLink power wrapper (preferred for .deb installations)
+            ["pclink-power-wrapper", "reboot"],
+            # Systemd with sudo (works with sudoers config)
+            ["sudo", "systemctl", "reboot"],
+            # Systemd without sudo (fallback)
+            ["systemctl", "reboot"],
+            # Traditional shutdown
+            ["shutdown", "-r", "now"],
+            ["sudo", "shutdown", "-r", "now"],
+            # Direct reboot
+            ["reboot"],
+            ["sudo", "reboot"],
+            # ConsoleKit (older systems)
+            ["dbus-send", "--system", "--print-reply", "--dest=org.freedesktop.ConsoleKit", 
+             "/org/freedesktop/ConsoleKit/Manager", "org.freedesktop.ConsoleKit.Manager.Restart"],
+            # Fallback for minimal systems
+            ["/sbin/reboot"],
+            ["sudo", "/sbin/reboot"]
+        ],
+        "lock": [
+            # Modern desktop environments
+            ["loginctl", "lock-session"],
+            ["loginctl", "lock-sessions"],
+            # XDG standard
+            ["xdg-screensaver", "lock"],
+            # GNOME
+            ["gnome-screensaver-command", "-l"],
+            ["dbus-send", "--session", "--dest=org.gnome.ScreenSaver", 
+             "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver.Lock"],
+            # KDE
+            ["qdbus", "org.kde.screensaver", "/ScreenSaver", "Lock"],
+            ["dbus-send", "--session", "--dest=org.kde.screensaver", 
+             "/ScreenSaver", "org.kde.screensaver.Lock"],
+            # XFCE
+            ["xflock4"],
+            # i3/sway
+            ["i3lock"],
+            ["swaylock"],
+            # X11 screensaver
+            ["xscreensaver-command", "-lock"],
+            # Light DM
+            ["dm-tool", "lock"],
+            # Cinnamon
+            ["cinnamon-screensaver-command", "-l"],
+            # MATE
+            ["mate-screensaver-command", "-l"]
+        ],
+        "sleep": [
+            # PCLink power wrapper (preferred for .deb installations)
+            ["pclink-power-wrapper", "suspend"],
+            # Systemd suspend with sudo (works with sudoers config)
+            ["sudo", "systemctl", "suspend"],
+            # Systemd suspend without sudo (fallback)
+            ["systemctl", "suspend"],
+            # pm-utils (older systems)
+            ["pm-suspend"],
+            ["sudo", "pm-suspend"],
+            # UPower (desktop environments)
+            ["dbus-send", "--system", "--print-reply", "--dest=org.freedesktop.UPower", 
+             "/org/freedesktop/UPower", "org.freedesktop.UPower.Suspend"],
+            # ConsoleKit
+            ["dbus-send", "--system", "--print-reply", "--dest=org.freedesktop.ConsoleKit", 
+             "/org/freedesktop/ConsoleKit/Manager", "org.freedesktop.ConsoleKit.Manager.Suspend", "boolean:true"],
+            # Direct kernel interface
+            ["echo", "mem", "|", "sudo", "tee", "/sys/power/state"]
+        ],
+        "logout": [
+            # Systemd user session
+            ["loginctl", "terminate-user", _get_current_user()],
+            ["loginctl", "kill-user", _get_current_user()],
+            # Process termination
+            ["pkill", "-TERM", "-u", _get_current_user()],
+            ["pkill", "-KILL", "-u", _get_current_user()],
+            # Desktop environment specific
+            ["gnome-session-quit", "--logout", "--no-prompt"],
+            ["gnome-session-quit", "--logout", "--force"],
+            ["qdbus", "org.kde.ksmserver", "/KSMServer", "logout", "0", "0", "0"],
+            ["xfce4-session-logout", "--logout"],
+            ["mate-session-save", "--logout"],
+            ["cinnamon-session-quit", "--logout", "--no-prompt"],
+            # X11 session
+            ["pkill", "-f", "startx"],
+            ["pkill", "-f", "xinit"]
+        ]
+    }
+    
+    commands_to_try = fallback_commands.get(command, [primary_cmd])
+    
+    for cmd in commands_to_try:
+        try:
+            # Handle shell commands with pipes
+            if "|" in cmd:
+                # Execute shell commands that contain pipes
+                shell_cmd = " ".join(cmd)
+                process = await asyncio.create_subprocess_shell(
+                    shell_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    creationflags=SUBPROCESS_FLAGS,
+                )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode == 0:
+                log.info(f"Power command '{command}' succeeded with: {' '.join(cmd)}")
+                return True
+            else:
+                log.debug(f"Command failed: {' '.join(cmd)} - {stderr.decode().strip()}")
+                
+        except FileNotFoundError:
+            log.debug(f"Command not found: {' '.join(cmd)}")
+        except Exception as e:
+            log.debug(f"Command error: {' '.join(cmd)} - {e}")
+    
+    return False
 
 
 def _execute_sync_power_command(cmd: list[str]):
@@ -115,9 +288,9 @@ async def power_command(command: str):
         "linux": {
             "shutdown": ["systemctl", "poweroff"],
             "reboot": ["systemctl", "reboot"],
-            "lock": ["xdg-screensaver", "lock"],
+            "lock": ["loginctl", "lock-session"],
             "sleep": ["systemctl", "suspend"],
-            "logout": ["loginctl", "terminate-user", os.getlogin()],
+            "logout": ["loginctl", "terminate-user", _get_current_user()],
         },
         "darwin": {
             "shutdown": ["osascript", "-e", 'tell app "System Events" to shut down'],
@@ -132,7 +305,18 @@ async def power_command(command: str):
     if not cmd_to_run:
         raise HTTPException(status_code=404, detail=f"Unsupported command: {command}")
 
-    await asyncio.to_thread(_execute_sync_power_command, cmd_to_run)
+    # Use enhanced fallback system for Linux
+    if sys.platform == "linux":
+        success = await try_power_command_with_fallbacks(command, cmd_to_run)
+        if not success:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Power command '{command}' failed - insufficient permissions or command not available"
+            )
+    else:
+        # Use original method for Windows and macOS
+        await asyncio.to_thread(_execute_sync_power_command, cmd_to_run)
+    
     return {"status": "command sent"}
 
 

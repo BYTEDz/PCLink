@@ -17,8 +17,8 @@ src/pclink/
 │   ├── state.py                        # Global state + signals
 │   ├── device\_manager.py               # Connection tracking
 │   ├── constants.py                    # App configuration
-│   └── utils.py, security.py, etc.    # Utilities
-├── gui/                                # PySide6 interface
+│   └── utils.py, etc.                # Utilities
+├── web_ui/                             # Web interface
 │   ├── main\_window\.py                  # Primary window
 │   ├── layout.py                       # UI setup
 │   └── theme.py, localizations.py     # Styling & i18n
@@ -37,7 +37,7 @@ src/pclink/
 - **Unified Tray** → System tray integration across modes
 
 ### Core Flow
-1. **Entry Point** → `main.py` decides between GUI/headless
+1. **Entry Point** → `main.py` starts web-first application
 2. **Controller** → `controller.py` orchestrates server & UI
 3. **API Server** → FastAPI handles mobile requests
 4. **State** → `state.py` manages devices with Qt signals
@@ -70,7 +70,7 @@ pytest tests/integration/         # Integration tests
 
 ## 🏛️ Architecture Patterns
 
-* **MVC** → Model (`state.py`), View (`gui/`), Controller (`controller.py`)
+* **MVC** → Model (`state.py`), View (`web_ui/`), Controller (`controller.py`)
 * **Singleton** → Ensures one app instance system-wide
-* **Observer** → Qt signals for decoupled updates
+* **Observer** → Callback system for decoupled updates
 * **Factory** → Dynamic API apps & dialogs

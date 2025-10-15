@@ -13,14 +13,14 @@ This guide explains how to build **PCLink** from source for development and prod
 
 ```bash
 # Clone the repository
-git clone https://github.com/BYTEDz/pclink.git
+git clone https://github.com/BYTEDz/PCLink.git
 cd pclink
 
 # Create a virtual environment
 python -m venv venv
 # Windows
 venv\Scripts\activate
-# macOS/Linux
+# Linux
 source venv/bin/activate
 
 # Install dependencies

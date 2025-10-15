@@ -15,70 +15,43 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QObject, QThread, Signal
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QPushButton, QProgressBar, QTextEdit, QCheckBox,
-                               QSpinBox, QMessageBox, QGroupBox, QFormLayout, QWidget)
-
 from . import constants
 from .utils import load_config_value, save_config_value, is_admin
 
 log = logging.getLogger(__name__)
 
 
-class PortChecker(QThread):
-    """Thread for checking port availability and system requirements."""
-    
-    progress_updated = Signal(int, str)  # progress, message
-    check_completed = Signal(dict)  # results dict
+class PortChecker:
+    """Class for checking port availability and system requirements."""
     
     def __init__(self, ports_to_check: List[int]):
-        super().__init__()
         self.ports_to_check = ports_to_check
         self.results = {}
     
-    def run(self):
+    def run_checks(self) -> Dict:
         """Run port checks and system validation."""
-        total_checks = len(self.ports_to_check) + 3  # ports + 3 system checks
-        current_check = 0
+        log.info("Running system checks...")
         
         # Check system requirements
-        self.progress_updated.emit(
-            int((current_check / total_checks) * 100),
-            "Checking system requirements..."
-        )
+        log.info("Checking system requirements...")
         self.results['system'] = self._check_system_requirements()
-        current_check += 1
         
         # Check firewall status
-        self.progress_updated.emit(
-            int((current_check / total_checks) * 100),
-            "Checking firewall status..."
-        )
+        log.info("Checking firewall status...")
         self.results['firewall'] = self._check_firewall_status()
-        current_check += 1
         
         # Check admin privileges
-        self.progress_updated.emit(
-            int((current_check / total_checks) * 100),
-            "Checking admin privileges..."
-        )
+        log.info("Checking admin privileges...")
         self.results['admin'] = is_admin()
-        current_check += 1
         
         # Check ports
         port_results = {}
         for port in self.ports_to_check:
-            self.progress_updated.emit(
-                int((current_check / total_checks) * 100),
-                f"Checking port {port}..."
-            )
+            log.info(f"Checking port {port}...")
             port_results[port] = self._check_port(port)
-            current_check += 1
-            time.sleep(0.1)  # Small delay for UI responsiveness
         
         self.results['ports'] = port_results
-        self.check_completed.emit(self.results)
+        return self.results
     
     def _check_port(self, port: int) -> Dict[str, any]:
         """Check if a port is available."""
@@ -188,515 +161,64 @@ class PortChecker(QThread):
         return result
 
 
-class SetupGuideDialog(QDialog):
-    """Simplified first-run setup guide dialog."""
+def run_setup_checks() -> Dict:
+    """Run setup checks and return results."""
+    ports_to_check = [
+        constants.DEFAULT_PORT,
+        constants.DEFAULT_PORT + 1,
+        constants.DEFAULT_PORT + 2,
+        38099  # Discovery port
+    ]
     
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Welcome to PCLink!")
-        self.setModal(True)
-        self.resize(500, 400)
+    checker = PortChecker(ports_to_check)
+    return checker.run_checks()
+
+
+def configure_auto_start():
+    """Configure auto-start with Windows."""
+    try:
+        from .utils import get_startup_manager
+        import sys
+        from pathlib import Path
         
-        self.setup_results = {}
-        self.recommended_port = constants.DEFAULT_PORT
-        self.needs_admin = False
+        startup_manager = get_startup_manager()
+        exe_path = Path(sys.executable).resolve()
+        startup_manager.add(constants.APP_NAME, exe_path)
+        log.info("Auto-start configured successfully")
+        return True
+    except Exception as e:
+        log.error(f"Failed to configure auto-start: {e}")
+        return False
+
+
+def complete_setup(port: int = None, enable_auto_start: bool = True) -> bool:
+    """Complete the setup process with given configuration."""
+    try:
+        # Use default port if none specified
+        if port is None:
+            port = constants.DEFAULT_PORT
         
-        self._setup_ui()
-        self._start_checks()
-    
-    def _setup_ui(self):
-        """Setup the clean, modern UI components."""
-        layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(30, 30, 30, 30)
+        # Save port configuration
+        save_config_value(constants.PORT_FILE, str(port))
+        log.info(f"Port configured: {port}")
         
-        # Set dialog background to match main app
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #2e2f30;
-                color: #e0e0e0;
-                font-family: Segoe UI, sans-serif;
-            }
-            QGroupBox {
-                font-weight: bold;
-                border: 2px solid #4a4b4c;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 10px;
-                background-color: #242526;
-                color: #e0e0e0;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 8px 0 8px;
-                color: #e0e0e0;
-            }
-        """)
-        
-        # Header
-        header = QLabel("Welcome to PCLink!")
-        header.setStyleSheet("""
-            font-size: 24px; 
-            font-weight: bold; 
-            color: #e0e0e0;
-            margin-bottom: 5px;
-        """)
-        layout.addWidget(header)
-        
-        subtitle = QLabel("Quick setup to get you connected")
-        subtitle.setStyleSheet("""
-            font-size: 14px; 
-            color: #a0a0a0;
-            margin-bottom: 20px;
-        """)
-        layout.addWidget(subtitle)
-        
-        # Progress section
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid #4a4b4c;
-                border-radius: 8px;
-                text-align: center;
-                font-weight: bold;
-                background-color: #242526;
-                color: #e0e0e0;
-                height: 25px;
-            }
-            QProgressBar::chunk {
-                background-color: #5a5b5c;
-                border-radius: 6px;
-            }
-        """)
-        self.progress_label = QLabel("Checking your system...")
-        self.progress_label.setStyleSheet("""
-            font-size: 13px; 
-            color: #a0a0a0; 
-            margin: 8px 0;
-        """)
-        
-        layout.addWidget(self.progress_bar)
-        layout.addWidget(self.progress_label)
-        
-        # Status section (only show if there are issues)
-        self.status_group = QGroupBox("Status")
-        self.status_layout = QVBoxLayout(self.status_group)
-        self.status_label = QLabel()
-        self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("padding: 10px; line-height: 1.4;")
-        self.status_layout.addWidget(self.status_label)
-        self.status_group.setVisible(False)
-        layout.addWidget(self.status_group)
-        
-        # Configuration section
-        self.config_group = QGroupBox("Settings")
-        config_layout = QVBoxLayout(self.config_group)
-        config_layout.setSpacing(15)
-        
-        # Port selection (only show if there's a conflict)
-        self.port_widget = QWidget()
-        port_layout = QHBoxLayout(self.port_widget)
-        port_layout.setContentsMargins(0, 0, 0, 0)
-        
-        port_label = QLabel("Server Port:")
-        port_label.setStyleSheet("font-weight: bold; color: #e0e0e0;")
-        self.port_spinbox = QSpinBox()
-        self.port_spinbox.setRange(1024, 65535)
-        self.port_spinbox.setValue(constants.DEFAULT_PORT)
-        self.port_spinbox.setStyleSheet("""
-            QSpinBox {
-                background-color: #242526;
-                border: 1px solid #4a4b4c;
-                border-radius: 4px;
-                padding: 6px;
-                font-size: 13px;
-                min-width: 80px;
-                color: #e0e0e0;
-            }
-            QSpinBox:focus {
-                border-color: #6a6b6c;
-            }
-        """)
-        
-        port_layout.addWidget(port_label)
-        port_layout.addWidget(self.port_spinbox)
-        port_layout.addStretch()
-        self.port_widget.setVisible(False)  # Hidden by default
-        config_layout.addWidget(self.port_widget)
-        
-        # Auto-start option
-        self.auto_start_checkbox = QCheckBox("Start PCLink automatically when Windows starts")
-        self.auto_start_checkbox.setChecked(True)
-        self.auto_start_checkbox.setStyleSheet("""
-            QCheckBox {
-                font-size: 14px;
-                color: #e0e0e0;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border: 2px solid #4a4b4c;
-                border-radius: 3px;
-                background-color: #242526;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #5a5b5c;
-                border-color: #5a5b5c;
-            }
-            QCheckBox::indicator:hover {
-                border-color: #6a6b6c;
-            }
-        """)
-        config_layout.addWidget(self.auto_start_checkbox)
-        
-        self.config_group.setVisible(False)
-        layout.addWidget(self.config_group)
-        
-        # Admin section (only show if actually needed)
-        self.admin_group = QGroupBox("Administrator Required")
-        admin_layout = QVBoxLayout(self.admin_group)
-        
-        admin_info = QLabel("Administrator privileges are needed to configure Windows Firewall for optimal security.")
-        admin_info.setWordWrap(True)
-        admin_info.setStyleSheet("""
-            color: #e0e0e0; 
-            font-size: 13px;
-            margin-bottom: 15px;
-            padding: 10px;
-            background-color: #3a3b3c;
-            border-radius: 4px;
-            border-left: 4px solid #5a5b5c;
-        """)
-        admin_layout.addWidget(admin_info)
-        
-        self.run_as_admin_button = QPushButton("🔒 Restart as Administrator")
-        self.run_as_admin_button.clicked.connect(self._run_as_admin)
-        self.run_as_admin_button.setStyleSheet("""
-            QPushButton {
-                background-color: #5a5b5c;
-                color: #e0e0e0;
-                border: none;
-                padding: 12px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #6a6b6c;
-            }
-            QPushButton:pressed {
-                background-color: #4a4b4c;
-            }
-        """)
-        admin_layout.addWidget(self.run_as_admin_button)
-        
-        self.admin_group.setVisible(False)
-        layout.addWidget(self.admin_group)
-        
-        layout.addStretch()
-        
-        # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(15)
-        
-        # Skip button (only shown when there are issues)
-        self.skip_button = QPushButton("Skip Setup")
-        self.skip_button.setStyleSheet("""
-            QPushButton {
-                background-color: #3a3b3c;
-                color: #a0a0a0;
-                border: 1px solid #4a4b4c;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #4a4b4c;
-                color: #e0e0e0;
-            }
-        """)
-        self.skip_button.clicked.connect(self.reject)
-        self.skip_button.setVisible(False)  # Hidden by default
-        button_layout.addWidget(self.skip_button)
-        
-        button_layout.addStretch()
-        
-        self.finish_button = QPushButton("✓ Complete Setup")
-        self.finish_button.setStyleSheet("""
-            QPushButton {
-                background-color: #5a5b5c;
-                color: #e0e0e0;
-                border: none;
-                padding: 12px 25px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QPushButton:hover {
-                background-color: #6a6b6c;
-            }
-            QPushButton:pressed {
-                background-color: #4a4b4c;
-            }
-            QPushButton:disabled {
-                background-color: #404040;
-                color: #888;
-            }
-        """)
-        self.finish_button.clicked.connect(self._finish_setup)
-        self.finish_button.setEnabled(False)
-        button_layout.addWidget(self.finish_button)
-        
-        layout.addLayout(button_layout)
-    
-    def _start_checks(self):
-        """Start the system checks."""
-        ports_to_check = [
-            constants.DEFAULT_PORT,
-            constants.DEFAULT_PORT + 1,
-            constants.DEFAULT_PORT + 2,
-            38099  # Discovery port
-        ]
-        
-        self.checker = PortChecker(ports_to_check)
-        self.checker.progress_updated.connect(self._update_progress)
-        self.checker.check_completed.connect(self._handle_check_results)
-        self.checker.start()
-    
-    def _update_progress(self, progress: int, message: str):
-        """Update progress bar and message."""
-        self.progress_bar.setValue(progress)
-        self.progress_label.setText(message)
-    
-    def _handle_check_results(self, results: Dict):
-        """Handle the completion of system checks."""
-        self.setup_results = results
-        self._display_simple_results()
-        self._show_configuration()
-        
-        # Enable finish button
-        self.finish_button.setEnabled(True)
-    
-    def _display_simple_results(self):
-        """Display simplified results focusing on what the user needs to know."""
-        status_messages = []
-        has_issues = False
-        
-        # Check for critical issues
-        system = self.setup_results.get('system', {})
-        if not system.get('meets_requirements', True):
-            has_issues = True
-            status_messages.append("❌ System requirements not met")
-            for issue in system.get('issues', []):
-                status_messages.append(f"   • {issue}")
-        
-        # Check ports and recommend one
-        ports = self.setup_results.get('ports', {})
-        available_ports = [port for port, info in ports.items() if info.get('available', False)]
-        
-        if available_ports:
-            self.recommended_port = min(available_ports)
-            self.port_spinbox.setValue(self.recommended_port)
-            if self.recommended_port != constants.DEFAULT_PORT:
-                status_messages.append(f"ℹ️ Using port {self.recommended_port} (default port was busy)")
-                self.port_widget.setVisible(True)
-        else:
-            has_issues = True
-            status_messages.append("⚠️ Default port is busy - you may need to choose a different port")
-            self.port_widget.setVisible(True)
-            # Find a random available port
-            import socket
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('', 0))
-                available_port = s.getsockname()[1]
-                self.port_spinbox.setValue(available_port)
-                self.recommended_port = available_port
-        
-        # Check if admin is actually needed - only if firewall is blocking AND we don't have admin
-        firewall = self.setup_results.get('firewall', {})
-        has_admin = self.setup_results.get('admin', False)
-        firewall_enabled = firewall.get('enabled', False)
-        ports = self.setup_results.get('ports', {})
-        
-        # Check if the recommended port is actually blocked
-        port_is_blocked = not ports.get(self.recommended_port, {}).get('available', True)
-        
-        # Only show admin button if:
-        # 1. Windows Firewall is enabled AND
-        # 2. We don't have admin privileges AND  
-        # 3. The port we want to use is actually blocked AND
-        # 4. We're on Windows
-        if (firewall_enabled and not has_admin and port_is_blocked and sys.platform == 'win32'):
-            self.needs_admin = True
-            status_messages.append("⚠️ Windows Firewall may be blocking the port - administrator access recommended")
-            self.admin_group.setVisible(True)
-        else:
-            # No need for admin - port is available or firewall isn't the issue
-            self.admin_group.setVisible(False)
-        
-        # Show status only if there are issues or important info
-        if status_messages:
-            self.status_group.setVisible(True)
-            self.status_label.setText('\n'.join(status_messages))
-            
-            # Style based on severity
-            if has_issues:
-                self.status_label.setStyleSheet("""
-                    color: #e0e0e0; 
-                    font-size: 14px;
-                    line-height: 1.5;
-                    background-color: #3a3b3c;
-                    border-left: 4px solid #5a5b5c;
-                    padding: 12px;
-                    border-radius: 4px;
-                """)
+        # Configure auto-start if requested
+        if enable_auto_start:
+            if configure_auto_start():
+                log.info("Auto-start enabled")
             else:
-                self.status_label.setStyleSheet("""
-                    color: #e0e0e0; 
-                    font-size: 14px;
-                    line-height: 1.5;
-                    background-color: #3a3b3c;
-                    border-left: 4px solid #5a5b5c;
-                    padding: 12px;
-                    border-radius: 4px;
-                """)
+                log.warning("Auto-start configuration failed")
         
-        # Update button behavior based on issues
-        if has_issues or self.needs_admin:
-            # Show skip button when there are issues user might want to bypass
-            self.skip_button.setVisible(True)
-            self.finish_button.setText("✓ Complete Setup")
-        else:
-            # Hide skip button when everything is perfect
-            self.skip_button.setVisible(False)
-            self.finish_button.setText("✓ Continue")
+        # Mark setup as completed
+        setup_completed_file = constants.APP_DATA_PATH / ".setup_completed"
+        setup_completed_file.write_text("1")
+        log.info("Setup marked as completed")
         
-        # Update progress
-        self.progress_bar.setValue(100)
-        if has_issues:
-            self.progress_label.setText("⚠️ Setup ready - please review the items above")
-            self.progress_label.setStyleSheet("""
-                font-size: 13px; 
-                color: #e0e0e0; 
-                margin: 8px 0;
-                font-weight: bold;
-            """)
-        else:
-            self.progress_label.setText("✅ All good! Ready to continue")
-            self.progress_label.setStyleSheet("""
-                font-size: 13px; 
-                color: #e0e0e0; 
-                margin: 8px 0;
-                font-weight: bold;
-            """)
-    
-    def _show_configuration(self):
-        """Show configuration options."""
-        self.config_group.setVisible(True)
-    
-    def _run_as_admin(self):
-        """Restart the application as administrator."""
-        try:
-            from .utils import restart_as_admin
-            
-            reply = QMessageBox.question(
-                self,
-                "Restart as Administrator",
-                "PCLink will restart with administrator privileges to complete the setup.\n\n"
-                "Continue?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
-            
-            if reply == QMessageBox.Yes:
-                # Mark that we're in setup mode for the restarted instance
-                import os
-                os.environ['PCLINK_SETUP_MODE'] = '1'
-                restart_as_admin()
-                # This will exit the current process
-                
-        except Exception as e:
-            log.error(f"Failed to restart as admin: {e}")
-            QMessageBox.critical(
-                self,
-                "Restart Failed",
-                f"Could not restart as administrator: {e}\n\n"
-                f"You can continue with limited functionality or restart PCLink manually as administrator."
-            )
-    
-    def _finish_setup(self):
-        """Complete the setup process."""
-        try:
-            # Save port configuration
-            selected_port = self.port_spinbox.value()
-            save_config_value(constants.PORT_FILE, str(selected_port))
-            
-            # Configure auto-start
-            if self.auto_start_checkbox.isChecked():
-                self._configure_auto_start()
-            
-            # Mark setup as completed
-            setup_completed_file = constants.APP_DATA_PATH / ".setup_completed"
-            setup_completed_file.write_text("1")
-            
-            # Create a custom success message box
-            success_msg = QMessageBox(self)
-            success_msg.setWindowTitle("Setup Complete!")
-            success_msg.setIcon(QMessageBox.Information)
-            success_msg.setText("🎉 PCLink is ready to use!")
-            
-            details = f"Configuration:\n"
-            details += f"• Server running on port {selected_port}\n"
-            details += f"• Auto-start: {'Enabled' if self.auto_start_checkbox.isChecked() else 'Disabled'}\n\n"
-            details += f"Next steps:\n"
-            details += f"• Download the PCLink mobile app\n"
-            details += f"• Scan the QR code to connect your device\n"
-            details += f"• Start controlling your PC remotely!"
-            
-            success_msg.setInformativeText(details)
-            success_msg.setStandardButtons(QMessageBox.Ok)
-            success_msg.setStyleSheet("""
-                QMessageBox {
-                    background-color: #3a3b3c;
-                }
-                QMessageBox QLabel {
-                    color: #e0e0e0;
-                    font-size: 14px;
-                }
-            """)
-            success_msg.exec()
-            
-            self.accept()
-            
-        except Exception as e:
-            log.error(f"Setup completion failed: {e}", exc_info=True)
-            QMessageBox.critical(
-                self,
-                "Setup Failed",
-                f"Failed to complete setup: {e}"
-            )
-    
-    def _configure_auto_start(self):
-        """Configure auto-start with Windows."""
-        try:
-            from .utils import get_startup_manager
-            import sys
-            from pathlib import Path
-            
-            startup_manager = get_startup_manager()
-            exe_path = Path(sys.executable).resolve()
-            startup_manager.add(constants.APP_NAME, exe_path)
-            log.info("Auto-start configured successfully")
-        except Exception as e:
-            log.error(f"Failed to configure auto-start: {e}")
-            QMessageBox.warning(
-                self,
-                "Auto-start Configuration Failed",
-                f"Could not configure auto-start: {e}\n\n"
-                f"You can manually add PCLink to Windows startup later."
-            )
+        return True
+        
+    except Exception as e:
+        log.error(f"Setup completion failed: {e}", exc_info=True)
+        return False
     
 
 
@@ -708,6 +230,64 @@ def should_show_setup_guide() -> bool:
 
 
 def show_setup_guide(parent=None) -> bool:
-    """Show the setup guide dialog."""
-    dialog = SetupGuideDialog(parent)
-    return dialog.exec() == QDialog.Accepted
+    """Run the console-based setup guide."""
+    print("\n" + "="*60)
+    print("🎉 Welcome to PCLink!")
+    print("="*60)
+    print("Quick setup to get you connected\n")
+    
+    # Run system checks
+    print("Running system checks...")
+    results = run_setup_checks()
+    
+    # Analyze results
+    system = results.get('system', {})
+    ports = results.get('ports', {})
+    firewall = results.get('firewall', {})
+    has_admin = results.get('admin', False)
+    
+    # Check for critical issues
+    if not system.get('meets_requirements', True):
+        print("❌ System requirements not met:")
+        for issue in system.get('issues', []):
+            print(f"   • {issue}")
+        return False
+    
+    # Find available port
+    available_ports = [port for port, info in ports.items() if info.get('available', False)]
+    
+    if available_ports:
+        recommended_port = min(available_ports)
+        if recommended_port != constants.DEFAULT_PORT:
+            print(f"ℹ️  Using port {recommended_port} (default port was busy)")
+    else:
+        print("⚠️  Default port is busy - finding alternative...")
+        # Find a random available port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(('', 0))
+            recommended_port = s.getsockname()[1]
+        print(f"ℹ️  Using port {recommended_port}")
+    
+    # Check firewall
+    if firewall.get('enabled', False) and not has_admin and sys.platform == 'win32':
+        print("⚠️  Windows Firewall is enabled - you may need administrator privileges")
+        print("   for optimal security configuration.")
+    
+    print("\n" + "-"*60)
+    print("Configuration:")
+    print(f"• Server port: {recommended_port}")
+    print("• Auto-start: Enabled")
+    print("-"*60)
+    
+    # Complete setup
+    if complete_setup(port=recommended_port, enable_auto_start=True):
+        print("\n✅ Setup completed successfully!")
+        print("\nNext steps:")
+        print("• Download the PCLink mobile app")
+        print("• Scan the QR code to connect your device")
+        print("• Start controlling your PC remotely!")
+        print("\n" + "="*60 + "\n")
+        return True
+    else:
+        print("\n❌ Setup failed. Please check the logs for details.")
+        return False

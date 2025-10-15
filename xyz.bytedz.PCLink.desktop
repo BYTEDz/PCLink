@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=PCLink
+Comment=Remote PC Control and File Management
+Exec=pclink
+Icon=xyz.bytedz.PCLink
+Terminal=false
+Type=Application
+Categories=Network;RemoteAccess;FileManager;
+StartupNotify=true
+StartupWMClass=PCLink
+Keywords=remote;control;file;management;mobile;

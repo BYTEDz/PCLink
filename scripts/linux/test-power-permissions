@@ -1,0 +1,42 @@
+#!/bin/bash
+# Test script to check if power commands will work
+
+echo "Testing PCLink power command permissions..."
+echo ""
+
+# Check if user is in plugdev group
+if groups | grep -q plugdev; then
+    echo "✓ User is in plugdev group"
+else
+    echo "✗ User is NOT in plugdev group"
+    echo "  Fix: sudo usermod -a -G plugdev $USER && newgrp plugdev"
+fi
+
+# Check if sudoers file exists
+if [ -f "/etc/sudoers.d/pclink" ]; then
+    echo "✓ PCLink sudoers file exists"
+else
+    echo "✗ PCLink sudoers file missing"
+fi
+
+# Check if power wrapper exists
+if [ -f "/usr/bin/pclink-power-wrapper" ]; then
+    echo "✓ Power wrapper script exists"
+else
+    echo "✗ Power wrapper script missing"
+fi
+
+# Test sudo access to systemctl
+echo ""
+echo "Testing sudo access to power commands..."
+if sudo -n systemctl --version >/dev/null 2>&1; then
+    echo "✓ Can run systemctl with sudo"
+else
+    echo "⚠ Cannot run systemctl with sudo (may require password)"
+fi
+
+echo ""
+echo "If power commands don't work:"
+echo "1. Log out and log back in"
+echo "2. Or run: newgrp plugdev"
+echo "3. Test with: pclink-power-wrapper suspend"

@@ -4,19 +4,19 @@ PCLink - Version Information
 This file serves as the single source of truth for the application's version.
 """
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __app_name__ = "PCLink"
 
 class VersionInfo:
     def __init__(self, version_str):
         self.version = version_str
-        self.copyright = "Copyright © 2025 AZHAR ZOUHIR / BYTEDz"
+        self.copyright = "Copyright © 2025 Azhar Zouhir / BYTEDz"
         self.description = "Remote PC Control Server"
         self.license_info = "GNU Affero General Public License v3 or later"
         self.license = "GNU Affero General Public License v3 or later"  # Alias for license_info
         self.company = "BYTEDz"
         self.product_name = "PCLink"
-        self.author = "AZHAR ZOUHIR / BYTEDz"
+        self.author = "Azhar Zouhir / BYTEDz"
         self.url = "https://github.com/BYTEDz/PCLink"
 
     @property
