@@ -39,7 +39,7 @@ jobs:
             build-essential \
             ruby ruby-dev rubygems \
             dpkg-dev rpm \
-            python3-gi python3-gi-dev \
+            python3-gi \
             libgirepository1.0-dev libcairo2-dev pkg-config \
             gir1.2-gtk-3.0 gir1.2-appindicator3-0.1
 
