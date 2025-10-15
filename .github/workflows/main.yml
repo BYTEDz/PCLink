@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch: # <-- ADD THIS LINE
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,11 +15,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-22.04, windows-2022]
+        os: [ubuntu-22.04, windows-2022] # <-- Corrected back to 2022
         include:
           - os: ubuntu-22.04
             artifact_name: PCLink-Linux
-          - os: windows-2022
+          - os: windows-2022 # <-- Corrected back to 2022
             artifact_name: PCLink-Windows
     steps:
       - name: Check out repository
@@ -30,6 +30,11 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+
+      - name: 🧪 Verify Workflow Version (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "DEBUG: Running the workflow with the apt-get fix."
 
       - name: Install System Dependencies (Linux)
         if: runner.os == 'Linux'
