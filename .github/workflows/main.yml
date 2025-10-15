@@ -95,6 +95,11 @@ jobs:
           echo "Build tools:"
           dpkg --version
 
+      - name: Build Python wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel --outdir releases/
+
       - name: Build Linux DEB package
         run: python scripts/build_fpm.py
 
