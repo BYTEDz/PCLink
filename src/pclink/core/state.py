@@ -24,39 +24,7 @@ from typing import Dict, Any, Callable, List
 connected_devices = {}
 _device_lock = threading.RLock()
 
-# Event callbacks for device state changes
-_device_callbacks: List[Callable] = []
-_pairing_callbacks: List[Callable[[str, str, str], None]] = []
-
-
-def add_device_callback(callback: Callable):
-    """Add a callback to be called when device list is updated."""
-    _device_callbacks.append(callback)
-
-
-def add_pairing_callback(callback: Callable[[str, str, str], None]):
-    """Add a callback to be called when a pairing request is received."""
-    _pairing_callbacks.append(callback)
-
-
-def emit_device_list_updated():
-    """Notify all callbacks that the device list has been updated."""
-    for callback in _device_callbacks:
-        try:
-            callback()
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Error in device callback: {e}")
-
-
-def emit_pairing_request(pairing_id: str, device_name: str, device_id: str):
-    """Notify all callbacks about a pairing request."""
-    for callback in _pairing_callbacks:
-        try:
-            callback(pairing_id, device_name, device_id)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f"Error in pairing callback: {e}")
+# Legacy Qt callback system removed - using WebSocket notifications only
 
 
 # Controller reference for API access

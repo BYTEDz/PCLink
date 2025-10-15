@@ -81,19 +81,7 @@ def run_preflight_checks():
         return False
 
 # ... (rest of the file is unchanged)
-def get_app_data_path(app_name: str) -> Path:
-    """
-    Returns the platform-specific application data directory path.
 
-    This function does NOT create the directory.
-    """
-    if sys.platform == "win32":
-        path = Path(os.environ["APPDATA"]) / app_name
-    elif sys.platform == "darwin":
-        path = Path.home() / "Library" / "Application Support" / app_name
-    else:
-        path = Path.home() / ".config" / app_name
-    return path
 
 
 def is_admin() -> bool:

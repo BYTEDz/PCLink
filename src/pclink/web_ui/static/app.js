@@ -21,7 +21,7 @@ class PCLinkWebUI {
         await this.loadApiKey();
         this.updateConnectionStatus();
         this.loadServerStatus();
-        this.connectWebSocket();
+        this.connectWebSocket(); // This will now connect to the correct endpoint
 
 
         setInterval(() => {
@@ -355,7 +355,7 @@ class PCLinkWebUI {
             console.error('Network info error:', error);
             const basicInfo = {
                 ip: window.location.hostname,
-                port: window.location.port || '8000',
+                port: window.location.port || '38080',
                 protocol: window.location.protocol.replace(':', '')
             };
             this.displayNetworkInfo(basicInfo);
@@ -409,7 +409,7 @@ class PCLinkWebUI {
         const portElement = document.getElementById('serverPort');
         const versionElement = document.getElementById('serverVersion');
 
-        if (portElement) portElement.textContent = window.location.port || '8000';
+        if (portElement) portElement.textContent = window.location.port || '38080';
         if (versionElement) versionElement.textContent = '2.0.0';
 
         try {
@@ -512,22 +512,18 @@ class PCLinkWebUI {
         this.connectedDevices = this.devices;
     }
 
+    // --- START: MODIFIED SECTION ---
     connectWebSocket() {
-        if (!this.apiKey) {
-            console.warn('No API key available for WebSocket connection');
-            return;
-        }
-
+        // Connect to the dedicated Web UI WebSocket endpoint, which uses cookie auth.
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws?token=${this.apiKey}`;
+        const wsUrl = `${protocol}//${window.location.host}/ws/ui`;
 
         try {
             this.websocket = new WebSocket(wsUrl);
 
             this.websocket.onopen = () => {
-                console.log('WebSocket connected');
-                // WebSocket connection indicates server is online
-                this.updateConnectionStatus();
+                console.log('Web UI WebSocket connected');
+                this.updateConnectionStatus(); // Update status to 'Online'
             };
 
             this.websocket.onmessage = (event) => {
@@ -540,9 +536,7 @@ class PCLinkWebUI {
             };
 
             this.websocket.onclose = (event) => {
-                console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
-
-                // Update connection status to offline when WebSocket closes
+                console.log('Web UI WebSocket disconnected, code:', event.code, 'reason:', event.reason);
                 const statusElement = document.getElementById('connectionStatus');
                 if (statusElement) {
                     const statusPulse = statusElement.querySelector('.status-pulse');
@@ -553,34 +547,40 @@ class PCLinkWebUI {
                         statusValue.textContent = 'Disconnected';
                     }
                 }
-
                 // Try to reconnect after 5 seconds
                 setTimeout(() => this.connectWebSocket(), 5000);
             };
 
             this.websocket.onerror = (error) => {
-                console.error('WebSocket error:', error);
-                // Update connection status on WebSocket error
-                this.updateConnectionStatus();
+                console.error('Web UI WebSocket error:', error);
+                this.updateConnectionStatus(); // Check status on error
             };
         } catch (error) {
-            console.error('WebSocket connection failed:', error);
+            console.error('Web UI WebSocket connection failed:', error);
         }
     }
 
     handleWebSocketMessage(data) {
+        console.log("WebSocket message received:", data); // Debug log for all messages
         switch (data.type) {
             case 'pairing_request':
                 this.handlePairingRequest(data.data);
                 break;
-            case 'update':
-                console.log('Update received:', data.data);
-                break;
             case 'notification':
                 this.showNotification(data.data);
                 break;
+            case 'server_status':
+                console.log("Received server status update:", data.status);
+                const isOnline = data.status === 'running' || data.status === 'starting' || data.status === 'restarting';
+                this.updateConnectionStatusFromServerState({ mobile_api_enabled: isOnline });
+                break;
+            // The 'update' case was empty, it's good practice to remove it or log it
+            case 'update':
+                console.log('Ignoring generic "update" message:', data.data);
+                break;
         }
     }
+    // --- END: MODIFIED SECTION ---
 
     handlePairingRequest(requestData) {
         this.pendingPairingRequest = requestData;
@@ -595,7 +595,7 @@ class PCLinkWebUI {
         if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('PCLink Pairing Request', {
                 body: `${requestData.device_name} wants to connect`,
-                icon: '/ui/static/icon.png'
+                icon: '/ui/static/icon.png' // Ensure this path is correct
             });
         }
     }
@@ -728,7 +728,7 @@ class PCLinkWebUI {
                 const allowInsecureShell = document.getElementById('allowInsecureShell');
                 const autoOpenWebUI = document.getElementById('autoOpenWebUI');
 
-                if (serverPortInput) serverPortInput.value = window.location.port || '8000';
+                if (serverPortInput) serverPortInput.value = window.location.port || '38080';
                 if (autoStartCheckbox) autoStartCheckbox.checked = settings.auto_start || false;
                 if (allowInsecureShell) allowInsecureShell.checked = settings.allow_insecure_shell || false;
                 if (autoOpenWebUI) autoOpenWebUI.checked = settings.auto_open_webui !== false;
@@ -736,7 +736,7 @@ class PCLinkWebUI {
         } catch (error) {
             console.error('Failed to load settings:', error);
             const serverPortInput = document.getElementById('serverPortInput');
-            if (serverPortInput) serverPortInput.value = window.location.port || '8000';
+            if (serverPortInput) serverPortInput.value = window.location.port || '38080';
         }
     }
 
@@ -938,9 +938,9 @@ async function approvePairing() {
         const response = await fetch('/pairing/approve', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'X-API-Key': window.pclinkUI.apiKey
+                'Content-Type': 'application/json'
             },
+            credentials: 'include', // Use cookie-based auth
             body: JSON.stringify({
                 pairing_id: window.pclinkUI.pendingPairingRequest.pairing_id,
                 approved: true
@@ -972,9 +972,9 @@ async function denyPairing() {
         const response = await fetch('/pairing/deny', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'X-API-Key': window.pclinkUI.apiKey
+                'Content-Type': 'application/json'
             },
+            credentials: 'include', // Use cookie-based auth
             body: JSON.stringify({
                 pairing_id: window.pclinkUI.pendingPairingRequest.pairing_id,
                 approved: false

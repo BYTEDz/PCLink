@@ -572,7 +572,7 @@ echo "  1. Log out and log back in (to apply group permissions)"
 echo "  2. Or run: newgrp plugdev"
 echo "  3. Test with: test-power-permissions"
 echo ""
-echo "Web interface: https://localhost:8000/ui/"
+echo "Web interface: https://localhost:38080/ui/"
 """
         
         postinst_path = scripts_dir / "postinst"

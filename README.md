@@ -138,7 +138,7 @@ test-power-permissions
 ```
 
 ### 🔧 First Time Setup
-1. **Set Web UI Password**: Access https://localhost:8000/ui/ and create a password
+1. **Set Web UI Password**: Access https://localhost:38080/ui/ and create a password
 2. **Pair Mobile Device**: Scan the QR code with the PCLink mobile app
 3. **Configure Startup**: Enable "Start with system" in web UI settings
 

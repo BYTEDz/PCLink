@@ -17,18 +17,33 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
+import os
 import sys
 from pathlib import Path
 
-from .utils import get_app_data_path
 from .version import __app_name__
+
+
+def get_app_data_path(app_name: str) -> Path:
+    """
+    Returns the platform-specific application data directory path.
+
+    This function does NOT create the directory.
+    """
+    if sys.platform == "win32":
+        path = Path(os.environ["APPDATA"]) / app_name
+    elif sys.platform == "darwin":
+        path = Path.home() / "Library" / "Application Support" / app_name
+    else:
+        path = Path.home() / ".config" / app_name
+    return path
 
 # --- Application Metadata ---
 APP_NAME = __app_name__
 APP_AUMID = "BYTEDz.PCLink" # AppUserModelID for Windows notifications
 
 # --- Core Application Settings ---
-DEFAULT_PORT = 8000
+DEFAULT_PORT = 38080
 DEVICE_TIMEOUT = 300  # in seconds
 
 # --- File Names ---

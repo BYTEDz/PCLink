@@ -31,12 +31,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ..core import constants
-from ..core.web_auth import web_auth_manager
 from ..core.device_manager import device_manager
-from ..core.state import emit_pairing_request
 from ..core.utils import get_cert_fingerprint
 from ..core.validators import ValidationError, validate_api_key
-from .file_browser import download_router, router as file_browser_router, upload_router
+from ..core.web_auth import web_auth_manager
+from ..web_ui.router import create_web_ui_router
+from .file_browser import (download_router, router as file_browser_router,
+                           upload_router)
 from .info_router import router as info_router
 from .input_router import router as input_router
 from .media_router import router as media_router
@@ -47,7 +48,6 @@ from .services import (NetworkMonitor, button_map, get_media_info_data,
 from .system_router import router as system_router
 from .terminal import create_terminal_router
 from .utils_router import router as utils_router
-from ..web_ui.router import create_web_ui_router
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +77,7 @@ def handle_mouse_command(data: Dict[str, Any]):
         elif action == "up": mouse_controller.release(button)
         elif action == "scroll": mouse_controller.scroll(data.get("dx", 0), data.get("dy", 0))
     except Exception as e: log.error(f"Error executing mouse command '{action}': {e}")
+
 def handle_keyboard_command(data: Dict[str, Any]):
     try:
         if text := data.get("text"):
@@ -102,7 +103,7 @@ class ConnectionManager:
             except Exception: self.disconnect(connection)
 
 # --- FastAPI App Factory ---
-def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_insecure_shell: bool) -> FastAPI:
+def create_api_app(api_key: str, controller_instance, connected_devices: Dict, allow_insecure_shell: bool) -> FastAPI:
     app = FastAPI(title="PCLink API", version="8.9.0", docs_url=None, redoc_url=None)
     
     mobile_manager = ConnectionManager()
@@ -110,6 +111,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
     
     server_api_key = validate_api_key(api_key)
     network_monitor = NetworkMonitor()
+    controller = controller_instance
 
     async def verify_api_key(x_api_key: str = Header(None), request: Request = None):
         if not x_api_key: raise HTTPException(status_code=403, detail="Missing API Key")
@@ -132,15 +134,15 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
         if not web_auth_manager.validate_session(session_token, client_ip): raise HTTPException(status_code=401, detail="Invalid or expired session")
         return True
 
+    # --- THIS IS THE FIX ---
+    # This dependency function is now an inner function that correctly
+    # captures the live 'controller' instance from the outer scope.
     def verify_mobile_api_enabled():
-        # signal_emitter is now the controller instance in headless mode
-        controller = signal_emitter
-        if controller and hasattr(controller, 'mobile_api_enabled'):
-            if not getattr(controller, 'mobile_api_enabled', True): 
-                raise HTTPException(status_code=503, detail="Mobile API is currently disabled")
+        if not (controller and hasattr(controller, 'mobile_api_enabled') and controller.mobile_api_enabled):
+            log.warning("Mobile API endpoint accessed but API is disabled. (Setup not complete?)")
+            raise HTTPException(status_code=503, detail="Mobile API is currently disabled.")
         return True
     
-    PROTECTED = Depends(verify_api_key)
     WEB_AUTH = Depends(verify_web_session)
     MOBILE_API = [Depends(verify_api_key), Depends(verify_mobile_api_enabled)]
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -148,9 +150,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
     terminal_router = create_terminal_router(server_api_key, allow_insecure_shell)
     
     try:
-        # --- THIS IS THE ONE-LINE FIX ---
-        web_ui_router = create_web_ui_router(app)  # Pass the `app` instance here
-        # ---
+        web_ui_router = create_web_ui_router(app)
         app.include_router(web_ui_router, prefix="/ui")
         log.info("Web UI enabled at /ui/")
     except Exception as e:
@@ -173,7 +173,8 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
     app.state.api_key = server_api_key
 
     @app.on_event("startup")
-    async def startup_event(): asyncio.create_task(broadcast_updates_task(mobile_manager, app.state, network_monitor))
+    async def startup_event(): 
+        asyncio.create_task(broadcast_updates_task(mobile_manager, app.state, network_monitor))
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
@@ -208,8 +209,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
         log.info("Web UI client connected to WebSocket.")
         
         try:
-            controller = signal_emitter
-            is_enabled = getattr(controller, 'mobile_api_enabled', True) if controller else True
+            is_enabled = getattr(controller, 'mobile_api_enabled', False) if controller else False
             initial_status = "running" if is_enabled else "stopped"
             await websocket.send_json({"type": "server_status", "status": initial_status})
             log.info(f"Sent initial status '{initial_status}' to new UI client.")
@@ -221,7 +221,8 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
         except WebSocketDisconnect: log.info("Web UI client disconnected from WebSocket.")
         finally: ui_manager.disconnect(websocket)
 
-    @app.post("/pairing/request")
+    # The pairing request must also check if the API is enabled before proceeding.
+    @app.post("/pairing/request", dependencies=[Depends(verify_mobile_api_enabled)])
     async def request_pairing(payload: PairingRequestPayload, request: Request):
         pairing_id = str(uuid.uuid4())
         try:
@@ -231,10 +232,10 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
             if not payload.device_name or not payload.device_name.strip(): raise HTTPException(status_code=400, detail="Device name is required.")
             device = device_manager.register_device(device_id=device_id, device_name=payload.device_name, device_fingerprint=payload.device_fingerprint or "", platform=payload.platform or "", client_version=payload.client_version or "", current_ip=client_ip)
             pairing_results[pairing_id] = {"device": device, "approved": False}
-            emit_pairing_request(pairing_id, payload.device_name, device_id)
             
             pairing_notification = { "type": "pairing_request", "data": { "pairing_id": pairing_id, "device_name": payload.device_name, "device_id": device_id, "ip": client_ip, "platform": payload.platform, "client_version": payload.client_version } }
             await mobile_manager.broadcast(pairing_notification)
+            await ui_manager.broadcast(pairing_notification)
             try: await asyncio.wait_for(event.wait(), timeout=60.0)
             except asyncio.TimeoutError: raise HTTPException(status_code=408, detail="Pairing request timed out.")
             if pairing_results.get(pairing_id, {}).get("approved", False):
@@ -252,20 +253,21 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
     def read_root():
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/ui/")
-    
-    # ... (All other endpoints remain the same) ...
 
     @app.get("/api")
     def api_root(): return {"message": "PCLink API is running."}
+
     @app.get("/ping", dependencies=MOBILE_API)
     async def ping(): return {"status": "pong"}
+
     @app.get("/status")
     async def server_status(): 
-        controller = signal_emitter
-        mobile_api_enabled = getattr(controller, 'mobile_api_enabled', True) if controller else True
-        return { "status": "running", "server_running": mobile_api_enabled, "web_ui_running": True, "mobile_api_enabled": mobile_api_enabled, "version": "2.0.0", "port": app.state.host_port if hasattr(app.state, 'host_port') else 8000 }
+        mobile_api_enabled = getattr(controller, 'mobile_api_enabled', False) if controller else False
+        return { "status": "running", "server_running": mobile_api_enabled, "web_ui_running": True, "mobile_api_enabled": mobile_api_enabled, "version": "2.0.0", "port": app.state.host_port if hasattr(app.state, 'host_port') else 38080 }
+    
     @app.get("/auth/status")
     async def auth_status(): return web_auth_manager.get_session_info()
+    
     @app.get("/auth/check")
     async def check_session(request: Request):
         session_token = request.cookies.get("pclink_session")
@@ -273,12 +275,19 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
         if not session_token: return {"authenticated": False, "reason": "No session token"}
         if not web_auth_manager.validate_session(session_token, client_ip): return {"authenticated": False, "reason": "Invalid or expired session"}
         return {"authenticated": True, "session_valid": True}
+    
     @app.post("/auth/setup")
     async def setup_password(payload: SetupPasswordPayload):
         if web_auth_manager.is_setup_completed(): raise HTTPException(status_code=400, detail="Setup already completed")
         if len(payload.password) < 8: raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
         if not web_auth_manager.setup_password(payload.password): raise HTTPException(status_code=400, detail="Failed to setup password")
+        
+        # After successful setup, activate the mobile API and discovery service.
+        if controller and hasattr(controller, 'activate_secure_mode'):
+            controller.activate_secure_mode()
+
         return {"status": "success", "message": "Password setup completed"}
+    
     @app.post("/auth/login")
     async def login(payload: LoginPayload, request: Request):
         session_token = web_auth_manager.create_session(payload.password)
@@ -287,6 +296,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
         response = JSONResponse({ "status": "success", "message": "Login successful", "session_token": session_token, "redirect": "/ui/" })
         response.set_cookie(key="pclink_session", value=session_token, max_age=24*60*60, httponly=True, secure=False, samesite="lax", path="/")
         return response
+    
     @app.post("/auth/logout")
     async def logout(request: Request):
         session_token = request.cookies.get("pclink_session")
@@ -295,11 +305,13 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
         response = JSONResponse({"status": "success", "message": "Logged out"})
         response.delete_cookie("pclink_session")
         return response
+    
     @app.post("/auth/change-password", dependencies=[WEB_AUTH])
     async def change_password(payload: ChangePasswordPayload):
         if len(payload.new_password) < 8: raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
         if not web_auth_manager.change_password(payload.old_password, payload.new_password): raise HTTPException(status_code=400, detail="Invalid old password")
         return {"status": "success", "message": "Password changed successfully"}
+    
     @app.get("/devices", dependencies=[WEB_AUTH])
     async def get_connected_devices():
         devices = []
@@ -308,6 +320,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
         for ip, device_info in connected_devices.items():
             if not any(d["ip"] == ip for d in devices): devices.append({ "id": ip, "name": device_info.get("name", "Unknown Device"), "ip": ip, "platform": "Unknown", "last_seen": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(device_info.get("last_seen", 0))), "client_version": "Unknown" })
         return {"devices": devices}
+    
     @app.post("/devices/remove-all", dependencies=[WEB_AUTH])
     async def remove_all_devices():
         try:
@@ -318,6 +331,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
             log.info(f"Removed {removed_count} devices via web UI")
             return {"status": "success", "removed_count": removed_count}
         except Exception as e: log.error(f"Failed to remove all devices: {e}"); raise HTTPException(status_code=500, detail="Failed to remove devices")
+    
     @app.get("/updates/check")
     async def check_for_updates():
         try:
@@ -334,6 +348,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
                 return { "update_available": update_available, "current_version": current_version, "latest_version": latest_version, "download_url": release_data.get("html_url"), "release_notes": release_data.get("body", "")[:500] }
             else: return {"update_available": False, "error": "Failed to check for updates"}
         except Exception as e: log.error(f"Update check failed: {e}"); return {"update_available": False, "error": str(e)}
+    
     @app.post("/notifications/show", dependencies=[WEB_AUTH])
     async def show_system_notification(request: Request):
         try:
@@ -343,19 +358,17 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
                 app.state.tray_manager.show_notification(title, message); return {"status": "success", "message": "Notification sent"}
             else: return {"status": "error", "message": "System notifications not available"}
         except Exception as e: log.error(f"Failed to show system notification: {e}"); return {"status": "error", "message": str(e)}
+    
     @app.post("/settings/save", dependencies=[WEB_AUTH])
     async def save_server_settings(request: Request):
         try:
             data = await request.json()
             from ..core.config import config_manager
             
-            # Handle auto_start setting with actual startup manager integration
             if "auto_start" in data:
                 auto_start_enabled = data["auto_start"]
                 config_manager.set("auto_start", auto_start_enabled)
                 
-                # Apply the startup setting using the controller's startup manager
-                controller = signal_emitter
                 if controller and hasattr(controller, 'startup_manager'):
                     try:
                         import sys
@@ -363,10 +376,8 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
                         from ..core import constants
                         
                         if getattr(sys, "frozen", False):
-                            # Running as PyInstaller executable
                             app_path = Path(sys.executable)
                         else:
-                            # Running as Python script
                             app_path = Path(sys.executable)
                         
                         if auto_start_enabled:
@@ -383,12 +394,14 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
             log.info("Server settings updated via web UI")
             return {"status": "success", "message": "Settings saved successfully"}
         except Exception as e: log.error(f"Failed to save settings: {e}"); return {"status": "error", "message": str(e)}
+    
     @app.get("/settings/load", dependencies=[WEB_AUTH])
     async def load_server_settings():
         try:
             from ..core.config import config_manager
             return { "auto_start": config_manager.get("auto_start", False), "allow_insecure_shell": config_manager.get("allow_insecure_shell", False), "auto_open_webui": config_manager.get("auto_open_webui", True) }
         except Exception as e: log.error(f"Failed to load settings: {e}"); return {"status": "error", "message": str(e)}
+    
     @app.get("/logs", dependencies=[WEB_AUTH])
     async def get_server_logs():
         try:
@@ -400,6 +413,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
                     return {"logs": ''.join(recent_lines), "lines": len(recent_lines)}
             else: return {"logs": "No log file found", "lines": 0}
         except Exception as e: return {"logs": f"Error reading logs: {str(e)}", "lines": 0}
+    
     @app.post("/logs/clear", dependencies=[WEB_AUTH])
     async def clear_server_logs():
         try:
@@ -409,6 +423,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
                 return {"status": "success", "message": "Logs cleared"}
             else: return {"status": "error", "message": "No log file found"}
         except Exception as e: return {"status": "error", "message": f"Error clearing logs: {str(e)}"}
+    
     @app.get("/qr-payload", response_model=QrPayload)
     async def get_qr_payload():
         fingerprint = get_cert_fingerprint(constants.CERT_FILE)
@@ -420,6 +435,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
             try: local_ip = socket.gethostbyname(socket.gethostname())
             except Exception: local_ip = "127.0.0.1"
         return QrPayload(protocol="https", ip=local_ip, port=app.state.host_port, apiKey=app.state.api_key, certFingerprint=fingerprint)
+    
     @app.post("/pairing/approve")
     async def approve_pairing(request: Request):
         data = await request.json(); pairing_id = data.get("pairing_id"); approved = data.get("approved", False)
@@ -428,6 +444,7 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
             if event := pairing_events.get(pairing_id): event.set()
             return {"status": "success", "approved": approved}
         else: raise HTTPException(status_code=404, detail="Pairing request not found")
+    
     @app.post("/pairing/deny")
     async def deny_pairing(request: Request):
         data = await request.json(); pairing_id = data.get("pairing_id")
@@ -436,24 +453,22 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
             if event := pairing_events.get(pairing_id): event.set()
             return {"status": "success", "approved": False}
         else: raise HTTPException(status_code=404, detail="Pairing request not found")
+    
     @app.post("/announce", dependencies=MOBILE_API)
     async def announce_device(request: Request, payload: AnnouncePayload):
         client_ip = request.client.host
         is_new = client_ip not in connected_devices
         connected_devices[client_ip] = {"last_seen": time.time(), "name": payload.name, "ip": client_ip}
-        if signal_emitter and hasattr(signal_emitter, 'device_list_updated'):
-            signal_emitter.device_list_updated.emit()
         if is_new:
             log.info(f"New device connected: {payload.name} ({client_ip})")
             notification_payload = {"type": "notification", "data": {"title": "Device Connected", "message": f"{payload.name} ({client_ip}) has connected.", "timestamp": datetime.now(timezone.utc).isoformat()}}
             await mobile_manager.broadcast(notification_payload)
+            await ui_manager.broadcast(notification_payload)
         return {"status": "announced"}
     
-    # --- Server Control Endpoints (Unchanged from previous update) ---
     @app.post("/server/start", dependencies=[WEB_AUTH])
     async def start_server():
         try:
-            controller = signal_emitter
             if controller and hasattr(controller, 'start_server'):
                 await ui_manager.broadcast({"type": "server_status", "status": "starting"})
                 controller.start_server()
@@ -469,7 +484,6 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
     @app.post("/server/stop", dependencies=[WEB_AUTH])
     async def stop_server():
         try:
-            controller = signal_emitter
             if controller and hasattr(controller, 'stop_server'):
                 await ui_manager.broadcast({"type": "server_status", "status": "stopping"})
                 controller.stop_server()
@@ -485,7 +499,6 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
     @app.post("/server/restart", dependencies=[WEB_AUTH])
     async def restart_server():
         try:
-            controller = signal_emitter
             if controller and hasattr(controller, 'stop_server') and hasattr(controller, 'start_server'):
                 await ui_manager.broadcast({"type": "server_status", "status": "restarting"})
                 
@@ -513,19 +526,16 @@ def create_api_app(api_key: str, signal_emitter, connected_devices: Dict, allow_
             def do_shutdown():
                 try:
                     log.info("Executing shutdown sequence...")
-                    controller = signal_emitter
                     if controller and hasattr(controller, 'stop_server_completely'):
                         log.info("Stopping server completely...")
                         controller.stop_server_completely()
                     else:
                         log.warning("Controller not available or missing stop_server_completely method")
                 finally:
-                    # Use the same forceful exit as the system tray
                     log.info("Forcing application exit...")
                     import os
                     os._exit(0)
             
-            # Use threading timer like the tray does
             import threading
             log.info("Starting shutdown timer...")
             threading.Timer(0.5, do_shutdown).start()

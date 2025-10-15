@@ -257,7 +257,7 @@ class SystemTrayManager:
         log.info("Tray: Open Web UI clicked")
         try:
             real_controller = self._get_real_controller()
-            port = real_controller.get_port() if real_controller else 8000
+            port = real_controller.get_port() if real_controller else 38080
             url = f'https://localhost:{port}/'
             webbrowser.open(url)
         except Exception as e:

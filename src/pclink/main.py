@@ -87,16 +87,6 @@ def main() -> int:
     
     try:
         main_component = HeadlessApp()
-        
-        # Show setup guide if needed (for non-headless mode)
-        if not is_headless_mode_request:
-            from .core.setup_guide import should_show_setup_guide, show_setup_guide
-            if should_show_setup_guide():
-                if show_setup_guide(main_component):
-                    log.info("Setup guide completed successfully")
-                else:
-                    log.warning("Setup guide was cancelled or failed")
-        
         return main_component.run()
         
     except Exception as e:

@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [2.2.0] - 2025-10-15
+
+## Bug Fixes
+
+-   Fix: WebUI now correctly handles WebSocket disconnections and attempts to reconnect.
+-   Fix: WebUI WebSocket connection now uses the `/ws/ui` endpoint with cookie-based authentication.
+-   Fix: Removed Qt specific logic.
+-   Fix: WebUI pairing request notification.
+-   Fix: Removed API Key from wsUrl.
+-   Fix: Ensure 'mobile_api_enabled' setting in server status.
+-   Fix: Correct WebUI port display.
+
+## Enhancements
+
+-   Feature: Secure mode enabled after setup password creation.
+-   Enhance: Mobile API and discovery only activate after initial password setup.
+-   Enhance: Clearer headless startup messages.
+-   Refactor: Removed legacy Qt callbacks
+-   Refactor: The `HeadlessApp` now directly uses the `Controller` for server management.
+-   Refactor: Restructured headless mode and startup sequence.
+-   Refactor: Removed controller reference from `api.py`.
+-   Refactor: Enhanced headless mode to use web-ui and system tray.
+-   Refactor: Removed legacy qt code.
 ## [2.1.0] - 2025-10-15
 
 ### Added
