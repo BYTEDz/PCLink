@@ -56,6 +56,7 @@ jobs:
         with:
           name: PCLink-Windows
           path: releases/
+          compression-level: 0
 
   build-linux:
     name: Build Linux Packages
@@ -112,12 +113,13 @@ jobs:
         with:
           name: PCLink-Linux
           path: releases/
+          compression-level: 0
 
   publish-release:
     name: Publish GitHub Release
     needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
     steps:
@@ -138,19 +140,33 @@ jobs:
 
       - name: Extract Release Notes from CHANGELOG
         run: |
-          TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # For manual triggers, get the latest version from CHANGELOG
+            VERSION=$(grep -m1 "^## \[" CHANGELOG.md | sed 's/^## \[\(.*\)\].*/\1/')
+            TAG="v$VERSION"
+          else
+            # For tag triggers, use the tag
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#v}"
+          fi
+
+          echo "Using TAG: $TAG, VERSION: $VERSION"
+
           NOTES=$(awk -v ver="$VERSION" 'BEGIN{p=0} /^## \['"$VERSION"'\]/{p=1;next} /^## \[/{p=0} p' CHANGELOG.md)
           if [ -z "$NOTES" ]; then
             NOTES="See CHANGELOG.md for details."
           fi
           echo "$NOTES" > RELEASE_NOTES.md
+          echo "TAG=$TAG" >> $GITHUB_ENV
 
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
         run: |
+          # Delete existing release if it exists (for re-uploads)
+          gh release delete "$TAG" --yes || true
+
+          # Create new release
           gh release create "$TAG" ./artifacts/*/* SHA256SUMS.txt \
             --title "Release $TAG" \
             --notes-file RELEASE_NOTES.md
