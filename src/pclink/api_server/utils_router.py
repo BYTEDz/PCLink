@@ -22,7 +22,7 @@ import mss
 import pyperclip
 from fastapi import APIRouter
 from fastapi.responses import Response
-from PIL import Image
+
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -50,7 +50,12 @@ async def get_screenshot():
     """Captures and returns a screenshot of the primary monitor."""
     with mss.mss() as sct:
         sct_img = sct.grab(sct.monitors[1])
-        img = Image.frombytes("RGB", sct_img.size, sct_img.rgb)
-        buffer = BytesIO()
-        img.save(buffer, format="PNG")
+        try:
+            from PIL import Image
+            img = Image.frombytes("RGB", sct_img.size, sct_img.rgb)
+            buffer = BytesIO()
+            img.save(buffer, format="PNG")
+        except ImportError:
+            # Fallback: return error if PIL not available
+            raise HTTPException(status_code=500, detail="PIL not available for screenshot functionality")
         return Response(content=buffer.getvalue(), media_type="image/png")

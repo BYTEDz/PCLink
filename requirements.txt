@@ -18,10 +18,6 @@ pydantic
 pynput>=1.7.6
 pyperclip>=1.8.2
 
-# Image Processing and QR Codes
-Pillow>=10.0.0
-qrcode>=7.4.0
-
 # Security and Networking
 cryptography>=41.0.0
 getmac>=0.9.0

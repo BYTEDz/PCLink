@@ -46,6 +46,14 @@ jobs:
           echo "Build artifacts:"
           if (Test-Path "releases") {
             Get-ChildItem releases\ -Recurse | Format-Table Name, Length
+            
+            # Check if web UI files are included in the build
+            $exeFile = Get-ChildItem releases\ -Recurse -Filter "*.exe" | Select-Object -First 1
+            if ($exeFile) {
+              echo "Found executable: $($exeFile.FullName)"
+              # For PyInstaller builds, web UI files should be embedded
+              echo "Web UI files should be embedded in the executable"
+            }
           } else {
             echo "No releases directory found"
           }
@@ -70,21 +78,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Linux build dependencies
+      - name: Install FPM dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            ruby ruby-dev rubygems build-essential \
-            dpkg-dev rpm
+          sudo apt-get install -y ruby ruby-dev rubygems build-essential dpkg-dev rpm
 
       - name: Install FPM
         run: sudo gem install --no-document fpm
 
-      - name: Install minimal Python dependencies for building
+      - name: Ensure pip is available and install build tools
         run: |
+          # Ensure pip is available
+          python -m ensurepip --upgrade || true
           python -m pip install --upgrade pip
-          # Only install build tools - runtime deps handled by .deb package
-          pip install wheel setuptools
+          pip install wheel setuptools build
 
       - name: Verify build environment
         run: |
@@ -95,13 +102,8 @@ jobs:
           echo "Build tools:"
           dpkg --version
 
-      - name: Build Python wheel
-        run: |
-          python -m pip install build
-          python -m build --wheel --outdir releases/
-
-      - name: Build Linux DEB package
-        run: python scripts/build_fpm.py
+      - name: Build Linux packages with FPM
+        run: python scripts/build.py --format fpm
 
       - name: Verify Linux build outputs
         run: |
@@ -109,6 +111,13 @@ jobs:
           if [ -d "releases" ]; then
             ls -la releases/
             find releases/ -name "*.deb" -o -name "*.rpm"
+            
+            # Verify web UI files are included in the .deb package
+            DEB_FILE=$(find releases/ -name "*.deb" | head -1)
+            if [ -n "$DEB_FILE" ]; then
+              echo "Checking web UI files in $DEB_FILE:"
+              dpkg-deb -c "$DEB_FILE" | grep -E "(web_ui|static)" || echo "No web UI files found in package"
+            fi
           else
             echo "No releases directory found"
           fi

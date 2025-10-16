@@ -309,6 +309,41 @@ def restart_as_admin():
         log.error(f"Failed to execute ShellExecuteW for elevation: {e}")
 
 
+def get_cert_fingerprint(cert_path: Path) -> Optional[str]:
+    """Calculate the SHA-256 fingerprint of a certificate."""
+    if not cert_path.is_file():
+        log.error(f"Certificate file does not exist: {cert_path}")
+        return None
+    
+    try:
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes
+
+        log.debug(f"Reading certificate from: {cert_path}")
+        cert_data = cert_path.read_bytes()
+        
+        if not cert_data:
+            log.error(f"Certificate file is empty: {cert_path}")
+            return None
+        
+        log.debug(f"Loading PEM certificate, size: {len(cert_data)} bytes")
+        cert = x509.load_pem_x509_certificate(cert_data)
+        
+        log.debug("Calculating SHA-256 fingerprint")
+        fingerprint = cert.fingerprint(hashes.SHA256())
+        fingerprint_hex = fingerprint.hex()
+        
+        log.debug(f"Certificate fingerprint calculated: {fingerprint_hex[:16]}...")
+        return fingerprint_hex
+        
+    except ImportError as e:
+        log.error(f"Cryptography library not available: {e}")
+        return None
+    except Exception as e:
+        log.error(f"Error calculating cert fingerprint for {cert_path}: {e}", exc_info=True)
+        return None
+
+
 def generate_self_signed_cert(cert_path: Path, key_path: Path):
     """Generates a self-signed certificate and private key if they don't exist."""
     if cert_path.exists() and key_path.exists():

@@ -337,8 +337,15 @@ class PCLinkWebUI {
             if (lastActivity) {
                 lastActivity.style.display = 'flex';
                 if (this.lastDeviceActivity) {
-                    document.getElementById('lastActivityText').textContent = this.lastDeviceActivity.text;
-                    document.getElementById('lastActivityTime').textContent = this.formatTime(this.lastDeviceActivity.time);
+                    const lastActivityText = document.getElementById('lastActivityText');
+                    const lastActivityTime = document.getElementById('lastActivityTime');
+
+                    if (lastActivityText) {
+                        lastActivityText.textContent = this.lastDeviceActivity.text;
+                    }
+                    if (lastActivityTime) {
+                        lastActivityTime.textContent = this.formatTime(this.lastDeviceActivity.time);
+                    }
                 }
             }
         } else {
@@ -429,15 +436,21 @@ class PCLinkWebUI {
     updateConnectionStatusFromServerState(serverData) {
         // Update single status indicator
         const statusElement = document.getElementById('connectionStatus');
-        const statusDot = statusElement.querySelector('.status-dot');
-        const statusText = statusElement.querySelector('span:last-child');
+        if (!statusElement) return;
 
-        if (serverData.mobile_api_enabled) {
-            statusDot.className = 'status-dot online';
-            statusText.textContent = 'Online';
-        } else {
-            statusDot.className = 'status-dot offline';
-            statusText.textContent = 'Offline';
+        const statusPulse = statusElement.querySelector('.status-pulse');
+        const statusValue = statusElement.querySelector('.connection-value');
+
+        if (statusPulse && statusValue) {
+            if (serverData.mobile_api_enabled) {
+                statusElement.className = 'connection-status online';
+                statusPulse.className = 'status-pulse online';
+                statusValue.textContent = 'Online';
+            } else {
+                statusElement.className = 'connection-status offline';
+                statusPulse.className = 'status-pulse offline';
+                statusValue.textContent = 'Offline';
+            }
         }
     }
 
@@ -595,7 +608,7 @@ class PCLinkWebUI {
         if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('PCLink Pairing Request', {
                 body: `${requestData.device_name} wants to connect`,
-                icon: '/ui/static/icon.png' // Ensure this path is correct
+                icon: '/ui/assets/icon.png'
             });
         }
     }
@@ -768,58 +781,223 @@ class PCLinkWebUI {
     }
 }
 
+// Global QR code instance for regeneration
+let currentQRCode = null;
+
+
+
 // Global functions for QR code generation and other utilities
 async function generateQRCode() {
     try {
         const data = await window.pclinkUI.apiCall('/qr-payload');
         const container = document.getElementById('qrCodeDisplay');
 
+        // Show loading state
+        container.innerHTML = `
+            <div style="text-align: center; padding: 20px;">
+                <div class="spinner" style="margin: 0 auto 10px;"></div>
+                <p>Generating QR code...</p>
+            </div>
+        `;
+
         const qrData = JSON.stringify(data);
-        const canvas = document.createElement('canvas');
 
+        // Check if QRCode library is available (should be since it's local)
         if (typeof QRCode !== 'undefined') {
-            await QRCode.toCanvas(canvas, qrData, {
-                width: 256,
-                margin: 2,
-                color: {
-                    dark: '#000000',
-                    light: '#FFFFFF'
-                }
-            });
+            try {
+                // Create container for QR code with proper structure
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 20px;">
+                        <!-- QR Code with white background only -->
+                        <div style="display: inline-block; padding: 30px; background: #ffffff; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                            <div id="qrCodeContainer"></div>
+                        </div>
+                        
+                        <!-- Instructions with dark theme -->
+                        <p style="margin: 15px 0 5px 0; color: var(--text-primary); font-size: 16px; font-weight: 600;">📱 Scan with PCLink mobile app</p>
+                        <p style="margin: 0 0 20px 0; color: var(--text-secondary); font-size: 14px;">Hold device 6-12 inches from screen</p>
+                        
+                        <!-- Dark Mode Extension Warning -->
+                        <div style="margin: 20px auto; padding: 15px; background: rgba(255, 193, 7, 0.1); border: 1px solid rgba(255, 193, 7, 0.3); border-radius: 8px; max-width: 500px;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <span style="font-size: 18px;">⚠️</span>
+                                <strong style="color: var(--warning-color);">QR Code Not Scanning?</strong>
+                            </div>
+                            <p style="margin: 0; font-size: 13px; line-height: 1.4; color: var(--text-secondary);">
+                                If you're using a <strong>dark mode browser extension</strong> (like Dark Reader), please <strong>disable it for this website</strong> to ensure the QR code has a white background for proper scanning.
+                            </p>
+                        </div>
+                        
+                        <!-- Connection Details with dark theme -->
+                        <div style="margin-top: 20px; padding: 20px; background: var(--surface-color); border-radius: 8px; border: 1px solid var(--border-color); max-width: 500px; margin-left: auto; margin-right: auto;">
+                            <h4 style="margin-bottom: 15px; color: var(--text-primary); text-align: center; font-size: 14px;">📋 Connection Details</h4>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; font-size: 12px;">
+                                <p style="margin: 0; color: var(--text-secondary);"><strong>Server:</strong> ${data.ip}:${data.port}</p>
+                                <p style="margin: 0; color: var(--text-secondary);"><strong>Protocol:</strong> ${data.protocol}</p>
+                                <p style="margin: 0; color: var(--text-secondary);"><strong>API Key:</strong> ${data.apiKey.substring(0, 8)}...</p>
+                                <p style="margin: 0; color: var(--text-secondary);"><strong>Certificate:</strong> ${data.certFingerprint ? 'Valid' : 'None'}</p>
+                            </div>
+                            <div style="margin-top: 15px; text-align: center;">
+                                <button onclick="showFullConnectionData()" style="padding: 8px 16px; background: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;">
+                                    📄 Manual Entry Data
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
 
+                // Clear previous QR code if exists
+                if (currentQRCode) {
+                    currentQRCode.clear();
+                }
+
+                // Create QR code using the correct API with optimized settings for scanning
+                const qrContainer = document.getElementById('qrCodeContainer');
+                
+                console.log('QR Data length:', qrData.length);
+                
+                currentQRCode = new QRCode(qrContainer, {
+                    text: qrData,  // Use original format that mobile app expects
+                    width: 280,    // Slightly smaller to fit better in the white container
+                    height: 280,
+                    colorDark: "#000000",    // Pure black for maximum contrast
+                    colorLight: "#ffffff",   // Pure white for maximum contrast
+                    correctLevel: QRCode.CorrectLevel.M  // Medium error correction for better scanning
+                });
+
+                console.log('QR Code generated successfully');
+
+            } catch (qrError) {
+                console.error('Error creating QR code:', qrError);
+                throw qrError; // Re-throw to trigger fallback
+            }
+        } else {
+            console.warn('QR Code library not loaded, showing fallback');
+
+            // Fallback: show connection details without QR code
             container.innerHTML = `
                 <div style="text-align: center;">
-                    <div style="padding: 20px; background: white; border-radius: 8px; display: inline-block; margin-bottom: 15px;">
-                        ${canvas.outerHTML}
+                    <div style="padding: 20px; background: white; border-radius: 8px; display: inline-block; color: black; margin-bottom: 15px;">
+                        <h4 style="margin-bottom: 15px; color: #333;">📱 PCLink Connection Info</h4>
+                        <div style="text-align: left; max-width: 300px;">
+                            <p><strong>Server:</strong> ${data.ip}:${data.port}</p>
+                            <p><strong>Protocol:</strong> ${data.protocol}</p>
+                            <p><strong>API Key:</strong> ${data.apiKey.substring(0, 8)}...</p>
+                            <p><strong>Certificate:</strong> ${data.certFingerprint ? 'Valid' : 'None'}</p>
+                        </div>
+                        <hr style="margin: 15px 0; border: 1px solid #eee;">
+                        <div style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 10px; word-break: break-all; text-align: left;">
+                            ${qrData}
+                        </div>
                     </div>
-                    <div style="background: var(--surface-color); padding: 15px; border-radius: 8px; margin-top: 10px;">
-                        <h4 style="margin-bottom: 10px; color: var(--text-primary);">Connection Details</h4>
-                        <p><strong>Server:</strong> ${data.ip}:${data.port}</p>
-                        <p><strong>Protocol:</strong> ${data.protocol}</p>
-                        <p><strong>API Key:</strong> ${data.apiKey.substring(0, 8)}...</p>
-                        <p><strong>Certificate:</strong> ${data.certFingerprint ? 'Valid' : 'None'}</p>
+                    <div style="background: var(--surface-color); padding: 15px; border-radius: 8px; border-left: 4px solid #ffa500;">
+                        <p style="margin: 0; color: var(--text-secondary);">
+                            <strong>⚠️ QR Code Library Missing</strong><br>
+                            The local QR code library could not be loaded. You can manually enter the connection details above in your mobile app.
+                        </p>
                     </div>
                 </div>
-            `;
-        } else {
-            container.innerHTML = `
-                <div style="padding: 20px; background: white; border-radius: 8px; display: inline-block; color: black;">
-                    <h4 style="margin-bottom: 10px;">PCLink Connection Info</h4>
-                    <p><strong>Server:</strong> ${data.ip}:${data.port}</p>
-                    <p><strong>Protocol:</strong> ${data.protocol}</p>
-                    <p><strong>API Key:</strong> ${data.apiKey.substring(0, 8)}...</p>
-                    <p><strong>Certificate:</strong> ${data.certFingerprint ? 'Valid' : 'None'}</p>
-                    <hr style="margin: 10px 0;">
-                    <p style="font-size: 10px; font-family: monospace; word-break: break-all;">${qrData}</p>
-                </div>
-                <p style="margin-top: 10px; color: var(--text-secondary);">
-                    QR Code library not loaded. Use the connection details above.
-                </p>
             `;
         }
     } catch (error) {
         console.error('QR Code generation error:', error);
-        document.getElementById('qrCodeDisplay').innerHTML = '<p class="error">Failed to generate QR code</p>';
+        document.getElementById('qrCodeDisplay').innerHTML = `
+            <div style="text-align: center; padding: 20px;">
+                <div style="background: var(--surface-color); padding: 15px; border-radius: 8px; border-left: 4px solid #ff4444;">
+                    <p style="margin: 0; color: var(--text-primary);">
+                        <strong>❌ Error</strong><br>
+                        Failed to generate QR code: ${error.message}
+                    </p>
+                </div>
+            </div>
+        `;
+    }
+}
+
+async function regenerateQRCode() {
+    if (currentQRCode) {
+        try {
+            const data = await window.pclinkUI.apiCall('/qr-payload');
+            const qrData = JSON.stringify(data);  // Use original format
+            
+            currentQRCode.clear();
+            currentQRCode.makeCode(qrData);
+            console.log('QR Code regenerated successfully');
+        } catch (error) {
+            console.error('Failed to regenerate QR code:', error);
+        }
+    } else {
+        // If no current QR code, generate a new one
+        generateQRCode();
+    }
+}
+
+async function showFullConnectionData() {
+    try {
+        const data = await window.pclinkUI.apiCall('/qr-payload');
+        const fullData = JSON.stringify(data, null, 2);
+        
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.8); display: flex; align-items: center; 
+            justify-content: center; z-index: 1000;
+        `;
+        
+        modal.innerHTML = `
+            <div style="background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 90%; max-height: 80%; overflow-y: auto;">
+                <h3 style="margin-top: 0; color: #333;">📱 Full Connection Data</h3>
+                <p style="color: #666; margin-bottom: 20px;">Copy this data and manually enter it in your mobile app:</p>
+                <textarea readonly id="connectionDataText" style="width: 100%; height: 200px; padding: 15px; border: 1px solid #ddd; border-radius: 6px; font-family: monospace; font-size: 12px; background: #f8f9fa;">${fullData}</textarea>
+                <div style="margin-top: 20px; text-align: right;">
+                    <button id="copyDataBtn" style="margin-right: 10px; padding: 8px 16px; background: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Copy to Clipboard
+                    </button>
+                    <button id="closeModalBtn" style="padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        modal.className = 'modal-overlay';
+        
+        // Add event listeners properly
+        modal.onclick = (e) => {
+            if (e.target === modal) modal.remove();
+        };
+        
+        document.body.appendChild(modal);
+        
+        // Add event listeners after the modal is added to DOM
+        const copyBtn = modal.querySelector('#copyDataBtn');
+        const closeBtn = modal.querySelector('#closeModalBtn');
+        
+        copyBtn.onclick = async () => {
+            try {
+                await navigator.clipboard.writeText(fullData);
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy to Clipboard';
+                }, 2000);
+            } catch (error) {
+                // Fallback for older browsers
+                const textArea = modal.querySelector('#connectionDataText');
+                textArea.select();
+                document.execCommand('copy');
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy to Clipboard';
+                }, 2000);
+            }
+        };
+        
+        closeBtn.onclick = () => {
+            modal.remove();
+        };
+        
+    } catch (error) {
+        alert('Failed to get connection data');
     }
 }
 
@@ -1327,6 +1505,12 @@ window.restartRemoteServer = restartRemoteServer;
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, initializing PCLink UI...');
+    
+    // Ensure icons are available
+    if (typeof ensureIconsLoaded === 'function') {
+        ensureIconsLoaded();
+    }
+    
     window.pclinkUI = new PCLinkWebUI();
 
     // Debug: Test tab switching after a short delay

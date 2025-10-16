@@ -97,42 +97,60 @@ def check_system_requirements():
     return True
 
 
-def verify_python_environment():
-    """Verify Python environment and required packages."""
-    missing_packages = []
+def check_system_dependencies():
+    """Check for FPM-specific dependencies only."""
+    import platform
     
+    if platform.system() != "Linux":
+        return True
+    
+    # Check for FPM-specific tools only
+    required_tools = ["ruby", "gem"]
+    missing_tools = []
+    
+    for tool in required_tools:
+        if shutil.which(tool) is None:
+            missing_tools.append(tool)
+    
+    # Check for FPM
+    try:
+        subprocess.run(["fpm", "--version"], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        missing_tools.append("fpm")
+    
+    if missing_tools:
+        print("[ERROR] Missing FPM dependencies:")
+        for tool in missing_tools:
+            print(f"  - {tool}")
+        
+        # Try to detect package manager and suggest installation
+        if shutil.which("apt-get"):
+            print("\nTo install FPM dependencies, run:")
+            print("  sudo apt update")
+            print("  sudo apt install ruby ruby-dev rubygems build-essential dpkg-dev")
+            print("  sudo gem install --no-document fpm")
+        elif shutil.which("dnf"):
+            print("\nTo install FPM dependencies, run:")
+            print("  sudo dnf install ruby ruby-devel rubygems rpm-build gcc make")
+            print("  sudo gem install --no-document fpm")
+        elif shutil.which("pacman"):
+            print("\nTo install FPM dependencies, run:")
+            print("  sudo pacman -S ruby rubygems base-devel")
+            print("  sudo gem install --no-document fpm")
+        
+        print("\nThen run the build again.")
+        return False
+    
+    return True
+
+def verify_python_environment():
+    """Verify basic Python environment for build script execution."""
     # Check Python version
     if sys.version_info < (3, 8):
         print(f"[ERROR] Python 3.8+ required, found {sys.version_info.major}.{sys.version_info.minor}")
         return False
     
-    # Check if running in CI environment
-    is_ci = os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")
-    
-    if is_ci:
-        print("[INFO] Running in CI environment - skipping Python package verification")
-        print("       Dependencies will be installed in the target system via .deb package")
-        return True
-    
-    # Check for required Python packages (only in non-CI environments)
-    required_packages = [
-        "fastapi", "uvicorn", "psutil", "cryptography", "requests", 
-        "qrcode", "PIL", "mss", "keyboard", "pyautogui", "pystray"
-    ]
-    
-    for package in required_packages:
-        try:
-            __import__(package)
-        except ImportError:
-            missing_packages.append(package)
-    
-    if missing_packages:
-        print("[ERROR] Missing Python packages:")
-        for pkg in missing_packages:
-            print(f"  - {pkg}")
-        print("\nInstall with: pip install -r requirements.txt")
-        return False
-    
+    print("[INFO] Python environment OK - FPM will handle runtime dependencies in the package")
     return True
 
 
@@ -776,6 +794,10 @@ command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t 
 
 def main():
     try:
+        # Check system dependencies first
+        if not check_system_dependencies():
+            sys.exit(1)
+        
         builder = FPMBuilder()
         success = builder.build_all(["deb", "rpm"])
         sys.exit(0 if success else 1)

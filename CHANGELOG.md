@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [2.3.0] - 2025-10-16
+
+## Bug Fixes
+
+-   Fix: QR code rendering to ensure scannability, especially with dark mode browser extensions.
+-   Fix: Replaced incorrect and outdated UI icons (`qr-code`, `rotate-cw`, etc.) for better clarity.
+-   Fix: Resolved a potential JavaScript error when updating the last device activity status on the UI.
+-   Fix: Corrected the asset path for the pairing request notification icon.
+
+## Enhancements
+
+-   Feature: Added a "Regenerate" button to allow users to create a new pairing QR code.
+-   Feature: Added a "Manual Entry Data" modal to provide a fallback for users who cannot scan the QR code.
+-   Enhance: The pairing QR code payload now includes the server's certificate fingerprint to improve connection security.
+-   Enhance: The pairing page UI has been improved with clearer instructions, scanning tips, and visible connection details.
+-   Enhance: QR code and icon libraries are now served locally, removing CDN dependency and improving offline reliability.
 ## [2.2.0] - 2025-10-15
 
 ## Bug Fixes

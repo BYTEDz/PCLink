@@ -85,14 +85,13 @@ HIDDEN_IMPORTS = [
     
     # System integration
     "pystray", "getmac", "psutil", "cryptography.hazmat.backends", 
-    "keyboard", "mss", "pyperclip", "qrcode.image.pil",
+    "keyboard", "mss", "pyperclip",
     
     # Windows-specific (conditional)
     "win32api", "win32con", "win32gui", "win32process", "win32security", 
     "win32event", "win32file", "win32com.client", "pythoncom", "pycaw",
     
-    # Image processing
-    "PIL", "PIL.Image", "PIL.ImageTk",
+
     
     # Networking and security
     "ssl", "socket", "http.server", "urllib.parse", "json", "base64"
@@ -102,7 +101,7 @@ class BuildError(Exception):
     pass
 
 
-def check_system_dependencies():
+def check_system_dependencies(build_format=None):
     """Check for required system dependencies and tools."""
     missing_deps = []
     
@@ -110,10 +109,40 @@ def check_system_dependencies():
     if sys.version_info < (3, 8):
         missing_deps.append(f"Python 3.8+ required, found {sys.version_info.major}.{sys.version_info.minor}")
     
-    # Check required Python packages
+    # For FPM builds, only check FPM-specific dependencies
+    if build_format == "fpm":
+        # Check for FPM-specific tools only
+        fpm_tools = ["ruby", "gem"]
+        for tool in fpm_tools:
+            if not shutil.which(tool):
+                missing_deps.append(f"{tool} (required for FPM)")
+        
+        # Check for pip (needed to create wheel)
+        if not shutil.which("pip") and not shutil.which("pip3"):
+            missing_deps.append("pip (required to create Python wheel)")
+        
+        # Check for FPM
+        try:
+            subprocess.run(["fpm", "--version"], capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            missing_deps.append("fpm (Effing Package Management)")
+        
+        if missing_deps:
+            print("[ERROR] Missing FPM dependencies:")
+            for dep in missing_deps:
+                print(f"  - {dep}")
+            print("\nInstall FPM dependencies with:")
+            print("  sudo apt install ruby ruby-dev rubygems build-essential dpkg-dev")
+            print("  sudo gem install --no-document fpm")
+            return False
+        
+        print("[INFO] FPM dependencies OK - ready to build packages")
+        return True
+    
+    # For other build formats, check PyInstaller dependencies
     required_packages = [
         "PyInstaller", "psutil", "fastapi", "uvicorn", "cryptography", 
-        "requests", "qrcode", "PIL"
+        "requests"
     ]
     
     # Optional packages that might not be available in headless environments
@@ -728,7 +757,7 @@ def main():
         print(f"[INFO] Performing pre-build checks...")
         
         # Run system checks
-        if not check_system_dependencies():
+        if not check_system_dependencies(args.format):
             raise BuildError("System dependency check failed")
         
         if not verify_project_structure():

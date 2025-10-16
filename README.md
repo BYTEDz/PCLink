@@ -48,6 +48,8 @@ It features a **FastAPI server**, **responsive web interface**, and **lightweigh
 - **Session Management**: 24-hour sessions with automatic cleanup
 - **Secure Pairing**: QR code-based device authentication
 
+---
+
 ## 💻 System Requirements
 
 ### ✅ Tested Platforms
@@ -58,24 +60,6 @@ It features a **FastAPI server**, **responsive web interface**, and **lightweigh
 - **Python 3.8+** (automatically handled in packaged installations)
 - **Network access** for mobile device communication
 - **Administrator privileges** for power management features (optional)
-
-### 📦 Installation Methods
-- **Windows**: `.exe` installer with automatic setup
-- **Linux**: `.deb` package with proper system integration  
-- **Cross-platform**: Python wheel (`.whl`) for pip installation
-- **Development**: Direct GitHub installation via pip
-
-### 💻 Deployment Options
-- **Web-Only Mode**: Modern interface with system tray (default)
-- **Headless Mode**: Background server for automation
-- **Legacy Qt Mode**: Traditional desktop interface (optional)
-- **Cross-Platform**: Windows and Linux with full system integration
-
-### 🛠️ Developer Experience
-- **Lightweight**: Minimal dependencies, fast startup
-- **Modular API**: Router-based FastAPI endpoints
-- **Easy Deployment**: Single command installation
-- **Extensible**: Clean architecture for customization
 
 ---
 
@@ -89,7 +73,7 @@ The server requires the companion mobile app:
 
 ---
 
-## 🛠️ Installation
+## 🛠️ Installation & Setup
 
 ### 🚀 Recommended: Native Packages
 
@@ -98,28 +82,29 @@ The server requires the companion mobile app:
 2. Run the installer with administrator privileges
 3. PCLink will be available in Start Menu and system tray
 
-#### Linux Mint 22.1 / Ubuntu-based
+#### Linux (Ubuntu/Debian)
 1. Download the latest `.deb` package from [Releases](https://github.com/BYTEDz/PCLink/releases)
 2. Install: `sudo dpkg -i pclink_*.deb`
 3. Fix dependencies if needed: `sudo apt-get install -f`
 4. Start: `pclink` or find in applications menu
 
-### 🐍 Alternative: Python Wheel (Cross-Platform)
+### 🐍 Python Installation
 
-For users who prefer pip installation or need cross-platform compatibility:
-
+#### System Dependencies (Linux Only)
 ```bash
-# Download the .whl file from Releases, then:
-pip install pclink-2.1.0-py3-none-any.whl
-
-# Or install directly from GitHub (latest):
-pip install git+https://github.com/BYTEDz/PCLink.git
-
-# Run PCLink
-pclink
+# Install all required system dependencies first
+sudo apt update
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-appindicator3-0.1 gir1.2-gtk-3.0 python3-tk python3-dev python3.12-venv gcc build-essential
 ```
 
-**Note**: Wheel installation requires manual setup of system dependencies on Linux (AppIndicator, etc.)
+#### Install PCLink
+```bash
+# Option 1: Install from requirements
+pip install -r requirements.txt
+
+# Option 2: Install directly from GitHub
+pip install git+https://github.com/BYTEDz/PCLink.git
+```
 
 ### 🎛️ Usage
 
@@ -142,67 +127,61 @@ test-power-permissions
 2. **Pair Mobile Device**: Scan the QR code with the PCLink mobile app
 3. **Configure Startup**: Enable "Start with system" in web UI settings
 
-### 📱 Mobile App Required
-PCLink requires the companion mobile app to function:
-- **Android**: [Google Play Store](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)
-- **iOS**: Coming soon
+---
 
-### Development Setup
+## 👨‍💻 Development
+
+### 🛠️ Development Setup
 
 ```bash
+# Linux: Install system dependencies first
+sudo apt update
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 python3-tk python3-dev python3.12-venv gcc build-essential libgirepository1.0-dev libcairo2-dev pkg-config
+
+# Clone repository
 git clone https://github.com/BYTEDz/PCLink.git
 cd PCLink
 
-# For developers only - use native packages for production
-```
-
-### Manual Setup
-
-```bash
-git clone https://github.com/BYTEDz/PCLink.git
-cd PCLink
-
-# Create and activate virtual environment (recommended)
+# Create virtual environment
 python3 -m venv pclink-env
-source pclink-env/bin/activate  # Linux
+source pclink-env/bin/activate  # Linux/macOS
 # or: pclink-env\Scripts\activate  # Windows
 
-# Install dependencies and PCLink
+# Install runtime dependencies
 pip install -r requirements.txt
+
+# Install development dependencies (includes PyInstaller for building)
+pip install -r requirements-dev.txt
+
+# Install PCLink in development mode
 pip install -e .
+
+# Install pre-commit hooks
+pre-commit install
 
 # Run PCLink
 python -m pclink
-```
 
-### Development Setup
-
-```bash
-# With virtual environment activated
-pip install -e ".[dev]"
-pre-commit install
+# Run tests
 pytest
 ```
 
-### Launcher Commands
+### 📦 Building Packages
 
+#### Linux .deb Packages
 ```bash
-# For end users (recommended)
-pipx install git+https://github.com/BYTEDz/PCLink.git
-pclink                                 # Run PCLink
+# Install FPM dependencies
+sudo apt update
+sudo apt install ruby ruby-dev rubygems build-essential dpkg-dev
+sudo gem install --no-document fpm
 
-# Build packages
-python scripts/build.py --format installer   # Windows installer
-python scripts/build_fpm.py                  # Linux .deb package
-
-# Other commands
-pclink.bat --test                     # Run tests
-pclink.bat --clean                    # Clean environment
+# Build package (no virtual environment or Python dependencies needed)
+python scripts/build.py --format fpm
 ```
 
-### Manual Build Commands
+**Note**: FPM builds don't require installing Python runtime dependencies. The build script creates a wheel and packages it with proper dependency declarations for the package manager to handle.
 
-#### Windows
+#### Windows Packages
 ```bash
 # With virtual environment activated
 python scripts/build.py --format portable    # ZIP archive
@@ -210,54 +189,86 @@ python scripts/build.py --format onefile     # Single EXE
 python scripts/build.py --format installer   # Windows installer
 ```
 
-#### Linux
+### 🔧 Build Troubleshooting
+
+#### Missing PyInstaller Error (for Windows/portable builds)
 ```bash
-# With virtual environment activated
-python scripts/build.py --format fpm         # Native packages (DEB + RPM)
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Then retry building
+python scripts/build.py --format portable
 ```
 
-**Note**: Flatpak is not supported as PCLink requires deep system access incompatible with sandboxing.
+#### Missing FPM Dependencies (Linux package builds)
+If you see `[ERROR] Missing FPM dependencies`:
 
-**Note**: Linux builds require virtual environment due to PEP 668 protection on modern distributions.
+```bash
+# Ubuntu/Debian:
+sudo apt update
+sudo apt install ruby ruby-dev rubygems build-essential dpkg-dev
+sudo gem install --no-document fpm
 
-### 🔒 Why pipx is Recommended
+# Fedora/RHEL:
+sudo dnf install ruby ruby-devel rubygems rpm-build gcc make
+sudo gem install --no-document fpm
 
-**pipx** is the safest way to install PCLink:
-- ✅ **Isolated** - Won't conflict with system Python packages
-- ✅ **Clean** - Easy to uninstall completely (`pipx uninstall pclink`)
-- ✅ **Global** - `pclink` command available system-wide
-- ✅ **Secure** - No dependency pollution or version conflicts
-- ✅ **Updatable** - Simple updates with `pipx upgrade pclink`
+# Arch Linux:
+sudo pacman -S ruby rubygems base-devel
+sudo gem install --no-document fpm
 
-Perfect for system tools like PCLink that need full system access but isolated Python environment.
+# Then retry build
+python scripts/build.py --format fpm
+```
 
-### 🌐 Web Interface Benefits
+---
 
-**No More Dependency Issues:**
-- ✅ **Zero Qt Dependencies**: Works without any GUI libraries
-- ✅ **Universal Compatibility**: Runs on any system with Python
-- ✅ **Remote Access**: Manage PCLink from any device on your network
-- ✅ **Modern UI**: Responsive design that works on desktop and mobile
-- ✅ **Easy Updates**: Just HTML/CSS/JS files, no compilation needed
+## 🔧 Troubleshooting
 
-**Cross-Platform System Tray:**
-- Uses lightweight `pystray` instead of Qt
-- Works on Windows and Linux with native system tray integration
-- Right-click menu for server control
-- System notifications for events
+### Common Issues
 
-**Automatic Fixes:**
-- **Networking**: Auto-configures firewall rules and network interfaces
-- **Certificates**: Generates HTTPS certificates automatically  
-- **IP Detection**: Shows real local IP addresses (192.168.x.x) in QR codes
-- **Fallback Modes**: Graceful degradation if components fail
+#### Compilation Errors (Linux)
+If you see "Python.h: No such file or directory":
+```bash
+# Ubuntu/Debian
+sudo apt install python3-dev gcc build-essential
+
+# Fedora/RHEL
+sudo dnf install python3-devel gcc
+
+# Then retry installation
+pip install -r requirements.txt
+```
+
+#### Dependency Errors (Linux)
+For "Dependency 'girepository-2.0' is required but not found" or similar errors:
+```bash
+# Install comprehensive system dependencies
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 python3-tk libgirepository1.0-dev gcc libcairo2-dev pkg-config python3-dev gir1.2-gtk-3.0
+
+# Install PyGObject
+pip install PyGObject
+```
+
+### Feature Availability
+
+| Feature | Always Available | Optional Dependencies |
+|---------|-----------------|----------------------|
+| Web UI | ✅ | - |
+| API Server | ✅ | - |
+| File Management | ✅ | - |
+| Process Control | ✅ | - |
+| Screenshots | ✅ | - |
+| System Tray | ✅ (with fallback) | pystray, PyGObject (Linux native) |
+| Input Control | ✅ (with fallback) | pynput |
+
+**Note**: PCLink gracefully falls back to alternative implementations if dependencies are missing. All core functionality remains available.
 
 ---
 
 ## 🏗️ Architecture
 
 ### 🌐 Web-First Stack
-
 * **Frontend**: Modern HTML5/CSS3/JavaScript with WebSocket
 * **Backend**: FastAPI + Uvicorn ASGI server
 * **Authentication**: Session-based with PBKDF2 password hashing
@@ -266,24 +277,14 @@ Perfect for system tools like PCLink that need full system access but isolated P
 * **Packaging**: Minimal dependencies, easy deployment
 
 ### 📁 Project Structure
-
 ```
 src/pclink/
 ├── api_server/      # FastAPI routers + WebSocket handlers
 ├── core/            # Controller, auth, config, security
 ├── web_ui/          # Modern web interface (HTML/CSS/JS)
 │   └── static/      # Web assets, authentication pages
-├── web_ui/          # Web interface (default)
 └── assets/          # Icons and resources
 ```
-
-### 🔧 Key Components
-
-* **Web Authentication**: Secure password-based access control
-* **WebSocket Real-time**: Live updates for system info and pairing
-* **Lightweight Tray**: Cross-platform system tray without Qt
-* **Modular API**: Clean separation of concerns
-* **Session Management**: Secure 24-hour sessions with cleanup
 
 ### 🛠️ API Endpoints
 
@@ -347,7 +348,7 @@ For commercial licensing, contact BYTEDz.
 
 ---
 
-## 👥 Maintainers
+## � Mahintainers
 
 <table>
   <tr>

@@ -19,10 +19,14 @@ def create_web_ui_router(app: FastAPI) -> APIRouter:
     
     # Use the helper to define the static directory robustly.
     static_dir = resource_path("src/pclink/web_ui/static")
+    assets_dir = resource_path("src/pclink/assets")
     
     # The mount path MUST match the prefix used in api.py
     # This will now correctly serve files from /ui/static/
     app.mount("/ui/static", StaticFiles(directory=static_dir), name="static")
+    
+    # Mount assets directory for icons and other assets
+    app.mount("/ui/assets", StaticFiles(directory=assets_dir), name="assets")
     
     # This helper is needed to prevent caching of critical UI files
     def no_cache_file_response(path, media_type="text/html"):

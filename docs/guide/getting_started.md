@@ -12,7 +12,7 @@ pip install pclink
 
 ### From Source
 
-See the [BUILD.md](../BUILD.md) document for instructions on building from source.
+See the main [README.md](../../README.md#-building-deb-packages) for build instructions.
 
 ## Basic Usage
 

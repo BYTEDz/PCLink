@@ -15,4 +15,4 @@ git diff | Out-File $outputFile -Append -Encoding utf8
 "`n# === Staged changes ===" | Out-File $outputFile -Append -Encoding utf8
 git diff --cached | Out-File $outputFile -Append -Encoding utf8
 
-Write-Host "✅ Git diff saved to: $outputFile"
+Write-Host "✅ Git diff sa ved to: $outputFile"

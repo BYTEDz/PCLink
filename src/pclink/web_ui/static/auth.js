@@ -19,7 +19,6 @@ class PCLinkAuth {
                 if (sessionCheck.ok) {
                     const sessionData = await sessionCheck.json();
                     if (sessionData.authenticated) {
-                        // Already logged in, redirect to main UI
                         window.location.href = '/ui/';
                         return;
                     }
@@ -40,20 +39,17 @@ class PCLinkAuth {
                     this.showSetupForm();
                 }
             } else {
-                // If auth status fails, default to login form
                 console.warn('Auth status check failed, defaulting to login form');
                 this.showLoginForm();
             }
         } catch (error) {
             console.error('Auth status check failed:', error);
-            // Show login form as fallback
             this.showLoginForm();
             this.showError('Failed to connect to server. Showing login form.');
         }
     }
 
     showSetupForm() {
-        console.log('Showing setup form');
         const setupForm = document.getElementById('setupForm');
         const loginForm = document.getElementById('loginForm');
         
@@ -63,7 +59,6 @@ class PCLinkAuth {
     }
 
     showLoginForm() {
-        console.log('Showing login form');
         const setupForm = document.getElementById('setupForm');
         const loginForm = document.getElementById('loginForm');
         
@@ -93,12 +88,17 @@ class PCLinkAuth {
 
     setLoading(buttonId, loading) {
         const button = document.getElementById(buttonId);
+        if (!button) return;
+
+        const originalText = buttonId === 'setupButton' ? 'Set Up Password' : 'Sign In';
+
         if (loading) {
             button.disabled = true;
-            button.innerHTML = '<span class="loading"></span>Processing...';
+            button.innerHTML = `<span class="loading"></span><span class="button-text">Processing...</span>`;
         } else {
             button.disabled = false;
-            button.innerHTML = buttonId === 'setupButton' ? 'Set Up Password' : 'Sign In';
+            button.innerHTML = `<span class="button-text">${originalText}</span>`;
+            button.style.background = ''; // Reset background color
         }
     }
 
@@ -106,25 +106,44 @@ class PCLinkAuth {
         try {
             const response = await fetch('/auth/setup', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password })
             });
 
             const data = await response.json();
+            const setupButton = document.getElementById('setupButton');
+            const authCard = document.querySelector('.auth-card');
 
             if (response.ok) {
-                this.showSuccess('Password setup successful! You can now log in.');
+                this.hideMessages();
+                
+                // Show success state on button
+                setupButton.innerHTML = '<span>✔</span> <span class="button-text">Success!</span>';
+                setupButton.style.background = 'var(--success-color)';
+
+                // Animate out the setup card
+                setTimeout(() => {
+                    if (authCard) authCard.classList.add('transition-out');
+                }, 800); // Wait to show success message
+
+                // Switch to login form after animation
                 setTimeout(() => {
                     this.showLoginForm();
-                }, 2000);
+                    document.getElementById('loginPassword').focus();
+                    if (authCard) {
+                        // Reset card for login view
+                        authCard.classList.remove('transition-out');
+                    }
+                }, 1200); // 800ms + 400ms animation time
+
             } else {
                 this.showError(data.detail || 'Setup failed');
+                this.setLoading('setupButton', false); // Reset button on failure
             }
         } catch (error) {
             console.error('Setup error:', error);
             this.showError('Failed to setup password');
+            this.setLoading('setupButton', false);
         }
     }
 
@@ -132,10 +151,8 @@ class PCLinkAuth {
         try {
             const response = await fetch('/auth/login', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',  // Important: include cookies
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ password })
             });
 
@@ -143,22 +160,17 @@ class PCLinkAuth {
 
             if (response.ok) {
                 this.showSuccess('Login successful! Redirecting...');
-                
-                // Store session token if provided (backup)
-                if (data.session_token) {
-                    sessionStorage.setItem('pclink_session', data.session_token);
-                }
-                
-                // Force a page reload to ensure cookies are properly set
                 setTimeout(() => {
                     window.location.reload();
                 }, 500);
             } else {
                 this.showError(data.detail || 'Login failed');
+                this.setLoading('loginButton', false);
             }
         } catch (error) {
             console.error('Login error:', error);
             this.showError('Failed to login');
+            this.setLoading('loginButton', false);
         }
     }
 }
@@ -182,7 +194,7 @@ async function handleSetup(event) {
     
     window.pclinkAuth.setLoading('setupButton', true);
     await window.pclinkAuth.handleSetup(password);
-    window.pclinkAuth.setLoading('setupButton', false);
+    // Note: setLoading(false) is now handled inside the class method on failure/success
 }
 
 async function handleLogin(event) {
@@ -197,27 +209,15 @@ async function handleLogin(event) {
     
     window.pclinkAuth.setLoading('loginButton', true);
     await window.pclinkAuth.handleLogin(password);
-    window.pclinkAuth.setLoading('loginButton', false);
 }
 
 // Initialize authentication when page loads
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM loaded, initializing PCLink Auth');
-    
-    // Show login form by default in case JavaScript fails
-    const loginForm = document.getElementById('loginForm');
-    if (loginForm) {
-        loginForm.style.display = 'block';
-    }
-    
-    // Initialize auth system
     try {
         window.pclinkAuth = new PCLinkAuth();
     } catch (error) {
         console.error('Failed to initialize auth system:', error);
-        // Ensure login form is visible as fallback
-        if (loginForm) {
-            loginForm.style.display = 'block';
-        }
+        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('setupForm').style.display = 'none';
     }
 });

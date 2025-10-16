@@ -26,6 +26,13 @@
             width: 100%;
             max-width: 400px;
             text-align: center;
+            transition: transform 0.4s ease-in-out, opacity 0.4s ease-in-out;
+        }
+
+        .auth-card.transition-out {
+            transform: translateY(-30px) scale(0.98);
+            opacity: 0;
+            pointer-events: none;
         }
 
         .auth-logo {
@@ -96,6 +103,10 @@
             font-weight: 500;
             cursor: pointer;
             transition: background 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         .auth-button:hover {
@@ -105,6 +116,7 @@
         .auth-button:disabled {
             background: var(--secondary-color);
             cursor: not-allowed;
+            opacity: 0.7;
         }
 
         .error-message {
@@ -135,7 +147,6 @@
             border-top: 2px solid currentColor;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin-right: 8px;
         }
 
         @keyframes spin {
@@ -171,7 +182,7 @@
                     </div>
 
                     <button type="submit" class="auth-button" id="setupButton">
-                        Set Up Password
+                        <span class="button-text">Set Up Password</span>
                     </button>
                 </form>
             </div>
@@ -188,7 +199,7 @@
                     </div>
 
                     <button type="submit" class="auth-button" id="loginButton">
-                        Sign In
+                        <span class="button-text">Sign In</span>
                     </button>
                 </form>
             </div>

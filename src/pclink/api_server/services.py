@@ -26,10 +26,15 @@ import time
 from typing import Dict
 
 import psutil
-from pynput.keyboard import Controller as KeyboardController
-from pynput.keyboard import Key
-from pynput.mouse import Button
-from pynput.mouse import Controller as MouseController
+try:
+    from pynput.keyboard import Controller as KeyboardController
+    from pynput.keyboard import Key
+    from pynput.mouse import Button
+    from pynput.mouse import Controller as MouseController
+    PYNPUT_AVAILABLE = True
+except ImportError:
+    PYNPUT_AVAILABLE = False
+    log.warning("pynput not available - input control features disabled")
 
 log = logging.getLogger(__name__)
 DEFAULT_MEDIA_INFO = {
@@ -353,9 +358,16 @@ async def get_system_info_data(network_monitor: NetworkMonitor) -> Dict:
     return await asyncio.to_thread(_get_sync_system_info, network_monitor)
 
 
-mouse_controller = MouseController()
-keyboard_controller = KeyboardController()
-button_map = {"left": Button.left, "right": Button.right, "middle": Button.middle}
+if PYNPUT_AVAILABLE:
+    mouse_controller = MouseController()
+    keyboard_controller = KeyboardController()
+else:
+    mouse_controller = None
+    keyboard_controller = None
+if PYNPUT_AVAILABLE:
+    button_map = {"left": Button.left, "right": Button.right, "middle": Button.middle}
+else:
+    button_map = {}
 key_map = {
     "enter": Key.enter,
     "esc": Key.esc,

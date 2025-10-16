@@ -33,7 +33,7 @@ STDLIB_MODULES = {
 
 # Map import names to PyPI package names
 PACKAGE_MAPPING = {
-    'PIL': 'Pillow',
+
     'cv2': 'opencv-python',
     'sklearn': 'scikit-learn',
     'yaml': 'PyYAML',
@@ -61,8 +61,7 @@ VERSION_CONSTRAINTS = {
     'psutil': '>=5.9.0',
     'cryptography': '>=41.0.0',
     'requests': '>=2.31.0',
-    'Pillow': '>=10.0.0',
-    'qrcode': '>=7.4.0',
+
     'pyautogui': '>=0.9.54',
     'keyboard': '>=0.13.5',
     'pyperclip': '>=1.8.2',
@@ -138,6 +137,7 @@ def filter_third_party_packages(imports: Set[str]) -> Set[str]:
         'pclink', 'scripts', 'api_server', 'core', 'web_ui', 'headless',
         'config', 'constants', 'device_manager', 'exceptions', 'file_browser',
         'info_router', 'input_router', 'main', 'media_router', 'process_manager',
+        'web_auth', 'PIL',
         'services', 'state', 'system_router', 'terminal', 'utils', 'utils_router',
         'version'
     }
@@ -190,7 +190,7 @@ def generate_requirements(packages: Dict[str, str]) -> List[str]:
     # Group packages by category
     core_api = []
     system_control = []
-    image_processing = []
+
     security_networking = []
     cross_platform = []
     platform_specific = []
@@ -208,8 +208,7 @@ def generate_requirements(packages: Dict[str, str]) -> List[str]:
             core_api.append(req_line)
         elif package in ['psutil', 'pyperclip', 'mss', 'keyboard', 'pyautogui', 'pynput']:
             system_control.append(req_line)
-        elif package in ['Pillow', 'qrcode']:
-            image_processing.append(req_line)
+
         elif package in ['cryptography', 'requests', 'getmac']:
             security_networking.append(req_line)
         elif package in ['pystray']:
@@ -224,16 +223,15 @@ def generate_requirements(packages: Dict[str, str]) -> List[str]:
     missing_packages = {
         'websockets': '>=12.0',
         'wsproto': '>=1.2.0', 
-        'qrcode': '>=7.4.0',
+
         'pyautogui': '>=0.9.54'
     }
     
     for pkg, version in missing_packages.items():
-        if pkg not in [p.split('>=')[0].split('[')[0] for p in core_api + system_control + image_processing + security_networking]:
+        if pkg not in [p.split('>=')[0].split('[')[0] for p in core_api + system_control + security_networking]:
             if pkg in ['websockets', 'wsproto']:
                 core_api.append(f"{pkg}{version}")
-            elif pkg in ['qrcode']:
-                image_processing.append(f"{pkg}{version}")
+
             elif pkg in ['pyautogui']:
                 system_control.append(f"{pkg}{version}")
     
@@ -244,8 +242,7 @@ def generate_requirements(packages: Dict[str, str]) -> List[str]:
     if system_control:
         requirements.extend(["# System Information and Control"] + sorted(system_control) + [""])
     
-    if image_processing:
-        requirements.extend(["# Image Processing and QR Codes"] + sorted(image_processing) + [""])
+
     
     if security_networking:
         requirements.extend(["# Security and Networking"] + sorted(security_networking) + [""])

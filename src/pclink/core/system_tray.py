@@ -18,7 +18,7 @@ TRAY_AVAILABLE = False
 IMPORT_ERROR = ""
 try:
     import pystray
-    from PIL import Image, ImageDraw
+
     TRAY_AVAILABLE = True
 except ImportError as e:
     IMPORT_ERROR = str(e)
@@ -99,7 +99,13 @@ class SystemTrayManager:
             else:
                 icon_file = resource_path("src/pclink/assets/icon.png")
             
-            image = Image.open(icon_file) if icon_file.exists() else self.create_simple_icon()
+            # Try to load icon file, fallback to None if PIL not available
+            try:
+                from PIL import Image
+                image = Image.open(icon_file) if icon_file.exists() else self.create_simple_icon()
+            except ImportError:
+                log.warning("PIL not available, using default system tray icon")
+                image = None
             
             # Define menu structure based on platform and capabilities
             if sys.platform == "win32":
@@ -125,7 +131,7 @@ class SystemTrayManager:
                     menu_items = (pystray.MenuItem("Open Web UI", self.open_web_ui, default=True),)
             
             menu = pystray.Menu(*menu_items)
-            self.icon = pystray.Icon("PCLink", image, "PCLink Server", menu)
+            self.icon = pystray.Icon("PCLink", image, "PCLink Server", menu) if image else pystray.Icon("PCLink", None, "PCLink Server", menu)
             log.info("pystray icon created successfully.")
         except Exception as e:
             log.error(f"Failed to create pystray icon: {e}", exc_info=True)
@@ -193,11 +199,16 @@ class SystemTrayManager:
 
     def create_simple_icon(self):
         log.warning("Icon file not found, creating fallback icon.")
-        image = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
-        draw.rectangle([10, 15, 54, 40], fill=(70, 130, 180))
-        draw.rectangle([14, 19, 50, 36], fill=(30, 30, 30))
-        return image
+        try:
+            from PIL import Image, ImageDraw
+            image = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            draw.rectangle([10, 15, 54, 40], fill=(70, 130, 180))
+            draw.rectangle([14, 19, 50, 36], fill=(30, 30, 30))
+            return image
+        except ImportError:
+            log.warning("PIL not available, cannot create fallback icon")
+            return None
     
     def show(self):
         if self.use_linux_native:

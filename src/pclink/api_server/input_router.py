@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 # Import necessary controller and utility functions from services module.
-from .services import get_key, keyboard_controller
+from .services import get_key, keyboard_controller, PYNPUT_AVAILABLE
 
 router = APIRouter()
 
@@ -53,6 +53,9 @@ async def send_keyboard_input(payload: KeyboardInputModel):
     Raises:
         HTTPException: If the payload is invalid or an error occurs during input simulation.
     """
+    if not PYNPUT_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Input control not available - pynput not installed")
+    
     try:
         if payload.text:
             # Type the provided text string.

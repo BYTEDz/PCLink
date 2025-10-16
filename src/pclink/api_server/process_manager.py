@@ -32,7 +32,7 @@ if platform.system() == "Windows":
     try:
         import win32gui
         import win32ui
-        from PIL import Image
+
         IS_WINDOWS_ICON_SUPPORT = True
     except ImportError:
         IS_WINDOWS_ICON_SUPPORT = False
@@ -83,13 +83,18 @@ def _get_icon_base64(exe_path: str) -> str | None:
 
         bmpinfo = hbmp.GetInfo()
         bmpstr = hbmp.GetBitmapBits(True)
-        pil_img = Image.frombuffer(
-            "RGBA", (bmpinfo["bmWidth"], bmpinfo["bmHeight"]), bmpstr, "raw", "BGRA", 0, 1
-        )
+        try:
+            from PIL import Image
+            pil_img = Image.frombuffer(
+                "RGBA", (bmpinfo["bmWidth"], bmpinfo["bmHeight"]), bmpstr, "raw", "BGRA", 0, 1
+            )
 
-        buffered = BytesIO()
-        pil_img.save(buffered, format="PNG")
-        base64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            buffered = BytesIO()
+            pil_img.save(buffered, format="PNG")
+            base64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        except ImportError:
+            # Fallback: return empty string if PIL not available
+            base64_str = ""
 
         win32gui.DestroyIcon(icon_to_use)
         win32gui.DeleteObject(hbmp.GetHandle())

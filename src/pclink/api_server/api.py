@@ -44,7 +44,7 @@ from .media_router import router as media_router
 from .process_manager import router as process_manager_router
 from .services import (NetworkMonitor, button_map, get_media_info_data,
                        get_system_info_data, keyboard_controller,
-                       mouse_controller)
+                       mouse_controller, PYNPUT_AVAILABLE)
 from .system_router import router as system_router
 from .terminal import create_terminal_router
 from .utils_router import router as utils_router
@@ -67,6 +67,10 @@ pairing_results: Dict[str, dict] = {}
 
 # --- WebSocket Command Handlers ---
 def handle_mouse_command(data: Dict[str, Any]):
+    if not PYNPUT_AVAILABLE:
+        log.warning("Mouse command ignored - pynput not available")
+        return
+    
     action = data.get("action")
     try:
         button = button_map.get(data.get("button", "left"))
@@ -79,6 +83,10 @@ def handle_mouse_command(data: Dict[str, Any]):
     except Exception as e: log.error(f"Error executing mouse command '{action}': {e}")
 
 def handle_keyboard_command(data: Dict[str, Any]):
+    if not PYNPUT_AVAILABLE:
+        log.warning("Keyboard command ignored - pynput not available")
+        return
+    
     try:
         if text := data.get("text"):
             keyboard_controller.type(text)
