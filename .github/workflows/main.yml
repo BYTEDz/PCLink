@@ -102,6 +102,9 @@ jobs:
           echo "Build tools:"
           dpkg --version
 
+      - name: Build Python wheel
+        run: python -m build --wheel --outdir releases/
+
       - name: Build Linux packages with FPM
         run: python scripts/build.py --format fpm
 
