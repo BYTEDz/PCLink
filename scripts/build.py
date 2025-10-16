@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tarfile
 import time
-import psutil
+# psutil imported conditionally when needed
 from pathlib import Path
 
 # Make the `src` directory available to find the real version_info module.
@@ -233,6 +233,13 @@ class UninstallManager:
     """Handles PCLink uninstallation with process management and data cleanup."""
     
     def __init__(self):
+        # Import psutil only when uninstall functionality is needed
+        try:
+            import psutil
+            self.psutil = psutil
+        except ImportError:
+            raise ImportError("psutil is required for uninstall functionality. Install with: pip install psutil")
+        
         self.app_name = "PCLink"
         self.process_names = ["pclink.exe", "PCLink.exe", "PCLink-build.exe"]
         self.registry_paths = [
@@ -244,7 +251,7 @@ class UninstallManager:
         """Find all running PCLink processes."""
         pclink_processes = []
         try:
-            for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+            for proc in self.psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
                 try:
                     proc_info = proc.info
                     proc_name = (proc_info.get('name') or '').lower()
@@ -260,7 +267,7 @@ class UninstallManager:
                             'exe': proc_info.get('exe', 'Unknown'),
                             'cmdline': proc_cmdline
                         })
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                except (self.psutil.NoSuchProcess, self.psutil.AccessDenied, self.psutil.ZombieProcess):
                     continue
         except Exception as e:
             print(f"[WARNING] Error finding PCLink processes: {e}")
@@ -289,7 +296,7 @@ class UninstallManager:
         
         for proc_info in processes:
             try:
-                proc = psutil.Process(proc_info['pid'])
+                proc = self.psutil.Process(proc_info['pid'])
                 proc.terminate()
                 
                 # Wait for graceful termination
@@ -297,14 +304,14 @@ class UninstallManager:
                     proc.wait(timeout=5)
                     terminated.append(proc_info)
                     print(f"[OK] Terminated process {proc_info['pid']} ({proc_info['name']})")
-                except psutil.TimeoutExpired:
+                except self.psutil.TimeoutExpired:
                     # Force kill if graceful termination fails
                     proc.kill()
                     proc.wait(timeout=2)
                     terminated.append(proc_info)
                     print(f"[OK] Force-killed process {proc_info['pid']} ({proc_info['name']})")
                     
-            except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+            except (self.psutil.NoSuchProcess, self.psutil.AccessDenied) as e:
                 failed.append((proc_info, str(e)))
                 print(f"[WARNING] Could not terminate process {proc_info['pid']}: {e}")
         
