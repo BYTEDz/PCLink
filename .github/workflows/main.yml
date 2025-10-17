@@ -79,11 +79,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Python dependencies
+      - name: Install minimal Python build dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          # Only install what's needed for NFPM packaging
+          pip install wheel setuptools build pyyaml
 
       - name: Install NFPM dependencies
         run: |
@@ -105,10 +105,7 @@ jobs:
           }
           rm -f nfpm.deb
 
-      - name: Install additional build tools
-        run: |
-          # Install additional Python packages needed for nfpm build
-          pip install wheel setuptools build pyyaml
+
 
       - name: Verify build environment
         run: |

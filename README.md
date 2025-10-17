@@ -207,7 +207,7 @@ wget -O nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_V
 sudo dpkg -i nfpm.deb
 rm nfpm.deb
 
-# Install Python build dependencies
+# Install minimal Python build dependencies (no runtime deps needed)
 pip install wheel setuptools build pyyaml
 
 # Build packages (creates both .deb and .rpm)
@@ -257,7 +257,7 @@ sudo dnf install rpm-build gcc make
 sudo pacman -S base-devel
 # Then install NFPM from AUR or GitHub releases
 
-# Install Python dependencies
+# Install minimal Python build dependencies
 pip install wheel setuptools build pyyaml
 
 # Then retry build
