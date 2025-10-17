@@ -25,6 +25,26 @@ It features a **FastAPI server**, **responsive web interface**, and **lightweigh
 
 ---
 
+## ⚠️ Important Notice for Linux Users
+
+**If you have PCLink v2.3.0 or earlier installed**, you **must** uninstall it before upgrading due to broken FPM packaging:
+
+```bash
+# Download and run the force purge script
+wget https://raw.githubusercontent.com/BYTEDz/PCLink/main/force-purge-pclink.sh
+chmod +x force-purge-pclink.sh
+sudo ./force-purge-pclink.sh
+```
+
+This script safely removes broken package installations and cleans up your system. **New installations from v2.4.0+ use NFPM and don't have this issue.**
+
+### What Changed?
+- **v2.3.0 and earlier**: Used FPM (Ruby-based) packaging with broken maintainer scripts
+- **v2.4.0+**: Uses NFPM (Go-based) packaging with reliable installation/removal
+- **Benefits**: Better cross-platform support, more reliable package management, both DEB and RPM support
+
+---
+
 ## 🚀 Features
 
 ### 🌐 Web-First Interface
@@ -82,11 +102,15 @@ The server requires the companion mobile app:
 2. Run the installer with administrator privileges
 3. PCLink will be available in Start Menu and system tray
 
-#### Linux (Ubuntu/Debian)
-1. Download the latest `.deb` package from [Releases](https://github.com/BYTEDz/PCLink/releases)
-2. Install: `sudo dpkg -i pclink_*.deb`
-3. Fix dependencies if needed: `sudo apt-get install -f`
-4. Start: `pclink` or find in applications menu
+#### Linux (Ubuntu/Debian/RPM-based)
+1. Download the latest `.deb` or `.rpm` package from [Releases](https://github.com/BYTEDz/PCLink/releases)
+2. Install:
+   - **Debian/Ubuntu**: `sudo dpkg -i pclink_*.deb && sudo apt-get install -f`
+   - **Fedora/RHEL**: `sudo rpm -i pclink-*.rpm`
+   - **Arch Linux**: `sudo pacman -U pclink-*.pkg.tar.xz` (if available)
+3. Start: `pclink` or find in applications menu
+
+**Note**: Packages from v2.4.0+ use NFPM packaging system for better reliability.
 
 ### 🐍 Python Installation
 
@@ -153,6 +177,9 @@ pip install -r requirements.txt
 # Install development dependencies (includes PyInstaller for building)
 pip install -r requirements-dev.txt
 
+# Install additional dependencies for NFPM packaging (Linux only)
+pip install pyyaml
+
 # Install PCLink in development mode
 pip install -e .
 
@@ -168,18 +195,26 @@ pytest
 
 ### 📦 Building Packages
 
-#### Linux .deb Packages
+#### Linux .deb/.rpm Packages
 ```bash
-# Install FPM dependencies
+# Install NFPM dependencies
 sudo apt update
-sudo apt install ruby ruby-dev rubygems build-essential dpkg-dev
-sudo gem install --no-document fpm
+sudo apt install build-essential dpkg-dev rpm
 
-# Build package (no virtual environment or Python dependencies needed)
-python scripts/build.py --format fpm
+# Install NFPM (package manager)
+NFPM_VERSION="2.40.0"
+wget -O nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_amd64.deb"
+sudo dpkg -i nfpm.deb
+rm nfpm.deb
+
+# Install Python build dependencies
+pip install wheel setuptools build pyyaml
+
+# Build packages (creates both .deb and .rpm)
+python scripts/build.py --format nfpm
 ```
 
-**Note**: FPM builds don't require installing Python runtime dependencies. The build script creates a wheel and packages it with proper dependency declarations for the package manager to handle.
+**Note**: NFPM builds create both DEB and RPM packages simultaneously. The build script creates a wheel and packages it with proper dependency declarations for the package manager to handle.
 
 #### Windows Packages
 ```bash
@@ -200,25 +235,33 @@ pip install -r requirements-dev.txt
 python scripts/build.py --format portable
 ```
 
-#### Missing FPM Dependencies (Linux package builds)
-If you see `[ERROR] Missing FPM dependencies`:
+#### Missing NFPM Dependencies (Linux package builds)
+If you see `[ERROR] Missing NFPM dependencies`:
 
 ```bash
 # Ubuntu/Debian:
 sudo apt update
-sudo apt install ruby ruby-dev rubygems build-essential dpkg-dev
-sudo gem install --no-document fpm
+sudo apt install build-essential dpkg-dev rpm
+
+# Install NFPM
+NFPM_VERSION="2.40.0"
+wget -O nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_amd64.deb"
+sudo dpkg -i nfpm.deb
+rm nfpm.deb
 
 # Fedora/RHEL:
-sudo dnf install ruby ruby-devel rubygems rpm-build gcc make
-sudo gem install --no-document fpm
+sudo dnf install rpm-build gcc make
+# Then install NFPM from GitHub releases or use Go
 
 # Arch Linux:
-sudo pacman -S ruby rubygems base-devel
-sudo gem install --no-document fpm
+sudo pacman -S base-devel
+# Then install NFPM from AUR or GitHub releases
+
+# Install Python dependencies
+pip install wheel setuptools build pyyaml
 
 # Then retry build
-python scripts/build.py --format fpm
+python scripts/build.py --format nfpm
 ```
 
 ---

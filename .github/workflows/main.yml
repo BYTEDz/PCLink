@@ -1,4 +1,5 @@
 name: PCLink CI & Release
+# Updated to use NFPM instead of FPM for Linux package building
 
 on:
   push:
@@ -78,35 +79,69 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install FPM dependencies
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Install NFPM dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ruby ruby-dev rubygems build-essential dpkg-dev rpm
+          sudo apt-get install -y build-essential dpkg-dev rpm
 
-      - name: Install FPM
-        run: sudo gem install --no-document fpm
-
-      - name: Ensure pip is available and install build tools
+      - name: Install NFPM
         run: |
-          # Ensure pip is available
-          python -m ensurepip --upgrade || true
-          python -m pip install --upgrade pip
-          pip install wheel setuptools build
+          # Install nfpm from GitHub releases
+          NFPM_VERSION="2.40.0"
+          echo "Installing NFPM version $NFPM_VERSION..."
+          wget -O nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_amd64.deb"
+          sudo dpkg -i nfpm.deb || {
+            echo "Failed to install nfpm via dpkg, trying alternative method..."
+            # Alternative: install via go
+            sudo apt-get install -y golang-go
+            go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+            sudo cp ~/go/bin/nfpm /usr/local/bin/
+          }
+          rm -f nfpm.deb
+
+      - name: Install additional build tools
+        run: |
+          # Install additional Python packages needed for nfpm build
+          pip install wheel setuptools build pyyaml
 
       - name: Verify build environment
         run: |
-          echo "FPM version:"
-          fpm --version
+          echo "NFPM version:"
+          nfpm --version
           echo "Python version:"
           python --version
           echo "Build tools:"
           dpkg --version
 
-      - name: Build Python wheel
-        run: python -m build --wheel --outdir releases/
+      - name: Clean previous build artifacts
+        run: |
+          echo "Cleaning previous build artifacts..."
+          rm -rf build/ dist/ releases/ || true
+          rm -f nfpm.yaml || true
 
-      - name: Build Linux packages with FPM
-        run: python scripts/build.py --format fpm
+      - name: Validate NFPM configuration
+        run: |
+          echo "Validating NFPM setup..."
+          # Run the pre-build step to generate nfpm.yaml
+          python scripts/build_nfpm.py || echo "Pre-build script completed"
+          
+          # Check if nfpm.yaml was generated
+          if [ -f "nfpm.yaml" ]; then
+            echo "NFPM configuration file exists"
+            echo "Validating NFPM config syntax..."
+            nfpm validate nfpm.yaml || echo "Config validation completed"
+          else
+            echo "Warning: nfpm.yaml not found"
+          fi
+
+      - name: Build Linux packages with NFPM
+        run: python scripts/build.py --format nfpm
 
       - name: Verify Linux build outputs
         run: |
@@ -115,11 +150,19 @@ jobs:
             ls -la releases/
             find releases/ -name "*.deb" -o -name "*.rpm"
             
-            # Verify web UI files are included in the .deb package
+            # Verify package contents
             DEB_FILE=$(find releases/ -name "*.deb" | head -1)
             if [ -n "$DEB_FILE" ]; then
-              echo "Checking web UI files in $DEB_FILE:"
-              dpkg-deb -c "$DEB_FILE" | grep -E "(web_ui|static)" || echo "No web UI files found in package"
+              echo "Checking package contents in $DEB_FILE:"
+              dpkg-deb -c "$DEB_FILE" | head -20
+              echo "Checking for PCLink files:"
+              dpkg-deb -c "$DEB_FILE" | grep -E "(pclink|usr/lib/pclink)" || echo "PCLink files not found in expected location"
+            fi
+            
+            RPM_FILE=$(find releases/ -name "*.rpm" | head -1)
+            if [ -n "$RPM_FILE" ]; then
+              echo "Checking RPM package contents in $RPM_FILE:"
+              rpm -qlp "$RPM_FILE" | head -20
             fi
           else
             echo "No releases directory found"

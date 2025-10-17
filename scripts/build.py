@@ -109,37 +109,23 @@ def check_system_dependencies(build_format=None):
     if sys.version_info < (3, 8):
         missing_deps.append(f"Python 3.8+ required, found {sys.version_info.major}.{sys.version_info.minor}")
     
-    # For FPM builds, only check FPM-specific dependencies
-    if build_format == "fpm":
-        # Check for FPM-specific tools only
-        fpm_tools = ["ruby", "gem"]
-        for tool in fpm_tools:
-            if not shutil.which(tool):
-                missing_deps.append(f"{tool} (required for FPM)")
-        
+    # For NFPM builds, we only need to ensure the Python environment is ready 
+    # to run the pre-build script and create a wheel.
+    if build_format == "nfpm":
         # Check for pip (needed to create wheel)
         if not shutil.which("pip") and not shutil.which("pip3"):
-            missing_deps.append("pip (required to create Python wheel)")
-        
-        # Check for FPM
-        try:
-            subprocess.run(["fpm", "--version"], capture_output=True, check=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            missing_deps.append("fpm (Effing Package Management)")
+            missing_deps.append("pip (required to create Python wheel for NFPM staging)")
         
         if missing_deps:
-            print("[ERROR] Missing FPM dependencies:")
+            print("[ERROR] Missing NFPM pre-build dependencies:")
             for dep in missing_deps:
                 print(f"  - {dep}")
-            print("\nInstall FPM dependencies with:")
-            print("  sudo apt install ruby ruby-dev rubygems build-essential dpkg-dev")
-            print("  sudo gem install --no-document fpm")
             return False
         
-        print("[INFO] FPM dependencies OK - ready to build packages")
+        print("[INFO] NFPM pre-build dependencies OK.")
         return True
     
-    # For other build formats, check PyInstaller dependencies
+    # For other build formats (PyInstaller), check core dependencies
     required_packages = [
         "PyInstaller", "psutil", "fastapi", "uvicorn", "cryptography", 
         "requests"
@@ -734,7 +720,7 @@ class Builder:
 
 def main():
     parser = argparse.ArgumentParser(description=f"{APP_NAME} Unified Build System")
-    parser.add_argument("--format", default="portable", choices=["portable", "installer", "onefile", "fpm"], help="Output format.")
+    parser.add_argument("--format", default="portable", choices=["portable", "installer", "onefile", "nfpm"], help="Output format.")
     parser.add_argument("--clean", action="store_true", help="Clean build directories before starting.")
     parser.add_argument("--debug", action="store_true", help="Create a debug build with console.")
     parser.add_argument("--uninstall", action="store_true", help="Uninstall PCLink from the system.")
@@ -792,15 +778,38 @@ def main():
             installer_source_name = APP_NAME
             builder.build(onefile=False, name=installer_source_name)
             builder.create_windows_installer(build_name=installer_source_name, package_name=f"{base_name}-installer")
-        elif args.format == "fpm":
-            if builder.platform != "linux":
-                raise BuildError("FPM packaging is only available on Linux.")
+            
+        elif args.format == "nfpm":
+            # NFPM can run cross-platform, but packages are for Linux
+            print("[INFO] Building Linux packages using NFPM...")
+            
+            # Run the pre-packaging script
             sys.path.insert(0, str(Path(__file__).parent))
-            from build_fpm import FPMBuilder
-            fpm_builder = FPMBuilder()
-            fpm_success = fpm_builder.build_all(["deb", "rpm"])
-            if not fpm_success:
-                raise BuildError("FPM package build failed.")
+            from build_nfpm import NFPMBuilder
+            
+            nfpm_builder = NFPMBuilder()
+            nfpm_success = nfpm_builder.build_all()
+            if not nfpm_success:
+                raise BuildError("NFPM pre-package build failed.")
+            
+            print("\n[INFO] NFPM pre-build complete. Starting final packaging...")
+
+            # Check for nfpm executable
+            if not shutil.which("nfpm"):
+                raise BuildError("`nfpm` command not found. Please install nfpm to build packages.")
+
+            # Define formats and build packages
+            package_formats = ["deb", "rpm"]
+            for fmt in package_formats:
+                print(f"--- Building {fmt.upper()} package ---")
+                cmd = [
+                    "nfpm", "package",
+                    "--packager", fmt,
+                    "--target", str(builder.releases_dir),
+                    "-f", "nfpm.yaml"
+                ]
+                builder._run_command(cmd)
+                print(f"[OK] Successfully created {fmt} package.")
 
 
         print(f"\n[DONE] Operation completed in {time.monotonic() - start_time:.2f} seconds.")
