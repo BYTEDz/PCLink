@@ -73,10 +73,19 @@ class CreateFolderPayload(BaseModel):
 class UploadInitiatePayload(BaseModel):
     file_name: str
     destination_path: str
+    conflict_resolution: Literal["abort", "overwrite", "keep_both"] = "abort"
 
 
 class UploadInitiateResponse(BaseModel):
     upload_id: str
+    final_file_name: str = None  # The actual filename that will be used (may be different if keep_both)
+
+
+class FileConflictResponse(BaseModel):
+    conflict: bool = True
+    existing_file: str
+    options: List[str] = ["abort", "overwrite", "keep_both"]
+    suggested_name: str = None  # For keep_both option
 
 
 class DownloadInitiatePayload(BaseModel):
@@ -229,17 +238,65 @@ def _get_unique_filename(path: Path) -> Path:
 
 
 # --- Chunked File Upload Endpoints ---
-@upload_router.post("/initiate", response_model=UploadInitiateResponse)
+@upload_router.post("/check-conflict")
+async def check_upload_conflict(payload: UploadInitiatePayload):
+    """Check if a file upload would cause a conflict."""
+    dest_path = _validate_and_resolve_path(payload.destination_path)
+    if not dest_path.is_dir():
+        raise HTTPException(status_code=400, detail="Destination is not a directory")
+
+    safe_filename = validate_filename(payload.file_name)
+    file_path = dest_path / safe_filename
+
+    if file_path.exists():
+        suggested_name = _get_unique_filename(file_path).name
+        return {
+            "conflict": True,
+            "existing_file": safe_filename,
+            "options": ["abort", "overwrite", "keep_both"],
+            "suggested_name": suggested_name,
+            "message": f"File '{safe_filename}' already exists"
+        }
+    else:
+        return {
+            "conflict": False,
+            "message": "No conflict, upload can proceed"
+        }
+
+
+@upload_router.post("/initiate")
 async def initiate_upload(payload: UploadInitiatePayload):
     dest_path = _validate_and_resolve_path(payload.destination_path)
     if not dest_path.is_dir():
         raise HTTPException(status_code=400, detail="Destination is not a directory")
 
     safe_filename = validate_filename(payload.file_name)
-    final_file_path = dest_path / safe_filename
+    original_file_path = dest_path / safe_filename
+    final_file_path = original_file_path
 
-    if final_file_path.exists():
-        raise HTTPException(status_code=409, detail=f"File '{safe_filename}' already exists at the destination.")
+    # Handle file conflicts
+    if original_file_path.exists():
+        if payload.conflict_resolution == "abort":
+            # Return conflict information for client to decide
+            suggested_name = _get_unique_filename(original_file_path).name
+            raise HTTPException(
+                status_code=409, 
+                detail={
+                    "conflict": True,
+                    "existing_file": safe_filename,
+                    "options": ["abort", "overwrite", "keep_both"],
+                    "suggested_name": suggested_name,
+                    "message": f"File '{safe_filename}' already exists"
+                }
+            )
+        elif payload.conflict_resolution == "overwrite":
+            # Will overwrite the existing file
+            final_file_path = original_file_path
+        elif payload.conflict_resolution == "keep_both":
+            # Generate unique filename
+            final_file_path = _get_unique_filename(original_file_path)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid conflict resolution option")
 
     final_file_path_str = str(final_file_path)
 
@@ -248,19 +305,19 @@ async def initiate_upload(payload: UploadInitiatePayload):
         if final_file_path_str in ACTIVE_UPLOADS:
             existing_id = ACTIVE_UPLOADS[final_file_path_str]
             if (TEMP_UPLOAD_DIR / f"{existing_id}.part").exists():
-                log.info(f"Resuming upload for {safe_filename} with ID {existing_id}")
-                return UploadInitiateResponse(upload_id=existing_id)
+                log.info(f"Resuming upload for {final_file_path.name} with ID {existing_id}")
+                return UploadInitiateResponse(upload_id=existing_id, final_file_name=final_file_path.name)
             else:
                 del ACTIVE_UPLOADS[final_file_path_str]
 
         upload_id = str(uuid.uuid4())
-        metadata = {"final_path": final_file_path_str, "file_name": safe_filename}
+        metadata = {"final_path": final_file_path_str, "file_name": final_file_path.name}
         (TEMP_UPLOAD_DIR / f"{upload_id}.meta").write_text(json.dumps(metadata), encoding="utf-8")
         (TEMP_UPLOAD_DIR / f"{upload_id}.part").touch()
 
         ACTIVE_UPLOADS[final_file_path_str] = upload_id
-        log.info(f"Initiated new upload for {safe_filename} with ID {upload_id}")
-        return UploadInitiateResponse(upload_id=upload_id)
+        log.info(f"Initiated new upload for {final_file_path.name} with ID {upload_id}")
+        return UploadInitiateResponse(upload_id=upload_id, final_file_name=final_file_path.name)
 
 
 @upload_router.get("/status/{upload_id}")
@@ -280,11 +337,28 @@ async def upload_chunk(upload_id: str, request: Request, offset: int = Query(...
     async with lock:
         if not part_file.exists() or not meta_file.exists():
             raise HTTPException(status_code=404, detail="Upload session not found or expired.")
+        
         try:
-            with part_file.open("rb+") as f:
-                f.seek(offset)
-                async for chunk in request.stream():
-                    f.write(chunk)
+            # Use aiofiles for better performance, but keep the original logic for compatibility
+            try:
+                import aiofiles
+                use_aiofiles = True
+            except ImportError:
+                use_aiofiles = False
+            
+            if use_aiofiles:
+                # Optimized async version
+                async with aiofiles.open(part_file, "rb+") as f:
+                    await f.seek(offset)
+                    async for chunk in request.stream():
+                        await f.write(chunk)
+            else:
+                # Fallback to synchronous version for compatibility
+                with part_file.open("rb+") as f:
+                    f.seek(offset)
+                    async for chunk in request.stream():
+                        f.write(chunk)
+                        
         except Exception as e:
             log.error(f"Error writing chunk for upload {upload_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Error writing file chunk: {e}")
@@ -346,6 +420,112 @@ async def cancel_upload(upload_id: str, background_tasks: BackgroundTasks):
     background_tasks.add_task(_cleanup_transfer_session, upload_id)
     log.info(f"Cancelled upload {upload_id}")
     return {"status": "cancelled"}
+
+
+@upload_router.post("/stream/{upload_id}")
+async def stream_upload(upload_id: str, request: Request):
+    """High-performance streaming upload endpoint for large files."""
+    part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
+    meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
+    
+    if not part_file.exists() or not meta_file.exists():
+        raise HTTPException(status_code=404, detail="Upload session not found or expired.")
+    
+    try:
+        bytes_written = 0
+        
+        # Try async version first, fallback to sync for compatibility
+        try:
+            import aiofiles
+            async with aiofiles.open(part_file, "wb") as f:
+                async for chunk in request.stream():
+                    await f.write(chunk)
+                    bytes_written += len(chunk)
+        except ImportError:
+            # Fallback to synchronous version
+            with part_file.open("wb") as f:
+                async for chunk in request.stream():
+                    f.write(chunk)
+                    bytes_written += len(chunk)
+        
+        log.info(f"Streamed {bytes_written} bytes for upload {upload_id}")
+        return {"status": "stream received", "bytes_written": bytes_written}
+        
+    except Exception as e:
+        log.error(f"Error in stream upload {upload_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error streaming file: {e}")
+
+
+@upload_router.post("/direct")
+async def direct_upload(
+    request: Request, 
+    destination_path: str = Query(...), 
+    file_name: str = Query(...),
+    conflict_resolution: str = Query("keep_both", regex="^(abort|overwrite|keep_both)$")
+):
+    """Ultra-fast direct upload endpoint that bypasses chunking entirely."""
+    try:
+        # Validate destination
+        dest_path = _validate_and_resolve_path(destination_path)
+        if not dest_path.is_dir():
+            raise HTTPException(status_code=400, detail="Destination is not a directory")
+
+        # Validate filename
+        safe_filename = validate_filename(file_name)
+        original_file_path = dest_path / safe_filename
+        final_file_path = original_file_path
+
+        # Handle file conflicts
+        if original_file_path.exists():
+            if conflict_resolution == "abort":
+                suggested_name = _get_unique_filename(original_file_path).name
+                raise HTTPException(
+                    status_code=409, 
+                    detail={
+                        "conflict": True,
+                        "existing_file": safe_filename,
+                        "options": ["abort", "overwrite", "keep_both"],
+                        "suggested_name": suggested_name,
+                        "message": f"File '{safe_filename}' already exists"
+                    }
+                )
+            elif conflict_resolution == "overwrite":
+                final_file_path = original_file_path
+            elif conflict_resolution == "keep_both":
+                final_file_path = _get_unique_filename(original_file_path)
+
+        # Ensure parent directory exists
+        final_file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        bytes_written = 0
+        
+        # Try async version first, fallback to sync for compatibility
+        try:
+            import aiofiles
+            async with aiofiles.open(final_file_path, "wb") as f:
+                async for chunk in request.stream():
+                    await f.write(chunk)
+                    bytes_written += len(chunk)
+        except ImportError:
+            # Fallback to synchronous version
+            with final_file_path.open("wb") as f:
+                async for chunk in request.stream():
+                    f.write(chunk)
+                    bytes_written += len(chunk)
+        
+        log.info(f"Direct upload completed: {final_file_path.name} ({bytes_written} bytes)")
+        return {
+            "status": "completed", 
+            "path": str(final_file_path),
+            "bytes_written": bytes_written,
+            "file_name": final_file_path.name
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error in direct upload: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
 
 
 # --- Chunked File Download Endpoints ---
@@ -529,7 +709,8 @@ async def download_chunk(download_id: str, request: Request, range_header: str =
                 f.seek(start_byte)
                 bytes_to_send = chunk_size
                 while bytes_to_send > 0:
-                    data = f.read(min(8192, bytes_to_send))
+                    # Use larger chunks for better performance (32KB - conservative increase)
+                    data = f.read(min(32768, bytes_to_send))
                     if not data:
                         break
                     bytes_to_send -= len(data)
@@ -712,7 +893,7 @@ async def download_file(path: str = Query(...)):
     
     def create_file_iterator():
         with file_path.open("rb") as f:
-            while chunk := f.read(8192):
+            while chunk := f.read(32768):  # 32KB chunks for better performance
                 yield chunk
     
     headers = {

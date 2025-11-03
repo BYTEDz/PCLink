@@ -163,6 +163,9 @@ class Controller:
                 "workers": 1,
                 "ws_ping_interval": 20,
                 "ws_ping_timeout": 20,
+                # Performance optimizations for file uploads
+                "timeout_keep_alive": 60,  # Keep connections alive longer
+                "h11_max_incomplete_event_size": 64 * 1024 * 1024,  # 64MB for large uploads
             }
 
             config = uvicorn.Config(**uvicorn_config)

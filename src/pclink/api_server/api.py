@@ -112,7 +112,14 @@ class ConnectionManager:
 
 # --- FastAPI App Factory ---
 def create_api_app(api_key: str, controller_instance, connected_devices: Dict, allow_insecure_shell: bool) -> FastAPI:
-    app = FastAPI(title="PCLink API", version="8.9.0", docs_url=None, redoc_url=None)
+    app = FastAPI(
+        title="PCLink API", 
+        version="8.9.0", 
+        docs_url=None, 
+        redoc_url=None,
+        # Performance optimizations
+        generate_unique_id_function=lambda route: f"{route.tags[0]}-{route.name}" if route.tags else route.name
+    )
     
     mobile_manager = ConnectionManager()
     ui_manager = ConnectionManager()
@@ -154,6 +161,16 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     WEB_AUTH = Depends(verify_web_session)
     MOBILE_API = [Depends(verify_api_key), Depends(verify_mobile_api_enabled)]
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    
+    # Add middleware to optimize upload performance
+    @app.middleware("http")
+    async def upload_optimization_middleware(request: Request, call_next):
+        # Disable compression for upload endpoints to improve performance
+        if request.url.path.startswith("/files/upload/"):
+            response = await call_next(request)
+            response.headers["content-encoding"] = "identity"
+            return response
+        return await call_next(request)
     
     terminal_router = create_terminal_router(server_api_key, allow_insecure_shell)
     
@@ -524,6 +541,25 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             log.error(f"Failed to restart server: {e}")
             await ui_manager.broadcast({"type": "server_status", "status": "running"})
             raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/debug/performance")
+    async def debug_performance():
+        """Debug endpoint to check server performance metrics."""
+        import psutil
+        import time
+        
+        process = psutil.Process()
+        return {
+            "cpu_percent": process.cpu_percent(),
+            "memory_mb": process.memory_info().rss / 1024 / 1024,
+            "open_files": len(process.open_files()),
+            "connections": len(process.connections()),
+            "threads": process.num_threads(),
+            "server_time": time.time(),
+            "active_uploads": len(ACTIVE_UPLOADS),
+            "active_downloads": len(ACTIVE_DOWNLOADS),
+            "transfer_locks": len(TRANSFER_LOCKS)
+        }
     
     @app.post("/server/shutdown", dependencies=[WEB_AUTH])
     async def shutdown_server():

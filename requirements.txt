@@ -8,6 +8,9 @@ uvicorn[standard]>=0.22.0
 websockets>=12.0
 wsproto>=1.2.0
 
+# Optional performance enhancement
+aiofiles>=23.0.0  # Optional: Improves upload performance with async file I/O
+
 # System Information and Control
 keyboard>=0.13.5
 mss>=9.0.0
