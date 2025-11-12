@@ -264,12 +264,15 @@ def _execute_sync_power_command(cmd: list[str]):
 
 
 @router.post("/power/{command}")
-async def power_command(command: str):
+async def power_command(command: str, hybrid: bool = True):
     """
     Handles power commands such as shutdown, reboot, lock, sleep, and logout.
 
     Args:
         command: The power command to execute (shutdown, reboot, lock, sleep, logout).
+        hybrid: For Windows shutdown/reboot - use hybrid shutdown (Fast Startup) for faster boots.
+                True (default) = hybrid shutdown (saves state, faster boot)
+                False = full shutdown (clears everything, slower boot but cleaner)
 
     Returns:
         A dictionary indicating the status of the command.
@@ -279,8 +282,8 @@ async def power_command(command: str):
     """
     cmd_map = {
         "win32": {
-            "shutdown": ["shutdown", "/s", "/t", "1"],
-            "reboot": ["shutdown", "/r", "/t", "1"],
+            "shutdown": ["shutdown", "/s", "/t", "1"] if hybrid else ["shutdown", "/s", "/hybrid", "/t", "1"],
+            "reboot": ["shutdown", "/r", "/t", "1"] if hybrid else ["shutdown", "/r", "/hybrid", "/t", "1"],
             "lock": ["rundll32.exe", "user32.dll,LockWorkStation"],
             "sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
             "logout": ["shutdown", "/l"],

@@ -198,7 +198,15 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     app.state.api_key = server_api_key
 
     @app.on_event("startup")
-    async def startup_event(): 
+    async def startup_event():
+        # Restore persisted upload/download sessions
+        from .file_browser import restore_sessions
+        try:
+            result = restore_sessions()
+            log.info(f"Session restoration: {result['restored_uploads']} uploads, {result['restored_downloads']} downloads")
+        except Exception as e:
+            log.error(f"Failed to restore sessions on startup: {e}")
+        
         asyncio.create_task(broadcast_updates_task(mobile_manager, app.state, network_monitor))
 
     @app.websocket("/ws")
@@ -547,8 +555,14 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         """Debug endpoint to check server performance metrics."""
         import psutil
         import time
+        from .file_browser import ACTIVE_UPLOADS, ACTIVE_DOWNLOADS, TRANSFER_LOCKS, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
         
         process = psutil.Process()
+        
+        # Count persisted sessions
+        persisted_uploads = len(list(TEMP_UPLOAD_DIR.glob("*.meta")))
+        persisted_downloads = len(list(DOWNLOAD_SESSION_DIR.glob("*.json")))
+        
         return {
             "cpu_percent": process.cpu_percent(),
             "memory_mb": process.memory_info().rss / 1024 / 1024,
@@ -556,8 +570,10 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             "connections": len(process.connections()),
             "threads": process.num_threads(),
             "server_time": time.time(),
-            "active_uploads": len(ACTIVE_UPLOADS),
-            "active_downloads": len(ACTIVE_DOWNLOADS),
+            "active_uploads_memory": len(ACTIVE_UPLOADS),
+            "active_downloads_memory": len(ACTIVE_DOWNLOADS),
+            "persisted_uploads_disk": persisted_uploads,
+            "persisted_downloads_disk": persisted_downloads,
             "transfer_locks": len(TRANSFER_LOCKS)
         }
     

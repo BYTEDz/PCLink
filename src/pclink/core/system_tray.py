@@ -88,16 +88,94 @@ class SystemTrayManager:
         else:
             log.warning(f"ERROR: pystray library not available: {IMPORT_ERROR}")
 
+    def _get_tray_icon_path(self):
+        """Get the appropriate tray icon based on system theme."""
+        # Try to detect system theme
+        is_dark_theme = self._is_system_dark_theme()
+        
+        # Use dark icon for dark themes, light icon for light themes
+        if sys.platform == "win32":
+            # Windows: Try ICO first, fallback to PNG
+            if is_dark_theme:
+                icon_file = resource_path("src/pclink/assets/pclink_dark.ico")
+                if not icon_file.exists():
+                    icon_file = resource_path("src/pclink/assets/pclink_dark.png")
+                if not icon_file.exists():
+                    icon_file = resource_path("src/pclink/assets/icon.ico")
+            else:
+                icon_file = resource_path("src/pclink/assets/pclink_light.ico")
+                if not icon_file.exists():
+                    icon_file = resource_path("src/pclink/assets/pclink_light.png")
+                if not icon_file.exists():
+                    icon_file = resource_path("src/pclink/assets/icon.ico")
+        else:
+            # Linux/Mac PNG format
+            if is_dark_theme:
+                icon_file = resource_path("src/pclink/assets/pclink_dark.png")
+                if not icon_file.exists():
+                    icon_file = resource_path("src/pclink/assets/icon.png")
+            else:
+                icon_file = resource_path("src/pclink/assets/pclink_light.png")
+                if not icon_file.exists():
+                    icon_file = resource_path("src/pclink/assets/icon.png")
+        
+        return icon_file
+    
+    def _is_system_dark_theme(self):
+        """Detect if the system is using a dark theme."""
+        try:
+            if sys.platform == "win32":
+                # Windows: Check registry for dark mode
+                import winreg
+                try:
+                    key = winreg.OpenKey(
+                        winreg.HKEY_CURRENT_USER,
+                        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+                    )
+                    value, _ = winreg.QueryValueEx(key, "SystemUsesLightTheme")
+                    winreg.CloseKey(key)
+                    return value == 0  # 0 = dark, 1 = light
+                except (FileNotFoundError, OSError):
+                    return False  # Default to light if can't detect
+            
+            elif sys.platform == "darwin":
+                # macOS: Check system appearance
+                import subprocess
+                result = subprocess.run(
+                    ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                    capture_output=True,
+                    text=True
+                )
+                return "dark" in result.stdout.lower()
+            
+            else:
+                # Linux: Check GTK theme
+                gtk_theme = os.environ.get('GTK_THEME', '').lower()
+                if 'dark' in gtk_theme:
+                    return True
+                
+                # Check desktop environment settings
+                if 'GNOME' in os.environ.get('XDG_CURRENT_DESKTOP', ''):
+                    import subprocess
+                    result = subprocess.run(
+                        ["gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"],
+                        capture_output=True,
+                        text=True
+                    )
+                    return 'dark' in result.stdout.lower()
+                
+                return False  # Default to light
+        except Exception as e:
+            log.debug(f"Could not detect system theme: {e}")
+            return False  # Default to light theme
+    
     def create_pystray_icon(self):
         """Create a tray icon and its context menu using pystray."""
         if not TRAY_AVAILABLE:
             return
         try:
-            # This full path is correct because our new resource_path in utils.py handles it.
-            if sys.platform == "win32":
-                icon_file = resource_path("src/pclink/assets/icon.ico")
-            else:
-                icon_file = resource_path("src/pclink/assets/icon.png")
+            # Get the appropriate tray icon based on system theme
+            icon_file = self._get_tray_icon_path()
             
             # Try to load icon file, fallback to None if PIL not available
             try:
