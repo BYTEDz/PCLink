@@ -15,12 +15,12 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
+import platform
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-# Import necessary controller and utility functions from services module.
 from .services import get_key, keyboard_controller, PYNPUT_AVAILABLE
 
 router = APIRouter()
@@ -35,6 +35,24 @@ class KeyboardInputModel(BaseModel):
     text: Optional[str] = None
     key: Optional[str] = None
     modifiers: List[str] = []
+
+
+def _map_platform_key(key_name: str) -> str:
+    """Translates generic key names to platform-specific ones for pynput."""
+    key_map = {
+        "meta": {
+            "Windows": "win",
+            "Darwin": "cmd",
+            "Linux": "super",
+        }
+    }
+    
+    lower_key = key_name.lower()
+    if lower_key in key_map:
+        platform_specific_map = key_map[lower_key]
+        return platform_specific_map.get(platform.system(), lower_key)
+
+    return key_name
 
 
 @router.post("/keyboard")
@@ -58,26 +76,22 @@ async def send_keyboard_input(payload: KeyboardInputModel):
     
     try:
         if payload.text:
-            # Type the provided text string.
             keyboard_controller.type(payload.text)
         elif payload.key:
-            # Press and release a single key with modifiers.
-            # Press modifiers first.
-            for mod in payload.modifiers:
+            mapped_modifiers = [_map_platform_key(mod) for mod in payload.modifiers]
+            mapped_key = _map_platform_key(payload.key)
+
+            for mod in mapped_modifiers:
                 keyboard_controller.press(get_key(mod))
 
-            # Press and release the main key.
-            key = get_key(payload.key)
+            key = get_key(mapped_key)
             keyboard_controller.press(key)
             keyboard_controller.release(key)
 
-            # Release modifiers in reverse order.
-            for mod in reversed(payload.modifiers):
+            for mod in reversed(mapped_modifiers):
                 keyboard_controller.release(get_key(mod))
         else:
-            # Raise an error if neither text nor a key is provided.
             raise HTTPException(status_code=400, detail="Either 'text' or 'key' must be provided.")
     except Exception as e:
-        # Catch any exceptions during keyboard simulation.
         raise HTTPException(status_code=500, detail=f"Keyboard input failed: {e}")
     return {"status": "input sent"}

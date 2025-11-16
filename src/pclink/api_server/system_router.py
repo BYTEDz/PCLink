@@ -282,8 +282,8 @@ async def power_command(command: str, hybrid: bool = True):
     """
     cmd_map = {
         "win32": {
-            "shutdown": ["shutdown", "/s", "/t", "1"] if hybrid else ["shutdown", "/s", "/hybrid", "/t", "1"],
-            "reboot": ["shutdown", "/r", "/t", "1"] if hybrid else ["shutdown", "/r", "/hybrid", "/t", "1"],
+            "shutdown": ["shutdown", "/s", "/hybrid", "/t", "1"] if hybrid else ["shutdown", "/s", "/t", "1"],
+            "reboot": ["shutdown", "/r", "/t", "1"],
             "lock": ["rundll32.exe", "user32.dll,LockWorkStation"],
             "sleep": ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
             "logout": ["shutdown", "/l"],

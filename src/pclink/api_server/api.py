@@ -1,4 +1,3 @@
-# filename: src/pclink/api_server/api.py
 """
 PCLink - Remote PC Control Server - Main API Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
@@ -48,6 +47,8 @@ from .services import (NetworkMonitor, button_map, get_media_info_data,
 from .system_router import router as system_router
 from .terminal import create_terminal_router
 from .utils_router import router as utils_router
+from .macro_router import router as macro_router
+from .applications_router import router as applications_router
 
 log = logging.getLogger(__name__)
 
@@ -117,7 +118,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         version="8.9.0", 
         docs_url=None, 
         redoc_url=None,
-        # Performance optimizations
         generate_unique_id_function=lambda route: f"{route.tags[0]}-{route.name}" if route.tags else route.name
     )
     
@@ -149,9 +149,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         if not web_auth_manager.validate_session(session_token, client_ip): raise HTTPException(status_code=401, detail="Invalid or expired session")
         return True
 
-    # --- THIS IS THE FIX ---
-    # This dependency function is now an inner function that correctly
-    # captures the live 'controller' instance from the outer scope.
     def verify_mobile_api_enabled():
         if not (controller and hasattr(controller, 'mobile_api_enabled') and controller.mobile_api_enabled):
             log.warning("Mobile API endpoint accessed but API is disabled. (Setup not complete?)")
@@ -162,10 +159,8 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     MOBILE_API = [Depends(verify_api_key), Depends(verify_mobile_api_enabled)]
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     
-    # Add middleware to optimize upload performance
     @app.middleware("http")
     async def upload_optimization_middleware(request: Request, call_next):
-        # Disable compression for upload endpoints to improve performance
         if request.url.path.startswith("/files/upload/"):
             response = await call_next(request)
             response.headers["content-encoding"] = "identity"
@@ -193,13 +188,14 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     app.include_router(media_router, prefix="/media", dependencies=MOBILE_API)
     app.include_router(utils_router, prefix="/utils", dependencies=MOBILE_API)
     app.include_router(terminal_router, prefix="/terminal")
+    app.include_router(macro_router, prefix="/macro", dependencies=MOBILE_API)
+    app.include_router(applications_router, prefix="/applications", dependencies=MOBILE_API)
     
     app.state.allow_insecure_shell = allow_insecure_shell
     app.state.api_key = server_api_key
 
     @app.on_event("startup")
     async def startup_event():
-        # Restore persisted upload/download sessions
         from .file_browser import restore_sessions
         try:
             result = restore_sessions()
@@ -254,7 +250,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         except WebSocketDisconnect: log.info("Web UI client disconnected from WebSocket.")
         finally: ui_manager.disconnect(websocket)
 
-    # The pairing request must also check if the API is enabled before proceeding.
     @app.post("/pairing/request", dependencies=[Depends(verify_mobile_api_enabled)])
     async def request_pairing(payload: PairingRequestPayload, request: Request):
         pairing_id = str(uuid.uuid4())
@@ -315,7 +310,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         if len(payload.password) < 8: raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
         if not web_auth_manager.setup_password(payload.password): raise HTTPException(status_code=400, detail="Failed to setup password")
         
-        # After successful setup, activate the mobile API and discovery service.
         if controller and hasattr(controller, 'activate_secure_mode'):
             controller.activate_secure_mode()
 
@@ -552,14 +546,12 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     
     @app.get("/debug/performance")
     async def debug_performance():
-        """Debug endpoint to check server performance metrics."""
         import psutil
         import time
         from .file_browser import ACTIVE_UPLOADS, ACTIVE_DOWNLOADS, TRANSFER_LOCKS, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
         
         process = psutil.Process()
         
-        # Count persisted sessions
         persisted_uploads = len(list(TEMP_UPLOAD_DIR.glob("*.meta")))
         persisted_downloads = len(list(DOWNLOAD_SESSION_DIR.glob("*.json")))
         
