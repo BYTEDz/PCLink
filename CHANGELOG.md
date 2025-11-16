@@ -4,6 +4,101 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [2.5.0] - 2025-11-16
+
+PCLink v2.5.0 “Astra” – Major Cross-Platform Upgrade
+
+This release delivers significant improvements across the entire PCLink ecosystem: new automation tools, stronger media and application APIs, expanded system control, major I/O upgrades, ZIP archive features, and broad refactoring for reliability and maintainability.
+
+New Features
+-----------
+Application System:
+• Linux application discovery via .desktop file scanning
+• Cross-platform application support (Windows + Linux)
+• New /applications/icon endpoint for serving app icons
+• Windows discovery now includes executable path for icon extraction
+
+Macros:
+• Added macro support and integrated macro_router under /macro
+
+Archive Management:
+• ZIP compression and extraction (with password support)
+• Detect if a ZIP archive is encrypted
+• Live progress updates using SSE
+
+File Transfers:
+• Fully resumable uploads/downloads
+• Sessions persisted to disk for recovery on server restart
+• Pause, resume, cancel actions available via client notifications
+
+File Browser:
+• Thumbnail generation and caching for image files
+
+System Control & Automation:
+• Remote command execution via POST /command
+• Corrected Windows shutdown/reboot logic
+• Added Hybrid Shutdown/Reboot support
+
+System Monitoring:
+• Disk usage reporting for all partitions
+• Expanded metrics: uptime, CPU usage/frequency, RAM/swap, basic sensor data
+
+Tray Icon:
+• Auto light/dark theme detection and adaptive tray icons
+
+Improvements
+-----------
+Media API:
+• Fully redesigned /media endpoint
+• Clear playback states: playing, paused, no_session
+• Shuffle/repeat mode reporting
+• Structured model and server timestamp included
+
+Input Handling:
+• Platform-aware key translation via _map_platform_key
+• /keyboard now correctly handles main and modifier keys per OS
+
+I/O Performance:
+• All blocking file I/O moved to asyncio.to_thread
+• Uploads optimized with 256KB chunks and 1MB buffer using aiofiles
+• Download stream size increased from 32KB to 64KB
+
+App Server:
+• Integrated applications_router under /applications
+• Mobile API activation enforced for pairing via dependency
+
+Debugging:
+• /debug-info now displays both in-memory and persisted transfer sessions
+
+Refactors
+---------
+Media System:
+• Major cleanup and simplification
+• Strongly-typed Pydantic models for responses
+• Unified platform-specific media control logic
+
+General Cleanup:
+• Removed unused comments and docstrings across api.py, input_router.py, system_router.py, utils_router.py
+
+Bug Fixes
+---------
+• Screenshot endpoint now correctly returns image data
+• Fixed incorrect Windows shutdown hybrid flag
+• Simplified and corrected Windows reboot command
+• Resolved keyboard mapping inconsistencies using OS detection
+
+DevOps / Config
+---------------
+• Added Pillow dependency for thumbnail generation
+• Added modules needed for remote command execution and OS handling
+
+Additional Enhancements
+-----------------------
+• Added a direct upload endpoint for maximum speed
+• Added conflict resolution (abort / overwrite / keep both)
+• Maintains full backward compatibility
+• Async file I/O with graceful fallback logic
+
 ## [2.4.0] - 2025-10-17
 
 - No changes documented
