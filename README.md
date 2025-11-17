@@ -45,7 +45,7 @@ This script safely removes broken package installations and cleans up your syste
 
 ---
 
-## � Documenstation
+## 🗃️  Documenstation
 
 **Complete documentation is available in the [PCLink Wiki](https://github.com/BYTEDz/PCLink/wiki)**
 
