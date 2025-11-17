@@ -1,4 +1,4 @@
-# filename: src/pclink/core/constants.py
+# src/pclink/core/constants.py
 """
 PCLink - Remote PC Control Server - Constants Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

@@ -1,3 +1,4 @@
+# src/pclink/core/logging.py
 """
 PCLink Logging Configuration
 Configures application-wide logging with spam filtering and file rotation

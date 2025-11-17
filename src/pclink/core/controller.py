@@ -1,4 +1,4 @@
-# filename: src/pclink/core/controller.py
+# src/pclink/core/controller.py
 import asyncio
 import logging
 import os

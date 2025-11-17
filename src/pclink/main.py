@@ -1,4 +1,4 @@
-# filename: src/pclink/main.py
+# src/pclink/main.py
 #!/usr/bin/env python3
 """
 PCLink - Remote PC Control Server

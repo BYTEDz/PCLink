@@ -1,4 +1,4 @@
-# filename: api/process_manager.py
+# src/pclink/api_server/process_manager.py
 """
 PCLink - Remote PC Control Server - Process Manager API Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

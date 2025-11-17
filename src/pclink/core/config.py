@@ -1,4 +1,4 @@
-# filename: src/pclink/core/config.py
+# src/pclink/core/config.py
 """
 PCLink - Remote PC Control Server - Configuration Management
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

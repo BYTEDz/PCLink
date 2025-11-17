@@ -1,4 +1,4 @@
-# filename: src/pclink/core/web_auth.py
+# src/pclink/core/web_auth.py
 """
 Web UI Authentication System
 Provides secure first-time setup and session management for PCLink web interface

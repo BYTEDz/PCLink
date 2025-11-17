@@ -1,3 +1,4 @@
+# src/pclink/core/update_checker.py
 #!/usr/bin/env python3
 """
 Update Checker Module for PCLink

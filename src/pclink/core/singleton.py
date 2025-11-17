@@ -1,4 +1,4 @@
-# filename: src/pclink/core/singleton.py
+# src/pclink/core/singleton.py
 """
 PCLink - Remote PC Control Server - Singleton Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

@@ -1,4 +1,4 @@
-# filename: src/pclink/web_ui/router.py
+# src/pclink/web_ui/router.py
 """
 PCLink Web UI Router
 Serves the web-based control panel interface

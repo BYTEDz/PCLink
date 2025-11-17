@@ -1,3 +1,4 @@
+# src/pclink/core/version.py
 """
 PCLink - Version Information
 

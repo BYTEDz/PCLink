@@ -1,4 +1,4 @@
-# filename: src/pclink/api_server/info_router.py
+# src/pclink/api_server/info_router.py
 """
 PCLink - Remote PC Control Server - System Info API Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

@@ -1,4 +1,4 @@
-# filename: src/pclink/core/windows_notifier.py
+# src/pclink/core/windows_notifier.py
 """
 PCLink - Remote PC Control Server - Windows Toast Notifier
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

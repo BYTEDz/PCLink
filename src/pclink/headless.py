@@ -1,4 +1,4 @@
-# filename: src/pclink/headless.py
+# src/pclink/headless.py
 """
 PCLink - Remote PC Control Server - Headless Application
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

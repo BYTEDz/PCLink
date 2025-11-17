@@ -1,3 +1,4 @@
+# src/pclink/api_server/terminal.py
 """
 PCLink - Remote PC Control Server - Terminal API Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

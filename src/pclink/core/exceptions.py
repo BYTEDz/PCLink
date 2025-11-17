@@ -1,3 +1,4 @@
+# src/pclink/core/exceptions.py
 """Custom exceptions for PCLink application"""
 
 

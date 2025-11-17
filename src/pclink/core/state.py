@@ -1,3 +1,4 @@
+# src/pclink/core/state.py
 """
 PCLink - Remote PC Control Server - Global State Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

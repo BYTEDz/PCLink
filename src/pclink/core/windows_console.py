@@ -1,3 +1,4 @@
+# src/pclink/core/windows_console.py
 """
 PCLink - Windows Console Management
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz

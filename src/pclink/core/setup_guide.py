@@ -1,3 +1,4 @@
+# src/pclink/core/setup_guide.py
 #!/usr/bin/env python3
 """
 PCLink Setup Guide and First-Run Experience

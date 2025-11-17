@@ -1,3 +1,4 @@
+# src/pclink/api_server/discovery.py
 """
 PCLink - Remote PC Control Server - Discovery API Module
 Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
