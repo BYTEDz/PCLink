@@ -1,6 +1,6 @@
 <div align="center">
 
-![PCLink Banner](docs/assets/banner.svg)
+![PCLink Banner](assets/banner.svg)
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20Linux%20Mint%2022.1-lightgrey)](https://github.com/BYTEDz/PCLink)
@@ -42,6 +42,20 @@ This script safely removes broken package installations and cleans up your syste
 - **v2.3.0 and earlier**: Used FPM (Ruby-based) packaging with broken maintainer scripts
 - **v2.4.0+**: Uses NFPM (Go-based) packaging with reliable installation/removal
 - **Benefits**: Better cross-platform support, more reliable package management, both DEB and RPM support
+
+---
+
+## � Documenstation
+
+**Complete documentation is available in the [PCLink Wiki](https://github.com/BYTEDz/PCLink/wiki)**
+
+- 📖 [Getting Started](https://github.com/BYTEDz/PCLink/wiki/Getting-Started) - Installation and first-time setup
+- 🏗️ [Server Architecture](https://github.com/BYTEDz/PCLink/wiki/Server-Architecture) - How PCLink works
+- 🔌 [API Endpoints](https://github.com/BYTEDz/PCLink/wiki/API-Endpoints) - Complete API reference
+- 🌐 [Web UI Guide](https://github.com/BYTEDz/PCLink/wiki/Web-UI) - Using the web interface
+- 🛠️ [Building & Development](https://github.com/BYTEDz/PCLink/wiki/Building-and-Development) - Build from source
+- 🤝 [Contributing Guide](https://github.com/BYTEDz/PCLink/wiki/Contributing) - How to contribute
+- ⚡ [Quick Reference](https://github.com/BYTEDz/PCLink/wiki/Quick-Reference) - Commands and tips
 
 ---
 
