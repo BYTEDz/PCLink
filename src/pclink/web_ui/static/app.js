@@ -19,9 +19,10 @@ class PCLinkWebUI {
     async init() {
         this.setupEventListeners();
         await this.loadApiKey();
+        await this.loadSettings(); // Load settings on init to set initial UI state
         this.updateConnectionStatus();
         this.loadServerStatus();
-        this.connectWebSocket(); // This will now connect to the correct endpoint
+        this.connectWebSocket();
 
 
         setInterval(() => {
@@ -417,12 +418,14 @@ class PCLinkWebUI {
         const versionElement = document.getElementById('serverVersion');
 
         if (portElement) portElement.textContent = window.location.port || '38080';
-        if (versionElement) versionElement.textContent = '2.0.0';
 
         try {
             const response = await fetch('/status');
             if (response.ok) {
                 const data = await response.json();
+                if (versionElement && data.version) {
+                    versionElement.textContent = data.version;
+                }
                 this.updateConnectionStatusFromServerState(data);
             } else {
                 this.updateConnectionStatus();
@@ -525,9 +528,7 @@ class PCLinkWebUI {
         this.connectedDevices = this.devices;
     }
 
-    // --- START: MODIFIED SECTION ---
     connectWebSocket() {
-        // Connect to the dedicated Web UI WebSocket endpoint, which uses cookie auth.
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/ui`;
 
@@ -560,7 +561,6 @@ class PCLinkWebUI {
                         statusValue.textContent = 'Disconnected';
                     }
                 }
-                // Try to reconnect after 5 seconds
                 setTimeout(() => this.connectWebSocket(), 5000);
             };
 
@@ -585,15 +585,15 @@ class PCLinkWebUI {
             case 'server_status':
                 console.log("Received server status update:", data.status);
                 const isOnline = data.status === 'running' || data.status === 'starting' || data.status === 'restarting';
-                this.updateConnectionStatusFromServerState({ mobile_api_enabled: isOnline });
+                this.updateConnectionStatusFromServerState({
+                    mobile_api_enabled: isOnline
+                });
                 break;
-            // The 'update' case was empty, it's good practice to remove it or log it
             case 'update':
                 console.log('Ignoring generic "update" message:', data.data);
                 break;
         }
     }
-    // --- END: MODIFIED SECTION ---
 
     handlePairingRequest(requestData) {
         this.pendingPairingRequest = requestData;
@@ -659,7 +659,7 @@ class PCLinkWebUI {
 
         const iconSymbol = type === 'success' ? '✅' :
             type === 'error' ? '❌' :
-                type === 'warning' ? '⚠️' : 'ℹ️';
+            type === 'warning' ? '⚠️' : 'ℹ️';
 
         toast.innerHTML = `
             <div class="toast-icon">
@@ -727,6 +727,13 @@ class PCLinkWebUI {
         return this.notificationSettings[settingKey] !== false;
     }
 
+    updateTerminalVisibility(isAllowed) {
+        const terminalNavButton = document.querySelector('.nav-btn[data-tab="logs"]');
+        if (terminalNavButton) {
+            terminalNavButton.style.display = isAllowed ? '' : 'none';
+        }
+    }
+
     async loadSettings() {
         try {
             const response = await fetch('/settings/load', {
@@ -738,13 +745,15 @@ class PCLinkWebUI {
 
                 const serverPortInput = document.getElementById('serverPortInput');
                 const autoStartCheckbox = document.getElementById('autoStartCheckbox');
-                const allowInsecureShell = document.getElementById('allowInsecureShell');
+                const allowTerminalAccess = document.getElementById('allowTerminalAccess');
                 const autoOpenWebUI = document.getElementById('autoOpenWebUI');
 
                 if (serverPortInput) serverPortInput.value = window.location.port || '38080';
                 if (autoStartCheckbox) autoStartCheckbox.checked = settings.auto_start || false;
-                if (allowInsecureShell) allowInsecureShell.checked = settings.allow_insecure_shell || false;
+                if (allowTerminalAccess) allowTerminalAccess.checked = settings.allow_terminal_access !== false;
                 if (autoOpenWebUI) autoOpenWebUI.checked = settings.auto_open_webui !== false;
+
+                this.updateTerminalVisibility(settings.allow_terminal_access !== false);
             }
         } catch (error) {
             console.error('Failed to load settings:', error);
@@ -1024,21 +1033,34 @@ function toggleAutoRefresh() {
 
 async function saveSettings() {
     try {
-        const autoStart = document.getElementById('autoStartCheckbox').checked;
-        const allowShell = document.getElementById('allowInsecureShell').checked;
-        const autoOpenWebUI = document.getElementById('autoOpenWebUI').checked;
+        const autoStartCheckbox = document.getElementById('autoStartCheckbox');
+        const allowTerminalCheckbox = document.getElementById('allowTerminalAccess');
+        const autoOpenWebUICheckbox = document.getElementById('autoOpenWebUI');
+
+        if (!allowTerminalCheckbox) {
+            console.error('allowTerminalAccess checkbox not found - please hard refresh the page (Ctrl+Shift+R)');
+            window.pclinkUI.showToast('Error', 'Please hard refresh the page (Ctrl+Shift+R) to load the latest UI', 'error');
+            return;
+        }
+
+        const autoStart = autoStartCheckbox ? autoStartCheckbox.checked : false;
+        const allowTerminal = allowTerminalCheckbox.checked;
+        const autoOpenWebUI = autoOpenWebUICheckbox ? autoOpenWebUICheckbox.checked : true;
+
+        console.log('Saving settings:', { auto_start: autoStart, allow_terminal_access: allowTerminal, auto_open_webui: autoOpenWebUI });
 
         const response = await window.pclinkUI.webUICall('/settings/save', {
             method: 'POST',
             body: JSON.stringify({
                 auto_start: autoStart,
-                allow_insecure_shell: allowShell,
+                allow_terminal_access: allowTerminal,
                 auto_open_webui: autoOpenWebUI
             })
         });
 
         if (response.ok) {
             window.pclinkUI.showToast('Settings Saved', 'Server settings updated successfully', 'success');
+            window.pclinkUI.updateTerminalVisibility(allowTerminal);
         } else {
             window.pclinkUI.showToast('Save Failed', 'Failed to save server settings', 'error');
         }
@@ -1072,7 +1094,9 @@ function loadNotificationSettings() {
 async function clearLogs() {
     if (confirm('Clear all logs?')) {
         try {
-            const response = await fetch('/logs/clear', { method: 'POST' });
+            const response = await fetch('/logs/clear', {
+                method: 'POST'
+            });
             if (response.ok) {
                 document.getElementById('logContent').textContent = 'Logs cleared';
             } else {
@@ -1283,7 +1307,9 @@ async function changePassword() {
 async function logout() {
     if (confirm('Are you sure you want to logout?')) {
         try {
-            await fetch('/auth/logout', { method: 'POST' });
+            await fetch('/auth/logout', {
+                method: 'POST'
+            });
             window.location.href = '/ui/';
         } catch (error) {
             console.error('Logout error:', error);
@@ -1310,7 +1336,9 @@ async function startRemoteServer() {
 
         const response = await fetch('/server/start', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
 
         if (response.ok) {
@@ -1352,7 +1380,9 @@ async function stopRemoteServer() {
 
         const response = await fetch('/server/stop', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
 
         if (response.ok) {
@@ -1382,7 +1412,7 @@ async function restartRemoteServer() {
     const startButton = document.getElementById('startServerBtn');
     const stopButton = document.getElementById('stopServerBtn');
 
-    // Store original button content
+    // Store original content
     const originalContent = button.innerHTML;
 
     try {
@@ -1394,7 +1424,9 @@ async function restartRemoteServer() {
 
         const response = await fetch('/server/restart', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
 
         if (response.ok) {
@@ -1455,7 +1487,9 @@ async function shutdownServer() {
 
         const response = await fetch('/server/shutdown', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
 
         if (response.ok) {
@@ -1505,12 +1539,12 @@ window.restartRemoteServer = restartRemoteServer;
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, initializing PCLink UI...');
-    
+
     // Ensure icons are available
     if (typeof ensureIconsLoaded === 'function') {
         ensureIconsLoaded();
     }
-    
+
     window.pclinkUI = new PCLinkWebUI();
 
     // Debug: Test tab switching after a short delay
@@ -1533,7 +1567,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-window.testTabSwitch = function (tabName) {
+window.testTabSwitch = function(tabName) {
     console.log('Manual tab switch test to:', tabName);
     if (window.pclinkUI) {
         window.pclinkUI.switchTab(tabName);

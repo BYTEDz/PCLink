@@ -50,4 +50,4 @@ scripts:
   postremove: build/nfpm/scripts/postrm
   preremove: build/nfpm/scripts/prerm
 section: net
-version: 2.3.0
+version: 2.5.0

@@ -168,7 +168,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             return response
         return await call_next(request)
     
-    terminal_router = create_terminal_router(server_api_key, allow_insecure_shell)
+    terminal_router = create_terminal_router(server_api_key)
     
     try:
         web_ui_router = create_web_ui_router(app)
@@ -290,9 +290,10 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def ping(): return {"status": "pong"}
 
     @app.get("/status")
-    async def server_status(): 
+    async def server_status():
+        from ..core.version import __version__
         mobile_api_enabled = getattr(controller, 'mobile_api_enabled', False) if controller else False
-        return { "status": "running", "server_running": mobile_api_enabled, "web_ui_running": True, "mobile_api_enabled": mobile_api_enabled, "version": "2.0.0", "port": app.state.host_port if hasattr(app.state, 'host_port') else 38080 }
+        return { "status": "running", "server_running": mobile_api_enabled, "web_ui_running": True, "mobile_api_enabled": mobile_api_enabled, "version": __version__, "port": app.state.host_port if hasattr(app.state, 'host_port') else 38080 }
     
     @app.get("/auth/status")
     async def auth_status(): return web_auth_manager.get_session_info()
@@ -417,9 +418,13 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                     except Exception as e:
                         log.error(f"Failed to update startup setting: {e}")
             
+            if "allow_terminal_access" in data:
+                terminal_access = data["allow_terminal_access"]
+                config_manager.set("allow_terminal_access", terminal_access)
+                log.info(f"Terminal access setting updated: allow_terminal_access={terminal_access}")
             if "allow_insecure_shell" in data: config_manager.set("allow_insecure_shell", data["allow_insecure_shell"])
             if "auto_open_webui" in data: config_manager.set("auto_open_webui", data["auto_open_webui"])
-            log.info("Server settings updated via web UI")
+            log.info(f"Server settings updated via web UI: {data}")
             return {"status": "success", "message": "Settings saved successfully"}
         except Exception as e: log.error(f"Failed to save settings: {e}"); return {"status": "error", "message": str(e)}
     
@@ -427,7 +432,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def load_server_settings():
         try:
             from ..core.config import config_manager
-            return { "auto_start": config_manager.get("auto_start", False), "allow_insecure_shell": config_manager.get("allow_insecure_shell", False), "auto_open_webui": config_manager.get("auto_open_webui", True) }
+            return { "auto_start": config_manager.get("auto_start", False), "allow_terminal_access": config_manager.get("allow_terminal_access", True), "allow_insecure_shell": config_manager.get("allow_insecure_shell", False), "auto_open_webui": config_manager.get("auto_open_webui", True) }
         except Exception as e: log.error(f"Failed to load settings: {e}"); return {"status": "error", "message": str(e)}
     
     @app.get("/logs", dependencies=[WEB_AUTH])

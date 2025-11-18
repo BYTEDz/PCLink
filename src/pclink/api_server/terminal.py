@@ -49,6 +49,8 @@ else:
     # Windows-specific imports for subprocess handling.
     import threading
 
+from ..core.config import config_manager
+
 log = logging.getLogger(__name__)
 
 
@@ -253,13 +255,12 @@ async def handle_windows_terminal(websocket: WebSocket, shell_type: str = "cmd")
             pass
 
 
-def create_terminal_router(api_key: str, allow_insecure_shell: bool) -> APIRouter:
+def create_terminal_router(api_key: str) -> APIRouter:
     """
     Creates an APIRouter for the Terminal API endpoints.
 
     Args:
         api_key: The server's main API key for authentication.
-        allow_insecure_shell: Flag to allow terminal access over non-HTTPS/WSS connections.
 
     Returns:
         An configured APIRouter instance.
@@ -391,12 +392,13 @@ def create_terminal_router(api_key: str, allow_insecure_shell: bool) -> APIRoute
             await websocket.close(code=1008, reason="Invalid API Key")
             return
 
-        # Check for secure connection if insecure shell access is disallowed.
-        is_secure_scheme = websocket.scope.get("scheme") in ("https", "wss")
-        if not is_secure_scheme and not allow_insecure_shell:
-            log.warning("Terminal WebSocket connection rejected: Insecure terminal disabled.")
+        # Check if terminal access is enabled
+        terminal_access_enabled = config_manager.get("allow_terminal_access", True)
+        log.info(f"Terminal access check: allow_terminal_access={terminal_access_enabled}")
+        if not terminal_access_enabled:
+            log.warning("Terminal WebSocket connection rejected: Terminal access is disabled.")
             await websocket.close(
-                code=4001, reason="Insecure terminal is disabled by server policy."
+                code=4002, reason="Terminal access is disabled by server policy."
             )
             return
 

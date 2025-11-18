@@ -350,6 +350,19 @@ class Controller:
             log.error(f"Failed to fetch QR payload: {e}")
             return None
 
+    def get_qr_data(self):
+        """Get QR code data as a JSON string for CLI display."""
+        payload = self.get_qr_payload()
+        if payload:
+            import json
+            return json.dumps(payload)
+        return None
+
+    def get_web_ui_url(self):
+        """Get the Web UI URL."""
+        protocol = "https" if self.is_server_running() else "http"
+        return f"{protocol}://127.0.0.1:{self.get_port()}/ui/"
+
     def shutdown(self):
         """Shutdown the entire PCLink application"""
         log.info("Shutting down PCLink application...")

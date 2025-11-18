@@ -4,16 +4,15 @@
 System Tray Manager for PCLink
 Cross-platform system tray support with Linux AppIndicator fallback
 """
-
 import logging
-import threading
-import webbrowser
 import os
 import sys
+import threading
+import webbrowser
 from pathlib import Path
+
 from .utils import resource_path
 
-# --- Dependency Checks ---
 TRAY_AVAILABLE = False
 IMPORT_ERROR = ""
 try:
@@ -39,6 +38,8 @@ log = logging.getLogger(__name__)
 
 
 class SystemTrayManager:
+    """Handles the creation and management of the system tray icon."""
+
     def __init__(self, controller=None):
         self.controller = controller
         self.icon = None
@@ -46,10 +47,8 @@ class SystemTrayManager:
         self.running = False
         self.use_linux_native = False
 
-        # GTK Menu Items for dynamic updates
         self.gtk_item_start = None
         self.gtk_item_stop = None
-        self.gtk_item_restart = None
 
         self._check_linux_tray_support()
 
@@ -59,250 +58,137 @@ class SystemTrayManager:
             self.create_linux_indicator()
         elif TRAY_AVAILABLE:
             log.warning(f"Native Linux AppIndicator not available: {LINUX_TRAY_ERROR}")
-            log.info("Falling back to pystray for system tray")
+            log.info("Falling back to pystray for system tray.")
             self.use_linux_native = False
             self.create_pystray_icon()
         else:
             log.warning("No system tray support available (pystray or AppIndicator).")
     
-    def _get_real_controller(self):
-        """Safely gets the actual PCLink Controller instance."""
-        if self.controller and hasattr(self.controller, 'controller'):
-            return self.controller.controller
-        return None
-
     def _check_linux_tray_support(self):
-        """Check Linux system tray support and provide detailed guidance."""
         if not sys.platform.startswith('linux'):
             return
-        desktop_env = os.environ.get('XDG_CURRENT_DESKTOP', 'unknown').lower()
-        log.info(f"Detected Linux desktop environment: {desktop_env}")
         if LINUX_NATIVE_TRAY_AVAILABLE:
-            log.info("SUCCESS: Native Linux AppIndicator support is available.")
+            log.info("Native Linux AppIndicator support is available.")
         else:
-            log.warning("INFO: Native Linux AppIndicator support not found.")
-            log.warning(f"  -> Reason: {LINUX_TRAY_ERROR}")
-            log.warning("  -> For full menu support, run: sudo apt install python3-gi gir1.2-appindicator3-0.1")
-        if TRAY_AVAILABLE:
-            log.info("INFO: pystray fallback library is available.")
-        else:
-            log.warning(f"ERROR: pystray library not available: {IMPORT_ERROR}")
+            log.warning(f"Native Linux AppIndicator support not found: {LINUX_TRAY_ERROR}")
 
     def _get_tray_icon_path(self):
-        """Get the appropriate tray icon based on system theme."""
-        # Try to detect system theme
         is_dark_theme = self._is_system_dark_theme()
-        
-        # Use dark icon for dark themes, light icon for light themes
         if sys.platform == "win32":
-            # Windows: Try ICO first, fallback to PNG
-            if is_dark_theme:
-                icon_file = resource_path("src/pclink/assets/pclink_dark.ico")
-                if not icon_file.exists():
-                    icon_file = resource_path("src/pclink/assets/pclink_dark.png")
-                if not icon_file.exists():
-                    icon_file = resource_path("src/pclink/assets/icon.ico")
-            else:
-                icon_file = resource_path("src/pclink/assets/pclink_light.ico")
-                if not icon_file.exists():
-                    icon_file = resource_path("src/pclink/assets/pclink_light.png")
-                if not icon_file.exists():
-                    icon_file = resource_path("src/pclink/assets/icon.ico")
+            icon_name = 'pclink_dark.ico' if is_dark_theme else 'pclink_light.ico'
+            fallback_name = 'icon.ico'
         else:
-            # Linux/Mac PNG format
-            if is_dark_theme:
-                icon_file = resource_path("src/pclink/assets/pclink_dark.png")
-                if not icon_file.exists():
-                    icon_file = resource_path("src/pclink/assets/icon.png")
-            else:
-                icon_file = resource_path("src/pclink/assets/pclink_light.png")
-                if not icon_file.exists():
-                    icon_file = resource_path("src/pclink/assets/icon.png")
-        
+            icon_name = 'pclink_dark.png' if is_dark_theme else 'pclink_light.png'
+            fallback_name = 'icon.png'
+
+        icon_file = resource_path(f"src/pclink/assets/{icon_name}")
+        if not icon_file.exists():
+            icon_file = resource_path(f"src/pclink/assets/{fallback_name}")
         return icon_file
     
     def _is_system_dark_theme(self):
-        """Detect if the system is using a dark theme."""
         try:
             if sys.platform == "win32":
-                # Windows: Check registry for dark mode
                 import winreg
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+                value, _ = winreg.QueryValueEx(key, "SystemUsesLightTheme")
+                winreg.CloseKey(key)
+                return value == 0
+            elif sys.platform.startswith('linux'):
+                # Try to detect GTK theme preference
                 try:
-                    key = winreg.OpenKey(
-                        winreg.HKEY_CURRENT_USER,
-                        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-                    )
-                    value, _ = winreg.QueryValueEx(key, "SystemUsesLightTheme")
-                    winreg.CloseKey(key)
-                    return value == 0  # 0 = dark, 1 = light
-                except (FileNotFoundError, OSError):
-                    return False  # Default to light if can't detect
-            
-            elif sys.platform == "darwin":
-                # macOS: Check system appearance
-                import subprocess
-                result = subprocess.run(
-                    ["defaults", "read", "-g", "AppleInterfaceStyle"],
-                    capture_output=True,
-                    text=True
-                )
-                return "dark" in result.stdout.lower()
-            
-            else:
-                # Linux: Check GTK theme
-                gtk_theme = os.environ.get('GTK_THEME', '').lower()
-                if 'dark' in gtk_theme:
-                    return True
-                
-                # Check desktop environment settings
-                if 'GNOME' in os.environ.get('XDG_CURRENT_DESKTOP', ''):
                     import subprocess
-                    result = subprocess.run(
-                        ["gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"],
-                        capture_output=True,
-                        text=True
-                    )
-                    return 'dark' in result.stdout.lower()
-                
-                return False  # Default to light
-        except Exception as e:
-            log.debug(f"Could not detect system theme: {e}")
-            return False  # Default to light theme
+                    result = subprocess.run(['gsettings', 'get', 'org.gnome.desktop.interface', 'gtk-theme'], 
+                                          capture_output=True, text=True, timeout=1)
+                    theme = result.stdout.strip().lower()
+                    return 'dark' in theme
+                except Exception:
+                    pass
+                # Default to light theme on Linux if detection fails
+                return False
+        except Exception:
+            return False
+        return False
     
     def create_pystray_icon(self):
-        """Create a tray icon and its context menu using pystray."""
-        if not TRAY_AVAILABLE:
-            return
+        """Creates the tray icon using the pystray library."""
+        if not TRAY_AVAILABLE: return
         try:
-            # Get the appropriate tray icon based on system theme
-            icon_file = self._get_tray_icon_path()
+            from PIL import Image
+            image = Image.open(self._get_tray_icon_path())
             
-            # Try to load icon file, fallback to None if PIL not available
-            try:
-                from PIL import Image
-                image = Image.open(icon_file) if icon_file.exists() else self.create_simple_icon()
-            except ImportError:
-                log.warning("PIL not available, using default system tray icon")
-                image = None
-            
-            # Define menu structure based on platform and capabilities
-            if sys.platform == "win32":
-                menu_items = (
-                    pystray.MenuItem("Open Web UI", self.open_web_ui, default=True),
-                    pystray.MenuItem("Remote API Status", self.show_server_status),
-                    pystray.Menu.SEPARATOR,
-                    pystray.MenuItem("Start Remote API", self.start_server, enabled=self.is_server_stopped),
-                    pystray.MenuItem("Stop Remote API", self.stop_server, enabled=self.is_server_running),
-                    pystray.MenuItem("Restart Remote API", self.restart_server, enabled=self.is_server_running),
-                    pystray.Menu.SEPARATOR,
-                    pystray.MenuItem("Exit PCLink", self.quit_application)
-                )
-            else: # Linux pystray fallback
-                if getattr(pystray.Icon, 'HAS_MENU', False):
-                    menu_items = (
-                        pystray.MenuItem("Open Web UI", self.open_web_ui, default=True),
-                        pystray.Menu.SEPARATOR,
-                        pystray.MenuItem("Exit PCLink", self.quit_application)
-                    )
-                else:
-                    log.warning("pystray backend does not support menus on this system (likely Xorg).")
-                    menu_items = (pystray.MenuItem("Open Web UI", self.open_web_ui, default=True),)
+            menu_items = (
+                pystray.MenuItem("Open Web UI", self.open_web_ui, default=True),
+                pystray.MenuItem("Mobile API Status", self.show_server_status),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Enable Mobile API", self.start_server, enabled=self.is_server_stopped),
+                pystray.MenuItem("Disable Mobile API", self.stop_server, enabled=self.is_server_running),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Restart PCLink", self.restart_server),
+                pystray.MenuItem("Exit PCLink", self.quit_application)
+            )
             
             menu = pystray.Menu(*menu_items)
-            self.icon = pystray.Icon("PCLink", image, "PCLink Server", menu) if image else pystray.Icon("PCLink", None, "PCLink Server", menu)
-            log.info("pystray icon created successfully.")
+            self.icon = pystray.Icon("PCLink", image, "PCLink Server", menu)
         except Exception as e:
             log.error(f"Failed to create pystray icon: {e}", exc_info=True)
-            self.icon = None
 
     def create_linux_indicator(self):
-        """Create Linux AppIndicator3 tray icon with a full, clean context menu."""
+        """Creates the tray icon using the native AppIndicator3 library."""
         try:
-            if not Gtk.init_check()[0]:
-                log.error("Failed to initialize GTK for AppIndicator")
-                return
-            
-            self.indicator = AppIndicator3.Indicator.new(
-                "pclink-server", "network-server", AppIndicator3.IndicatorCategory.APPLICATION_STATUS
-            )
+            Gtk.init_check()
+            self.indicator = AppIndicator3.Indicator.new("pclink-server", "network-server", AppIndicator3.IndicatorCategory.APPLICATION_STATUS)
             self.indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-            
-            # This full path is correct because our new resource_path in utils.py handles it.
-            icon_path = str(resource_path("src/pclink/assets/icon.png").absolute())
+            icon_path = str(self._get_tray_icon_path().absolute())
             self.indicator.set_icon_full(icon_path, "PCLink Icon")
             
             menu = Gtk.Menu()
-            
             item_webui = Gtk.MenuItem(label="Open Web UI")
             item_webui.connect("activate", self._linux_open_web_ui)
             menu.append(item_webui)
             
-            item_status = Gtk.MenuItem(label="Remote API Status")
+            item_status = Gtk.MenuItem(label="Mobile API Status")
             item_status.connect("activate", self._linux_show_status)
             menu.append(item_status)
             
             menu.append(Gtk.SeparatorMenuItem())
             
-            self.gtk_item_start = Gtk.MenuItem(label="Start Remote API")
+            self.gtk_item_start = Gtk.MenuItem(label="Enable Mobile API")
             self.gtk_item_start.connect("activate", self._linux_start_server)
             menu.append(self.gtk_item_start)
             
-            self.gtk_item_stop = Gtk.MenuItem(label="Stop Remote API")
+            self.gtk_item_stop = Gtk.MenuItem(label="Disable Mobile API")
             self.gtk_item_stop.connect("activate", self._linux_stop_server)
             menu.append(self.gtk_item_stop)
 
-            self.gtk_item_restart = Gtk.MenuItem(label="Restart Remote API")
-            self.gtk_item_restart.connect("activate", self._linux_restart_server)
-            menu.append(self.gtk_item_restart)
-
             menu.append(Gtk.SeparatorMenuItem())
-            
+            item_restart = Gtk.MenuItem(label="Restart PCLink")
+            item_restart.connect("activate", self._linux_restart_server)
+            menu.append(item_restart)
+
             item_exit = Gtk.MenuItem(label="Exit PCLink")
             item_exit.connect("activate", self._linux_quit)
             menu.append(item_exit)
             
             menu.show_all()
             self.indicator.set_menu(menu)
-            
             self._update_linux_menu_sensitivity()
-            
-            log.info("Native Linux AppIndicator created successfully with a full context menu.")
         except Exception as e:
             log.error(f"Failed to create Linux AppIndicator: {e}", exc_info=True)
-            self.indicator = None
-            if TRAY_AVAILABLE:
-                log.warning("Falling back to pystray due to AppIndicator error.")
-                self.use_linux_native = False
-                self.create_pystray_icon()
-
-    def create_simple_icon(self):
-        log.warning("Icon file not found, creating fallback icon.")
-        try:
-            from PIL import Image, ImageDraw
-            image = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(image)
-            draw.rectangle([10, 15, 54, 40], fill=(70, 130, 180))
-            draw.rectangle([14, 19, 50, 36], fill=(30, 30, 30))
-            return image
-        except ImportError:
-            log.warning("PIL not available, cannot create fallback icon")
-            return None
     
     def show(self):
-        if self.use_linux_native:
-            if self.indicator:
-                self.running = True
-                log.info("Starting GTK main loop for AppIndicator...")
-                threading.Thread(target=Gtk.main, daemon=True).start()
-        else:
-            if not self.icon:
-                log.warning("System tray not available, running without tray icon.")
-                return
-            log.info("Starting pystray system tray icon...")
+        """Displays the tray icon and starts its event loop in a background thread."""
+        if self.use_linux_native and self.indicator:
+            self.running = True
+            threading.Thread(target=Gtk.main, daemon=True).start()
+        elif self.icon:
             self.running = True
             threading.Thread(target=self.icon.run, daemon=True).start()
+        else:
+            log.warning("System tray not available.")
             
     def hide(self):
+        """Hides the tray icon and stops its event loop."""
         if not self.running: return
         try:
             if self.use_linux_native:
@@ -310,113 +196,57 @@ class SystemTrayManager:
             elif self.icon:
                 self.icon.stop()
             self.running = False
-            log.info("System tray has been stopped.")
         except Exception as e:
-            log.error(f"Error while hiding tray icon: {e}")
-
-    def setup_menu(self, mode="headless"):
-        log.debug(f"Tray menu setup for {mode} mode (already configured).")
+            log.error(f"Error hiding tray icon: {e}")
 
     def show_notification(self, title, message):
         if self.icon and self.running and getattr(pystray.Icon, 'HAS_NOTIFICATION', False):
-            try:
-                self.icon.notify(message, title)
-                return
-            except Exception: pass # Fallback to notify-send
-        if sys.platform.startswith('linux'):
-            self._show_linux_notification(title, message)
-        else:
-            log.info(f"NOTIFICATION (Tray not visible/supported): {title} - {message}")
-    
-    def _show_linux_notification(self, title, message):
-        try:
-            import subprocess
-            subprocess.run(['notify-send', '--app-name=PCLink', title, message], check=False, timeout=2)
-        except (FileNotFoundError, subprocess.SubprocessError):
-            log.info(f"NOTIFICATION: {title} - {message}")
+            self.icon.notify(message, title)
 
     def is_server_running(self, item=None):
-        real_controller = self._get_real_controller()
-        return real_controller and getattr(real_controller, 'mobile_api_enabled', False)
+        return self.controller and self.controller.mobile_api_enabled
 
     def is_server_stopped(self, item=None):
         return not self.is_server_running()
 
     def open_web_ui(self, icon=None, item=None):
-        log.info("Tray: Open Web UI clicked")
-        try:
-            real_controller = self._get_real_controller()
-            port = real_controller.get_port() if real_controller else 38080
-            url = f'https://localhost:{port}/'
-            webbrowser.open(url)
-        except Exception as e:
-            log.error(f"Error opening web UI: {e}")
+        if self.controller:
+            self.controller.open_web_ui()
 
     def show_server_status(self, icon=None, item=None):
-        log.info("Tray: Show Remote API Status clicked")
-        status = "Running" if self.is_server_running() else "Stopped"
-        self.show_notification("PCLink Status", f"Remote API is {status}")
+        status = "Enabled" if self.is_server_running() else "Disabled"
+        self.show_notification("PCLink Status", f"Mobile API is {status}")
 
     def start_server(self, icon=None, item=None):
-        log.info("Tray: Start Remote API clicked")
-        real_controller = self._get_real_controller()
-        if real_controller and self.is_server_stopped():
-            real_controller.start_server()
+        if self.controller:
+            self.controller.start_mobile_api()
             threading.Timer(0.5, self._update_menu).start()
 
     def stop_server(self, icon=None, item=None):
-        log.info("Tray: Stop Remote API clicked")
-        real_controller = self._get_real_controller()
-        if real_controller and self.is_server_running():
-            real_controller.stop_server()
+        if self.controller:
+            self.controller.stop_mobile_api()
             threading.Timer(0.5, self._update_menu).start()
 
     def restart_server(self, icon=None, item=None):
-        log.info("Tray: Restart Remote API clicked")
-        if self.is_server_running():
-            real_controller = self._get_real_controller()
-            if real_controller:
-                real_controller.stop_server()
-                threading.Timer(1.0, real_controller.start_server).start()
-                threading.Timer(1.5, self._update_menu).start()
-    
+        if self.controller:
+            self.controller.restart()
+
     def _update_menu(self):
-        """Force update the tray menu to reflect current state."""
         if self.use_linux_native:
             GLib.idle_add(self._update_linux_menu_sensitivity)
         elif self.icon and self.running:
-            try:
-                self.icon.update_menu()
-            except Exception as e:
-                log.warning(f"Failed to update pystray menu: {e}")
+            self.icon.update_menu()
 
     def quit_application(self, icon=None, item=None):
-        log.info("Tray: Exit PCLink clicked")
         self.hide()
-        def do_quit():
-            try:
-                real_controller = self._get_real_controller()
-                if real_controller: real_controller.stop_server_completely()
-            finally:
-                os._exit(0)
-        threading.Timer(0.5, do_quit).start()
+        if self.controller:
+            self.controller.shutdown()
 
-    def update_status(self, status: str, port: int = None):
-        self._update_menu()
-        if self.icon and not self.use_linux_native:
-            title = f"PCLink Server - {status.title()}"
-            if port: title += f" (Port {port})"
-            self.icon.title = title
-    
-    def update_server_status(self, status: str): self.update_status(status)
-    def show_message(self, title, message, icon=None): self.show_notification(title, message)
-    
     def _update_linux_menu_sensitivity(self):
         if not self.use_linux_native: return
         is_running = self.is_server_running()
         if self.gtk_item_start: self.gtk_item_start.set_sensitive(not is_running)
         if self.gtk_item_stop: self.gtk_item_stop.set_sensitive(is_running)
-        if self.gtk_item_restart: self.gtk_item_restart.set_sensitive(is_running)
 
     def _linux_open_web_ui(self, widget): self.open_web_ui()
     def _linux_show_status(self, widget): self.show_server_status()
@@ -426,7 +256,5 @@ class SystemTrayManager:
     def _linux_quit(self, widget): self.quit_application()
 
     def is_tray_available(self):
-        return (self.use_linux_native and self.indicator) or (not self.use_linux_native and self.icon)
-
-def create_system_tray(controller=None):
-    return SystemTrayManager(controller)
+        return (self.use_linux_native and self.indicator is not None) or \
+               (not self.use_linux_native and self.icon is not None)
