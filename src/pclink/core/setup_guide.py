@@ -1,12 +1,7 @@
 # src/pclink/core/setup_guide.py
 #!/usr/bin/env python3
-"""
-PCLink Setup Guide and First-Run Experience
-Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
-
-This module handles the first-run setup experience, including port checking,
-configuration validation, and user guidance.
-"""
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
 import socket

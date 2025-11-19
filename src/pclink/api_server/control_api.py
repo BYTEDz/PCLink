@@ -1,4 +1,7 @@
 # src/pclink/api_server/control_api.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 from fastapi import FastAPI, APIRouter
 
 

@@ -1,8 +1,6 @@
 # src/pclink/core/web_auth.py
-"""
-Web UI Authentication System
-Provides secure first-time setup and session management for PCLink web interface
-"""
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import hashlib
 import hmac

@@ -1,9 +1,6 @@
 # src/pclink/core/update_checker.py
-#!/usr/bin/env python3
-"""
-Update Checker Module for PCLink
-Checks GitHub releases for newer versions and notifies users.
-"""
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import json
 import logging

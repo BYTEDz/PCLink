@@ -1,36 +1,6 @@
 # src/pclink/api_server/terminal.py
-"""
-PCLink - Remote PC Control Server - Terminal API Module
-Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as published
-by the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-Terminal API provides WebSocket-based terminal access for both Unix and Windows systems.
-
-Windows Support:
-- Command Prompt (cmd): Default Windows shell
-- PowerShell: Both Windows PowerShell and PowerShell Core supported
-- Uses subprocess with pipes for Windows compatibility
-
-Unix/Linux Support:
-- Uses PTY (pseudo-terminal) for full terminal emulation
-- Supports bash, sh, zsh, fish, and other common shells
-
-Usage:
-- GET /terminal/shells - List available shells for the platform
-- WebSocket /terminal/ws?token=<api_key>&shell=<shell_type> - Connect to terminal
-"""
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
 import logging

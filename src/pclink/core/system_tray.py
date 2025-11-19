@@ -1,9 +1,7 @@
 # src/pclink/core/system_tray.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-"""
-System Tray Manager for PCLink
-Cross-platform system tray support with Linux AppIndicator fallback
-"""
 import logging
 import os
 import sys

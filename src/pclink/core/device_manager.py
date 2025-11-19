@@ -1,8 +1,6 @@
 # src/pclink/core/device_manager.py
-"""
-PCLink - Device Management Module
-Handles device registration, authentication, and IP change tracking
-"""
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import json
 import logging

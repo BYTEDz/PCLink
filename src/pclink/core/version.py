@@ -1,9 +1,7 @@
 # src/pclink/core/version.py
-"""
-PCLink - Version Information
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-This file serves as the single source of truth for the application's version.
-"""
 
 __version__ = "2.5.0"
 __app_name__ = "PCLink"
