@@ -22,6 +22,7 @@ import json
 import logging
 import time
 import uuid
+import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +40,7 @@ from ..web_ui.router import create_web_ui_router
 from .file_browser import (download_router, router as file_browser_router,
                            upload_router)
 from .info_router import router as info_router
+from .media_streaming import router as media_streaming_router
 from .input_router import router as input_router
 from .media_router import router as media_router
 from .process_manager import router as process_manager_router
@@ -132,7 +134,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def verify_api_key(x_api_key: str = Header(None), request: Request = None):
         if not x_api_key: raise HTTPException(status_code=403, detail="Missing API Key")
         try:
-            if validate_api_key(x_api_key) == server_api_key: return True
+            if secrets.compare_digest(validate_api_key(x_api_key), server_api_key): return True
         except ValidationError: pass
         device = device_manager.get_device_by_api_key(x_api_key)
         if not device or not device.is_approved: raise HTTPException(status_code=403, detail="Invalid API Key")
@@ -183,6 +185,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     app.include_router(file_browser_router, prefix="/files", dependencies=MOBILE_API)
     app.include_router(upload_router, prefix="/files/upload", dependencies=MOBILE_API)
     app.include_router(download_router, prefix="/files/download", dependencies=MOBILE_API)
+    app.include_router(media_streaming_router, prefix="/files", dependencies=MOBILE_API)
     app.include_router(process_manager_router, prefix="/system", dependencies=MOBILE_API)
     app.include_router(info_router, prefix="/info", dependencies=MOBILE_API)
     app.include_router(input_router, prefix="/input", dependencies=MOBILE_API)
@@ -211,7 +214,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         if not token: await websocket.close(code=1008, reason="Missing API Key"); return
         authenticated = False
         try:
-            if validate_api_key(token) == server_api_key: authenticated = True
+            if secrets.compare_digest(validate_api_key(token), server_api_key): authenticated = True
         except ValidationError: pass
         if not authenticated:
             device = device_manager.get_device_by_api_key(token)

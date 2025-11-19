@@ -20,8 +20,6 @@ from .web_auth import web_auth_manager
 
 log = logging.getLogger(__name__)
 
-CONTROL_PORT = 9876
-
 
 class ServerController:
     """Manages the lifecycle of all PCLink server components."""
@@ -58,7 +56,7 @@ class ServerController:
             
             # Get local IP - use the same method as the API endpoint
             try:
-                # Create a socket to determine the local IP used for external connections
+
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.connect(("8.8.8.8", 80))
                 local_ip = s.getsockname()[0]
@@ -165,12 +163,42 @@ class ServerController:
         if sys.stdout is None: sys.stdout = DummyTty()
         if sys.stderr is None: sys.stderr = DummyTty()
 
+        # Migration: Check for legacy files (.env or api_key.txt)
+        for legacy_name in [".env", "api_key.txt"]:
+            legacy_file = constants.APP_DATA_PATH / legacy_name
+            if legacy_file.exists() and not constants.API_KEY_FILE.exists():
+                try:
+                    log.info(f"Migrating legacy API key from {legacy_name}...")
+                    legacy_content = legacy_file.read_text().strip()
+                    if legacy_content:
+                        constants.API_KEY_FILE.write_text(legacy_content)
+                        log.info("Migrated API key to new file.")
+                    
+                    # Rename old file to .bak
+                    legacy_file.rename(legacy_file.with_suffix(".bak"))
+                except Exception as e:
+                    log.error(f"Failed to migrate legacy API key from {legacy_name}: {e}")
+
+        api_key = None
         if constants.API_KEY_FILE.exists():
-            api_key = constants.API_KEY_FILE.read_text().strip()
-        else:
+            try:
+                content = constants.API_KEY_FILE.read_text().strip()
+                if content:
+                    api_key = content
+                    log.info(f"Loaded API key from {constants.API_KEY_FILE}")
+                else:
+                    log.warning("API key file exists but is empty.")
+            except Exception as e:
+                log.error(f"Failed to read API key file: {e}")
+        
+        if not api_key:
             api_key = str(uuid.uuid4())
-            constants.API_KEY_FILE.write_text(api_key)
-            log.info("Generated new API key for first run")
+            try:
+                constants.API_KEY_FILE.write_text(api_key)
+                log.info(f"Generated new API key and saved to {constants.API_KEY_FILE}")
+            except Exception as e:
+                log.critical(f"Failed to write API key file: {e}")
+                # If we can't write the key, we should probably fail, but for now let's run in memory
         
         app = create_api_app(
             api_key,
@@ -196,7 +224,7 @@ class ServerController:
         config = uvicorn.Config(
             app=app,
             host="127.0.0.1",
-            port=CONTROL_PORT,
+            port=constants.CONTROL_PORT,
             log_level="warning",
         )
         self.control_api_server = uvicorn.Server(config)

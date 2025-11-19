@@ -2,9 +2,7 @@
 #!/usr/bin/env python3
 """
 PCLink Standalone Launcher
-
-This script is used to launch PCLink when packaged as a standalone application.
-It handles the necessary imports and starts the application.
+Handles platform-specific bootstrapping for frozen applications.
 """
 
 import sys
@@ -15,13 +13,11 @@ def set_dpi_awareness():
     if sys.platform == "win32":
         try:
             import ctypes
-            # Try to set DPI awareness for Windows 8.1+
             # PROCESS_PER_MONITOR_DPI_AWARE = 2
             ctypes.windll.shcore.SetProcessDpiAwareness(2)
             print("Launcher: Set DPI awareness for Windows 8.1+")
         except (ImportError, AttributeError, OSError):
             try:
-                # Fallback for older Windows versions
                 import ctypes
                 ctypes.windll.user32.SetProcessDPIAware()
                 print("Launcher: Set DPI awareness for older Windows")
@@ -35,11 +31,9 @@ def setup_network_permissions():
             import subprocess
             import os
             
-            # Get the executable path
             exe_path = sys.executable
             app_name = "PCLink Server"
             
-            # Check if firewall rule exists
             check_cmd = [
                 "netsh", "advfirewall", "firewall", "show", "rule", 
                 f"name={app_name}", "dir=in"
@@ -50,7 +44,6 @@ def setup_network_permissions():
             
             if "No rules match" in result.stdout:
                 print("Launcher: Adding Windows Firewall rule...")
-                # Add firewall rule for inbound connections
                 add_cmd = [
                     "netsh", "advfirewall", "firewall", "add", "rule",
                     f"name={app_name}",
@@ -71,27 +64,20 @@ def setup_network_permissions():
             print("Launcher: You may need to manually allow PCLink through Windows Firewall")
 
 def main():
-    """Main launcher function."""
-    # Set DPI awareness at the very beginning of the application start.
     set_dpi_awareness()
-    
-    # Setup network permissions for frozen builds
     setup_network_permissions()
 
     try:
-        # For PyInstaller, we need to handle the frozen state
+        # Handle PyInstaller frozen state
         if getattr(sys, 'frozen', False):
-            # Running in a PyInstaller bundle
             application_path = sys._MEIPASS
             if application_path not in sys.path:
                 sys.path.insert(0, application_path)
         else:
-            # Running in normal Python environment
             parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             if parent_dir not in sys.path:
                 sys.path.insert(0, parent_dir)
 
-        # Import and run the main function
         try:
             from pclink.main import main as pclink_main
             return pclink_main()

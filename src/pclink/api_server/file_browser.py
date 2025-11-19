@@ -1,4 +1,3 @@
-# src/pclink/api_server/file_browser.py
 # PCLink - Remote PC Control Server - File Browser API Module
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 #
@@ -190,12 +189,23 @@ def _encode_filename_for_header(filename: str) -> str:
 
 
 def _get_system_roots() -> List[Path]:
+    """
+    Get a list of available system roots (drives on Windows, / on Unix).
+    Safely iterates drives to avoid crashing on locked BitLocker volumes or mapped drives.
+    """
     if platform.system() == "Windows":
-        return [
-            Path(f"{d}:\\")
-            for d in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            if Path(f"{d}:").exists()
-        ]
+        roots = []
+        for d in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            try:
+                p = Path(f"{d}:\\")
+                # Checking exists() on a locked BitLocker drive might raise an OSError/PermissionError
+                if p.exists():
+                    roots.append(p)
+            except Exception as e:
+                # Log debug but continue; this is expected for locked/disconnected drives
+                log.debug(f"Skipping drive {d}: due to error: {e}")
+                continue
+        return roots
     return [Path("/")]
 
 
@@ -207,7 +217,8 @@ def _is_path_within_safe_roots(path_to_check: Path) -> bool:
         resolved_path = path_to_check.absolute()
 
     for root in safe_roots:
-        if root in resolved_path.parents or root == resolved_path:
+        # Use str comparison for robustness against different path object types or slight variations
+        if str(resolved_path).startswith(str(root)):
             return True
     return False
 
@@ -347,6 +358,22 @@ def _get_unique_filename(path: Path) -> Path:
         new_path = parent / f"{stem} ({counter}){suffix}"
         if not new_path.exists(): return new_path
         counter += 1
+
+
+def _get_item_type(entry_name: str, is_dir: bool) -> str:
+    if is_dir:
+        return "folder"
+    mime_type, _ = mimetypes.guess_type(entry_name)
+    if mime_type:
+        if mime_type.startswith("video/"):
+            return "video"
+        if mime_type.startswith("image/"):
+            return "image"
+        if mime_type.startswith("audio/"):
+            return "audio"
+        if mime_type == "application/zip":
+            return "archive"
+    return "file"  # Fallback
 
 
 # --- Thumbnail, Compression, and Extraction Logic ---
@@ -1162,13 +1189,23 @@ def _scan_directory(path: Path):
     """Blocking function to scan a directory."""
     content = []
     try:
+        # Check if directory is accessible first
+        if not os.access(path, os.R_OK):
+             raise PermissionError(f"Access denied to {path}")
+             
         for entry in os.scandir(path):
             try:
                 stat = entry.stat()
                 is_dir = entry.is_dir()
+                item_type = _get_item_type(entry.name, is_dir)
+                full_path = path / entry.name
                 content.append(FileItem(
-                    name=entry.name, path=entry.path, is_dir=is_dir, size=stat.st_size,
-                    modified_at=stat.st_mtime, item_type="folder" if is_dir else "file"
+                    name=entry.name, 
+                    path=str(full_path), 
+                    is_dir=is_dir, 
+                    size=stat.st_size,
+                    modified_at=stat.st_mtime, 
+                    item_type=item_type
                 ))
             except (OSError, PermissionError) as e:
                 log.warning(f"Could not access item {entry.path}: {e}")
@@ -1195,7 +1232,7 @@ async def browse_directory(path: str | None = Query(None)):
     # --- Performance Enhancement: Run blocking scandir in a thread ---
     content = await asyncio.to_thread(_scan_directory, current_path)
 
-    is_root_drive = any(current_path.samefile(r) for r in _get_system_roots())
+    is_root_drive = any(str(current_path).startswith(str(r)) for r in _get_system_roots() if str(current_path) == str(r))
     parent_path_str = str(current_path.parent) if not is_root_drive else ROOT_IDENTIFIER
     if HOME_DIR.exists() and current_path.samefile(HOME_DIR):
         parent_path_str = ROOT_IDENTIFIER
@@ -1462,7 +1499,7 @@ async def paste_items(payload: PastePayload):
             elif payload.action == "copy":
                 if src_path.is_dir():
                     await asyncio.to_thread(shutil.copytree, str(src_path), str(final_dest_path))
-                else:
+                else:   
                     await asyncio.to_thread(shutil.copy2, str(src_path), str(final_dest_path))
                 succeeded.append({"path": src_path_str, "action": "copied"})
         except Exception as e:

@@ -28,6 +28,7 @@ class WebAuthManager:
     def __init__(self):
         self.auth_config = self._load_auth_config()
         self.active_sessions = {}
+        self.failed_attempts = {}  # IP -> {count, last_attempt}
     
     def _load_auth_config(self) -> dict:
         """Load authentication configuration"""
@@ -97,21 +98,62 @@ class WebAuthManager:
         password_hash = self._hash_password(password, salt)
         return hmac.compare_digest(stored_hash, password_hash)
     
-    def create_session(self, password: str) -> Optional[str]:
+    def check_rate_limit(self, ip_address: str) -> bool:
+        """Check if IP is rate limited. Returns True if allowed, False if blocked."""
+        if not ip_address: return True
+        
+        current_time = time.time()
+        record = self.failed_attempts.get(ip_address)
+        
+        if not record:
+            return True
+            
+        # Reset count if last attempt was more than 15 minutes ago
+        if current_time - record["last_attempt"] > 900:
+            del self.failed_attempts[ip_address]
+            return True
+            
+        # Block if more than 5 failed attempts
+        if record["count"] >= 5:
+            log.warning(f"Rate limit exceeded for IP {ip_address}")
+            return False
+            
+        return True
+
+    def record_failed_attempt(self, ip_address: str):
+        """Record a failed login attempt"""
+        if not ip_address: return
+        
+        current_time = time.time()
+        if ip_address not in self.failed_attempts:
+            self.failed_attempts[ip_address] = {"count": 1, "last_attempt": current_time}
+        else:
+            self.failed_attempts[ip_address]["count"] += 1
+            self.failed_attempts[ip_address]["last_attempt"] = current_time
+
+    def create_session(self, password: str, ip_address: str = None) -> Optional[str]:
         """Create a new authenticated session"""
-        if not self.verify_password(password):
+        if not self.check_rate_limit(ip_address):
             return None
+
+        if not self.verify_password(password):
+            self.record_failed_attempt(ip_address)
+            return None
+        
+        # Clear failed attempts on success
+        if ip_address and ip_address in self.failed_attempts:
+            del self.failed_attempts[ip_address]
         
         # Generate session token
         session_token = secrets.token_urlsafe(32)
         session_data = {
             "created_at": int(time.time()),
             "last_activity": int(time.time()),
-            "ip_address": None  # Will be set by the API
+            "ip_address": ip_address
         }
         
         self.active_sessions[session_token] = session_data
-        log.info("New web UI session created")
+        log.info(f"New web UI session created for {ip_address}")
         return session_token
     
     def validate_session(self, session_token: str, ip_address: str = None) -> bool:

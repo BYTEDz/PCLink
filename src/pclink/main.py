@@ -74,5 +74,4 @@ def main() -> int:
         if controller:
             controller.shutdown()
         singleton.release_lock()
-        # Force exit as a safeguard against stubborn GUI event loops.
         os._exit(0)

@@ -22,7 +22,7 @@ except ImportError:
     qrcode = None
 
 
-CONTROL_API_URL = "http://127.0.0.1:9876"
+CONTROL_API_URL = f"http://127.0.0.1:{constants.CONTROL_PORT}"
 
 
 def is_server_running():

@@ -79,6 +79,7 @@ VERSION_CONSTRAINTS = {
     'pycaw': '>=20230330',
     'comtypes': '>=1.2.0',
     'PyGObject': '>=3.42.0',
+    'winsdk': '>=1.0.0b9',
 }
 
 # Defines platform-specific markers for packages.
@@ -87,6 +88,7 @@ PLATFORM_PACKAGES = {
     'pycaw': 'sys_platform == "win32"',
     'comtypes': 'sys_platform == "win32"',
     'PyGObject': 'sys_platform == "linux"',
+    'winsdk': 'sys_platform == "win32"',
 }
 
 
