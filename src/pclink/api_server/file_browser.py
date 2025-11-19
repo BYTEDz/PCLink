@@ -1,19 +1,5 @@
-# PCLink - Remote PC Control Server - File Browser API Module
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as published
-# by the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program. If not, see <https://www.gnu.org/licenses/>.
-
 
 import asyncio
 import json
@@ -191,21 +177,31 @@ def _encode_filename_for_header(filename: str) -> str:
 def _get_system_roots() -> List[Path]:
     """
     Get a list of available system roots (drives on Windows, / on Unix).
-    Safely iterates drives to avoid crashing on locked BitLocker volumes or mapped drives.
+    Uses Windows API for fast and safe drive detection.
     """
     if platform.system() == "Windows":
         roots = []
-        for d in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-            try:
-                p = Path(f"{d}:\\")
-                # Checking exists() on a locked BitLocker drive might raise an OSError/PermissionError
-                if p.exists():
-                    roots.append(p)
-            except Exception as e:
-                # Log debug but continue; this is expected for locked/disconnected drives
-                log.debug(f"Skipping drive {d}: due to error: {e}")
-                continue
-        return roots
+        try:
+            # Use Windows API to get logical drives - much faster and safer
+            import string
+            from ctypes import windll
+            
+            drives_bitmask = windll.kernel32.GetLogicalDrives()
+            for i, letter in enumerate(string.ascii_uppercase):
+                if drives_bitmask & (1 << i):
+                    roots.append(Path(f"{letter}:\\"))
+            return roots
+        except Exception as e:
+            # Fallback to old method if Windows API fails
+            log.warning(f"Windows API drive detection failed, using fallback: {e}")
+            for d in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+                try:
+                    p = Path(f"{d}:\\")
+                    if p.exists():
+                        roots.append(p)
+                except Exception:
+                    continue
+            return roots
     return [Path("/")]
 
 
@@ -250,104 +246,171 @@ def _validate_and_resolve_path(
         raise HTTPException(status_code=500, detail="An error occurred while processing the path.")
 
 
+async def write_file_async(file_path: Path, data: bytes, mode: str = "wb", offset: int | None = None):
+    """
+    Unified async/sync file writer with optional offset support.
+    
+    Args:
+        file_path: Path to the file
+        data: Data to write
+        mode: File open mode ('wb', 'ab', 'rb+')
+        offset: Optional seek offset for random access writes
+    """
+    if AIOFILES_INSTALLED:
+        open_mode = "r+b" if mode == "rb+" else mode
+        async with aiofiles.open(file_path, open_mode) as f:
+            if offset is not None:
+                await f.seek(offset)
+            await f.write(data)
+    else:
+        def _sync_write():
+            with open(file_path, mode) as f:
+                if offset is not None:
+                    f.seek(offset)
+                f.write(data)
+        await asyncio.to_thread(_sync_write)
+
+
 async def _cleanup_transfer_session(transfer_id: str):
-    if transfer_id in TRANSFER_LOCKS:
-        del TRANSFER_LOCKS[transfer_id]
+    """Clean up transfer session resources."""
+    TRANSFER_LOCKS.pop(transfer_id, None)
+    UPLOAD_BUFFERS.pop(transfer_id, None)
 
 
-def _save_download_session(download_id: str, session_data: Dict):
+def _manage_session_file(session_id: str, data: Dict | None = None, operation: str = "read", session_type: str = "download"):
+    """
+    Unified session file manager for both uploads and downloads.
+    
+    Args:
+        session_id: The session identifier
+        data: Session data (required for 'save' operation)
+        operation: 'read', 'save', or 'delete'
+        session_type: 'download' or 'upload'
+    
+    Returns:
+        Dict for 'read' operation, None otherwise
+    """
+    directory = DOWNLOAD_SESSION_DIR if session_type == "download" else TEMP_UPLOAD_DIR
+    extension = ".json" if session_type == "download" else ".meta"
+    session_file = directory / f"{session_id}{extension}"
+    
     try:
-        session_file = DOWNLOAD_SESSION_DIR / f"{download_id}.json"
-        session_file.write_text(json.dumps(session_data), encoding="utf-8")
+        if operation == "delete":
+            session_file.unlink(missing_ok=True)
+            if session_type == "upload":
+                (directory / f"{session_id}.part").unlink(missing_ok=True)
+        elif operation == "save" and data:
+            session_file.write_text(json.dumps(data), encoding="utf-8")
+        elif operation == "read":
+            if session_file.exists():
+                return json.loads(session_file.read_text(encoding="utf-8"))
     except Exception as e:
-        log.error(f"Failed to save download session {download_id}: {e}")
-
-
-def _load_download_session(download_id: str) -> Dict | None:
-    try:
-        session_file = DOWNLOAD_SESSION_DIR / f"{download_id}.json"
-        if session_file.exists():
-            return json.loads(session_file.read_text(encoding="utf-8"))
-    except Exception as e:
-        log.error(f"Failed to load download session {download_id}: {e}")
+        log.error(f"Session {operation} failed for {session_id} ({session_type}): {e}")
     return None
 
 
+# Legacy compatibility wrappers
+def _save_download_session(download_id: str, session_data: Dict):
+    _manage_session_file(download_id, session_data, operation="save", session_type="download")
+
+
+def _load_download_session(download_id: str) -> Dict | None:
+    return _manage_session_file(download_id, operation="read", session_type="download")
+
+
 def _delete_download_session(download_id: str):
-    try:
-        session_file = DOWNLOAD_SESSION_DIR / f"{download_id}.json"
-        session_file.unlink(missing_ok=True)
-    except Exception as e:
-        log.warning(f"Failed to delete download session {download_id}: {e}")
+    _manage_session_file(download_id, operation="delete", session_type="download")
 
 
 def restore_sessions():
+    """Restore upload and download sessions from disk on startup."""
     restored_uploads = 0
     restored_downloads = 0
+    
+    # Restore uploads
     for meta_file in TEMP_UPLOAD_DIR.glob("*.meta"):
         try:
             upload_id = meta_file.stem
             part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
             if part_file.exists():
-                metadata = json.loads(meta_file.read_text(encoding="utf-8"))
-                final_path = metadata.get("final_path")
-                if final_path:
-                    ACTIVE_UPLOADS[final_path] = upload_id
-                    restored_uploads += 1
-                    log.info(f"Restored upload session: {upload_id} for {metadata.get('file_name', 'unknown')}")
+                metadata = _manage_session_file(upload_id, operation="read", session_type="upload")
+                if metadata:
+                    final_path = metadata.get("final_path")
+                    if final_path:
+                        ACTIVE_UPLOADS[final_path] = upload_id
+                        restored_uploads += 1
+                        log.info(f"Restored upload session: {upload_id} for {metadata.get('file_name', 'unknown')}")
         except Exception as e:
             log.warning(f"Failed to restore upload session from {meta_file}: {e}")
+    
+    # Restore downloads
     for session_file in DOWNLOAD_SESSION_DIR.glob("*.json"):
         try:
             download_id = session_file.stem
-            session_data = json.loads(session_file.read_text(encoding="utf-8"))
-            file_path = Path(session_data["file_path"])
-            if file_path.exists() and file_path.is_file():
-                current_stat = file_path.stat()
-                if current_stat.st_mtime == session_data.get("file_modified_at"):
-                    ACTIVE_DOWNLOADS[download_id] = session_data
-                    restored_downloads += 1
-                    log.info(f"Restored download session: {download_id} for {session_data.get('file_name', 'unknown')}")
+            session_data = _manage_session_file(download_id, operation="read", session_type="download")
+            
+            if session_data:
+                file_path = Path(session_data["file_path"])
+                if file_path.exists() and file_path.is_file():
+                    current_stat = file_path.stat()
+                    if current_stat.st_mtime == session_data.get("file_modified_at"):
+                        ACTIVE_DOWNLOADS[download_id] = session_data
+                        restored_downloads += 1
+                        log.info(f"Restored download session: {download_id} for {session_data.get('file_name', 'unknown')}")
+                    else:
+                        _manage_session_file(download_id, operation="delete", session_type="download")
+                        log.info(f"Removed stale download session {download_id} (file modified)")
                 else:
-                    session_file.unlink(missing_ok=True)
-                    log.info(f"Removed stale download session {download_id} (file modified)")
-            else:
-                session_file.unlink(missing_ok=True)
-                log.info(f"Removed stale download session {download_id} (file not found)")
+                    _manage_session_file(download_id, operation="delete", session_type="download")
+                    log.info(f"Removed stale download session {download_id} (file not found)")
         except Exception as e:
             log.warning(f"Failed to restore download session from {session_file}: {e}")
+    
     if restored_uploads or restored_downloads:
         log.info(f"Session restoration complete: {restored_uploads} uploads, {restored_downloads} downloads")
+    
     return {"restored_uploads": restored_uploads, "restored_downloads": restored_downloads}
 
 
 async def cleanup_stale_sessions():
+    """Background task to clean up old sessions and buffers."""
     current_time = time.time()
-    stale_threshold = 7 * 24 * 60 * 60
-    stale_uploads, stale_downloads = [], []
+    stale_threshold = 7 * 24 * 60 * 60  # 7 days
+    cleaned_uploads, cleaned_downloads = 0, 0
+    
+    # Clean stale uploads
     for upload_file in TEMP_UPLOAD_DIR.glob("*.meta"):
         try:
             if current_time - upload_file.stat().st_mtime > stale_threshold:
                 upload_id = upload_file.stem
-                (TEMP_UPLOAD_DIR / f"{upload_id}.part").unlink(missing_ok=True)
-                upload_file.unlink(missing_ok=True)
+                _manage_session_file(upload_id, operation="delete", session_type="upload")
+                
+                # Clean up from active uploads
                 for path, uid in list(ACTIVE_UPLOADS.items()):
-                    if uid == upload_id: del ACTIVE_UPLOADS[path]
-                stale_uploads.append(upload_id)
+                    if uid == upload_id:
+                        del ACTIVE_UPLOADS[path]
+                
+                # Clean up buffer
+                UPLOAD_BUFFERS.pop(upload_id, None)
+                cleaned_uploads += 1
         except Exception as e:
             log.warning(f"Error cleaning up stale upload {upload_file}: {e}")
+    
+    # Clean stale downloads
     for session_file in DOWNLOAD_SESSION_DIR.glob("*.json"):
         try:
             if current_time - session_file.stat().st_mtime > stale_threshold:
                 download_id = session_file.stem
-                session_file.unlink(missing_ok=True)
-                if download_id in ACTIVE_DOWNLOADS: del ACTIVE_DOWNLOADS[download_id]
-                stale_downloads.append(download_id)
+                _manage_session_file(download_id, operation="delete", session_type="download")
+                ACTIVE_DOWNLOADS.pop(download_id, None)
+                cleaned_downloads += 1
         except Exception as e:
             log.warning(f"Error cleaning up stale download {session_file}: {e}")
-    if stale_uploads or stale_downloads:
-        log.info(f"Cleaned up {len(stale_uploads)} stale uploads and {len(stale_downloads)} stale downloads")
-    return {"cleaned_uploads": len(stale_uploads), "cleaned_downloads": len(stale_downloads)}
+    
+    if cleaned_uploads or cleaned_downloads:
+        log.info(f"Cleaned up {cleaned_uploads} stale uploads and {cleaned_downloads} stale downloads")
+    
+    return {"cleaned_uploads": cleaned_uploads, "cleaned_downloads": cleaned_downloads}
 
 
 def _get_unique_filename(path: Path) -> Path:
@@ -432,6 +495,7 @@ async def generate_thumbnail(file_path: str, size: tuple = (256, 256)) -> bytes 
 def compress_files(file_paths: list, output_zip: str) -> Generator[int, None, None]:
     """
     Compresses files and directories into a zip archive, yielding progress.
+    Optimized to reduce redundant stat() calls.
     """
     resolved_paths = [_validate_and_resolve_path(p) for p in file_paths]
     output_path = _validate_and_resolve_path(output_zip, check_existence=False)
@@ -439,46 +503,60 @@ def compress_files(file_paths: list, output_zip: str) -> Generator[int, None, No
     total_size = 0
     files_to_zip = []
 
+    # Build file list and calculate total size
     for path in resolved_paths:
         if path.is_file():
-            total_size += path.stat().st_size
-            files_to_zip.append((path, path.name))
+            try:
+                size = path.stat().st_size
+                total_size += size
+                files_to_zip.append((path, path.name, size))
+            except (OSError, PermissionError):
+                continue
         elif path.is_dir():
             for root, _, files in os.walk(path):
                 for file in files:
                     file_path = Path(root) / file
                     try:
-                        total_size += file_path.stat().st_size
+                        size = file_path.stat().st_size
+                        total_size += size
                         arcname = file_path.relative_to(path.parent)
-                        files_to_zip.append((file_path, arcname))
+                        files_to_zip.append((file_path, arcname, size))
                     except (OSError, PermissionError):
                         continue
     
     if total_size == 0:
-        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED): pass
+        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED):
+            pass
         yield 100
         return
 
     bytes_written = 0
+    last_progress = 0
     yield 0
     
     try:
         with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for file_path, arcname in files_to_zip:
+            for file_path, arcname, size in files_to_zip:
                 try:
                     zf.write(file_path, arcname)
-                    bytes_written += file_path.stat().st_size
-                    yield int((bytes_written / total_size) * 100)
+                    bytes_written += size
+                    current_progress = int((bytes_written / total_size) * 100)
+                    # Only yield if progress changed (reduce overhead)
+                    if current_progress > last_progress:
+                        yield current_progress
+                        last_progress = current_progress
                 except (OSError, PermissionError) as e:
                     log.warning(f"Skipping file during compression: {file_path} ({e})")
-                    try: bytes_written += file_path.stat().st_size
-                    except OSError: pass
+                    bytes_written += size  # Count as processed even if skipped
     except Exception as e:
         log.error(f"Compression failed for {output_zip}: {e}")
-        if output_path.exists(): output_path.unlink()
+        if output_path.exists():
+            output_path.unlink()
         raise
 
-    if bytes_written < total_size: yield 100
+    # Ensure we always end at 100%
+    if last_progress < 100:
+        yield 100
 
 
 def _is_zip_encrypted(zip_path: Path) -> bool:
@@ -501,7 +579,7 @@ def extract_archive(
 ) -> Generator[int, None, None]:
     """
     Extracts a zip archive to a destination, yielding progress.
-    Handles password-protected archives.
+    Handles password-protected archives with optimized progress reporting.
     """
     zip_file_path = _validate_and_resolve_path(zip_path)
     dest_path = _validate_and_resolve_path(destination, check_existence=False)
@@ -528,17 +606,28 @@ def extract_archive(
                 return
 
             extracted_size = 0
+            last_progress = 0
             yield 0
 
             for member in infolist:
+                # Security check: prevent path traversal attacks
                 if ".." in member.filename or os.path.isabs(member.filename):
                     log.warning(f"Skipping potentially malicious path in zip: {member.filename}")
                     continue
+                
                 zf.extract(member, dest_path, pwd=pwd_bytes)
                 extracted_size += member.file_size
-                yield int((extracted_size / total_size) * 100)
+                
+                # Only yield if progress changed (reduce overhead)
+                current_progress = int((extracted_size / total_size) * 100)
+                if current_progress > last_progress:
+                    yield current_progress
+                    last_progress = current_progress
 
-            yield 100
+            # Ensure we always end at 100%
+            if last_progress < 100:
+                yield 100
+                
     except RuntimeError as e:
         if "password" in str(e).lower():
             log.warning(f"Incorrect password provided for zip file {zip_path}")
@@ -561,7 +650,22 @@ async def get_upload_config():
         "buffer_size": UPLOAD_BUFFER_SIZE,
         "supports_concurrent_chunks": False,  # Sequential for data integrity
         "supports_resume": True,
-        "supports_pause": True
+        "supports_pause": True,
+        "aiofiles_enabled": AIOFILES_INSTALLED  # Let clients know if async I/O is available
+    }
+
+
+@download_router.get("/config")
+async def get_download_config():
+    """Return optimal download configuration for clients."""
+    return {
+        "recommended_chunk_size": DOWNLOAD_CHUNK_SIZE,
+        "max_chunk_size": DOWNLOAD_CHUNK_SIZE * 4,  # Allow up to 256KB chunks
+        "min_chunk_size": 32768,  # Minimum 32KB
+        "supports_resume": True,
+        "supports_pause": True,
+        "supports_range_requests": True,
+        "aiofiles_enabled": AIOFILES_INSTALLED
     }
 
 
@@ -663,18 +767,8 @@ async def upload_chunk(upload_id: str, request: Request, offset: int = Query(...
                 buffer.extend(chunk)
                 bytes_written += len(chunk)
             
-            # Write buffered data in one operation for better I/O performance
-            if AIOFILES_INSTALLED:
-                async with aiofiles.open(part_file, "rb+") as f:
-                    await f.seek(offset)
-                    await f.write(buffer)
-            else:
-                # Fallback: use thread pool for blocking I/O
-                def write_sync():
-                    with part_file.open("rb+") as f:
-                        f.seek(offset)
-                        f.write(buffer)
-                await asyncio.to_thread(write_sync)
+            # Write buffered data using unified helper
+            await write_file_async(part_file, buffer, mode="rb+", offset=offset)
             
             # Clear buffer after successful write
             buffer.clear()
@@ -760,24 +854,19 @@ async def resume_upload(upload_id: str):
 
 @upload_router.delete("/cancel/{upload_id}")
 async def cancel_upload(upload_id: str, background_tasks: BackgroundTasks):
-    part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
-    meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
     lock = TRANSFER_LOCKS[upload_id]
     async with lock:
-        final_path_str = None
-        if meta_file.exists():
-            try:
-                metadata = json.loads(meta_file.read_text(encoding="utf-8"))
-                final_path_str = metadata.get("final_path")
-            except Exception as e:
-                log.warning(f"Could not read metadata for cancelled upload {upload_id}: {e}")
-            meta_file.unlink(missing_ok=True)
-        part_file.unlink(missing_ok=True)
+        # Read metadata before deletion
+        metadata = _manage_session_file(upload_id, operation="read", session_type="upload")
+        final_path_str = metadata.get("final_path") if metadata else None
+        
+        # Delete session files
+        _manage_session_file(upload_id, operation="delete", session_type="upload")
+        
+        # Clean up active uploads tracking
         if final_path_str and final_path_str in ACTIVE_UPLOADS:
             del ACTIVE_UPLOADS[final_path_str]
-        # Clean up buffer
-        if upload_id in UPLOAD_BUFFERS:
-            del UPLOAD_BUFFERS[upload_id]
+    
     background_tasks.add_task(_cleanup_transfer_session, upload_id)
     log.info(f"Cancelled upload {upload_id}")
     return {"status": "cancelled"}
