@@ -1,6 +1,6 @@
 <div align="center">
 
-![PCLink Banner](assets/banner.svg)
+![PCLink Banner](assets/pclink_banner.svg)
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20Linux%20Mint%2022.1-lightgrey)](https://github.com/BYTEDz/PCLink)
@@ -137,8 +137,8 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-appindicator3
 
 #### Install PCLink
 ```bash
-# Option 1: Install from requirements
-pip install -r requirements.txt
+# Option 1: Install from source
+pip install -e .
 
 # Option 2: Install directly from GitHub
 pip install git+https://github.com/BYTEDz/PCLink.git
@@ -185,16 +185,10 @@ python3 -m venv pclink-env
 source pclink-env/bin/activate  # Linux/macOS
 # or: pclink-env\Scripts\activate  # Windows
 
-# Install runtime dependencies
-pip install -r requirements.txt
+# Install PCLink with all dependencies (runtime + development)
+pip install -e ".[dev]"
 
-# Install development dependencies (includes PyInstaller for building)
-pip install -r requirements-dev.txt
-
-# Install additional dependencies for NFPM packaging (Linux only)
-pip install pyyaml
-
-# Install PCLink in development mode
+# Or install only runtime dependencies
 pip install -e .
 
 # Install pre-commit hooks
@@ -243,7 +237,7 @@ python scripts/build.py --format installer   # Windows installer
 #### Missing PyInstaller Error (for Windows/portable builds)
 ```bash
 # Install development dependencies
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"
 
 # Then retry building
 python scripts/build.py --format portable
@@ -294,7 +288,7 @@ sudo apt install python3-dev gcc build-essential
 sudo dnf install python3-devel gcc
 
 # Then retry installation
-pip install -r requirements.txt
+pip install -e .
 ```
 
 #### Dependency Errors (Linux)
