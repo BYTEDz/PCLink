@@ -7,8 +7,9 @@
     <title>PCLink Control Panel</title>
     <link rel="stylesheet" href="/ui/static/style.css?v=18">
 
-    <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><rect x='2' y='3' width='20' height='14' rx='2' ry='2'/><line x1='8' y1='21' x2='16' y2='21'/><line x1='12' y1='17' x2='12' y2='21'/></svg>">
+    <!-- Favicon - SVG with ICO fallback -->
+    <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg">
+    <link rel="icon" type="image/x-icon" href="/ui/assets/icon.ico">
 </head>
 
 <body>
@@ -18,7 +19,7 @@
             <!-- Brand Section -->
             <div class="header-brand">
                 <div class="brand-logo">
-                    <i data-feather="monitor"></i>
+                    <img src="/ui/assets/pclink.svg" width="30" height="30" alt="PCLink Logo">
                 </div>
                 <div class="brand-text">
                     <h1>PCLink</h1>
@@ -107,7 +108,7 @@
                 <div class="card">
                     <div class="status-header">
                         <div class="status-icon-large">
-                            <i data-feather="server"></i>
+                            <img src="/ui/assets/pclink.svg" width="50" height="50" alt="PCLink Logo">
                         </div>
                         <div class="status-info">
                             <h2>PCLink Server</h2>
@@ -128,19 +129,23 @@
                     <div class="server-controls">
                         <h4><i data-feather="power"></i> Server Control</h4>
                         <div class="control-buttons">
-                            <button class="btn btn-success" id="startServerBtn" onclick="startRemoteServer()" title="Start Remote API Server">
+                            <button class="btn btn-success" id="startServerBtn" onclick="startRemoteServer()"
+                                title="Start Remote API Server">
                                 <i data-feather="play"></i>
                                 Start
                             </button>
-                            <button class="btn btn-warning" id="stopServerBtn" onclick="stopRemoteServer()" title="Stop Remote API Server">
+                            <button class="btn btn-warning" id="stopServerBtn" onclick="stopRemoteServer()"
+                                title="Stop Remote API Server">
                                 <i data-feather="pause"></i>
                                 Stop
                             </button>
-                            <button class="btn btn-primary" id="restartServerBtn" onclick="restartRemoteServer()" title="Restart Remote API Server">
+                            <button class="btn btn-primary" id="restartServerBtn" onclick="restartRemoteServer()"
+                                title="Restart Remote API Server">
                                 <i data-feather="refresh-cw"></i>
                                 Restart
                             </button>
-                            <button class="btn btn-danger" id="shutdownServerBtn" onclick="shutdownServer()" title="Shutdown PCLink Server">
+                            <button class="btn btn-danger" id="shutdownServerBtn" onclick="shutdownServer()"
+                                title="Shutdown PCLink Server">
                                 <i data-feather="power"></i>
                                 Shutdown
                             </button>
@@ -191,7 +196,8 @@
                                 <span class="metric-value">HTTPS Enabled</span>
                             </div>
                         </div>
-                        <a href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink" target="_blank" class="metric metric-link">
+                        <a href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink" target="_blank"
+                            class="metric metric-link">
                             <div class="metric-icon"><i data-feather="download"></i></div>
                             <div class="metric-content">
                                 <span class="metric-label">Companion App</span>
@@ -227,16 +233,20 @@
                         <ol>
                             <li>Install the PCLink companion app on your device</li>
                             <li>Click "Generate Pairing QR Code" above</li>
-                            <li>Scan the QR code with the companion app (or manually enter the connection details if QR code is unavailable)</li>
+                            <li>Scan the QR code with the companion app (or manually enter the connection details if QR
+                                code is unavailable)</li>
                             <li>Approve the pairing request when prompted</li>
                         </ol>
-                        <div style="margin-top: 15px; padding: 15px; background: var(--surface-color); border-radius: 8px; border-left: 4px solid var(--warning-color);">
+                        <div
+                            style="margin-top: 15px; padding: 15px; background: var(--surface-color); border-radius: 8px; border-left: 4px solid var(--warning-color);">
                             <p style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-secondary);">
                                 <strong>💡 Scanning Tips:</strong>
                             </p>
-                            <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+                            <ul
+                                style="margin: 0; padding-left: 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
                                 <li>Hold your device 6-12 inches from the screen</li>
-                                <li><strong>Disable dark mode browser extensions</strong> (like Dark Reader) for this website</li>
+                                <li><strong>Disable dark mode browser extensions</strong> (like Dark Reader) for this
+                                    website</li>
                                 <li>Ensure good lighting and steady hands</li>
                                 <li>Use the "Manual Entry Data" button if scanning fails</li>
                             </ul>
@@ -399,7 +409,9 @@
             <div class="tab-content" id="about">
                 <div class="card">
                     <div class="about-header">
-                        <img src="/ui/assets/icon.png" alt="PCLink" class="about-logo">
+                        <div class="status-icon-large">
+                            <img src="/ui/assets/pclink.svg" width="50" height="50" alt="PCLink Logo">
+                        </div>
                         <div class="about-title">
                             <h2>PCLink</h2>
                             <p class="about-tagline">Secure remote PC control from any device</p>
@@ -409,7 +421,8 @@
                     <div class="about-content">
                         <div class="about-section">
                             <h3><i data-feather="info"></i> About PCLink</h3>
-                            <p>Cross-platform desktop app for secure remote PC control and management, featuring a lightweight built-in WebUI and API for local or remote access. It
+                            <p>Cross-platform desktop app for secure remote PC control and management, featuring a
+                                lightweight built-in WebUI and API for local or remote access. It
                                 consists of this open-source desktop server and companion apps for various platforms
                                 including iOS and Android.</p>
                         </div>

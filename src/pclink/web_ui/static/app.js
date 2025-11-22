@@ -659,7 +659,7 @@ class PCLinkWebUI {
 
         const iconSymbol = type === 'success' ? '✅' :
             type === 'error' ? '❌' :
-            type === 'warning' ? '⚠️' : 'ℹ️';
+                type === 'warning' ? '⚠️' : 'ℹ️';
 
         toast.innerHTML = `
             <div class="toast-icon">
@@ -862,9 +862,9 @@ async function generateQRCode() {
 
                 // Create QR code using the correct API with optimized settings for scanning
                 const qrContainer = document.getElementById('qrCodeContainer');
-                
+
                 console.log('QR Data length:', qrData.length);
-                
+
                 currentQRCode = new QRCode(qrContainer, {
                     text: qrData,  // Use original format that mobile app expects
                     width: 280,    // Slightly smaller to fit better in the white container
@@ -928,7 +928,7 @@ async function regenerateQRCode() {
         try {
             const data = await window.pclinkUI.apiCall('/qr-payload');
             const qrData = JSON.stringify(data);  // Use original format
-            
+
             currentQRCode.clear();
             currentQRCode.makeCode(qrData);
             console.log('QR Code regenerated successfully');
@@ -945,14 +945,14 @@ async function showFullConnectionData() {
     try {
         const data = await window.pclinkUI.apiCall('/qr-payload');
         const fullData = JSON.stringify(data, null, 2);
-        
+
         const modal = document.createElement('div');
         modal.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
             background: rgba(0,0,0,0.8); display: flex; align-items: center; 
             justify-content: center; z-index: 1000;
         `;
-        
+
         modal.innerHTML = `
             <div style="background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 90%; max-height: 80%; overflow-y: auto;">
                 <h3 style="margin-top: 0; color: #333;">📱 Full Connection Data</h3>
@@ -968,20 +968,20 @@ async function showFullConnectionData() {
                 </div>
             </div>
         `;
-        
+
         modal.className = 'modal-overlay';
-        
+
         // Add event listeners properly
         modal.onclick = (e) => {
             if (e.target === modal) modal.remove();
         };
-        
+
         document.body.appendChild(modal);
-        
+
         // Add event listeners after the modal is added to DOM
         const copyBtn = modal.querySelector('#copyDataBtn');
         const closeBtn = modal.querySelector('#closeModalBtn');
-        
+
         copyBtn.onclick = async () => {
             try {
                 await navigator.clipboard.writeText(fullData);
@@ -1000,11 +1000,11 @@ async function showFullConnectionData() {
                 }, 2000);
             }
         };
-        
+
         closeBtn.onclick = () => {
             modal.remove();
         };
-        
+
     } catch (error) {
         alert('Failed to get connection data');
     }
@@ -1567,7 +1567,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-window.testTabSwitch = function(tabName) {
+window.testTabSwitch = function (tabName) {
     console.log('Manual tab switch test to:', tabName);
     if (window.pclinkUI) {
         window.pclinkUI.switchTab(tabName);

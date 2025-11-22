@@ -6,8 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PCLink Authentication</title>
     <link rel="stylesheet" href="/ui/static/style.css">
-    <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
+    <!-- Favicon - SVG with ICO fallback -->
+    <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg">
+    <link rel="icon" type="image/x-icon" href="/ui/assets/icon.ico">
     <style>
         .auth-container {
             display: flex;
@@ -160,7 +161,7 @@
 <body>
     <div class="auth-container">
         <div class="auth-card">
-            <div class="auth-logo">🖥️</div>
+            <div class="auth-logo"><img src="/ui/assets/pclink.svg" width="100" height="100" alt="PCLink Logo"></div>
 
             <!-- Setup Form -->
             <div id="setupForm" style="display: none;">
