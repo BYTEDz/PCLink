@@ -66,6 +66,40 @@ jobs:
           path: releases/
           compression-level: 0
 
+  build-wheel:
+    name: Build Python Wheel
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel setuptools
+
+      - name: Build Python wheel
+        run: python -m build --wheel
+
+      - name: Verify wheel contents
+        run: |
+          echo "Built wheel:"
+          ls -lh dist/*.whl
+          echo "Wheel contents:"
+          unzip -l dist/*.whl | head -30
+
+      - name: Upload Wheel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PCLink-Wheel
+          path: dist/*.whl
+          compression-level: 0
+
   build-linux:
     name: Build Linux Packages
     runs-on: ubuntu-22.04
@@ -173,7 +207,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
-    needs: [build-windows, build-linux]
+    needs: [build-windows, build-linux, build-wheel]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:

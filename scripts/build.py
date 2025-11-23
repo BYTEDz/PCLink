@@ -390,7 +390,7 @@ class Builder:
 
 def main():
     parser = argparse.ArgumentParser(description=f"{APP_NAME} Unified Build System")
-    parser.add_argument("--format", default="portable", choices=["portable", "installer", "onefile", "nfpm"], help="Output format.")
+    parser.add_argument("--format", default="portable", choices=["portable", "installer", "onefile", "nfpm", "wheel"], help="Output format.")
     parser.add_argument("--clean", action="store_true", help="Clean build directories before starting.")
     parser.add_argument("--debug", action="store_true", help="Create a debug build with console.")
     args = parser.parse_args()
@@ -462,6 +462,44 @@ def main():
                 ]
                 builder._run_command(cmd)
                 print(f"[OK] Successfully created {fmt} package.")
+        
+        elif args.format == "wheel":
+            print("[INFO] Building Python wheel distribution...")
+            
+            # Check for build module or setuptools
+            has_build = False
+            try:
+                import build
+                has_build = True
+            except ImportError:
+                print("[WARNING] 'build' module not found, trying setuptools fallback...")
+            
+            # Clean dist directory if requested
+            if args.clean and builder.dist_dir.exists():
+                shutil.rmtree(builder.dist_dir)
+            
+            builder.dist_dir.mkdir(exist_ok=True)
+            
+            if has_build:
+                # Use python -m build (preferred method)
+                cmd = [sys.executable, "-m", "build", "--wheel", "--outdir", str(builder.dist_dir)]
+                builder._run_command(cmd)
+            else:
+                # Fallback to setup.py bdist_wheel
+                print("[INFO] Using setuptools fallback to build wheel...")
+                cmd = [sys.executable, "setup.py", "bdist_wheel", "--dist-dir", str(builder.dist_dir)]
+                builder._run_command(cmd)
+            
+            # Move wheel to releases directory
+            builder.releases_dir.mkdir(exist_ok=True)
+            wheel_files = list(builder.dist_dir.glob("*.whl"))
+            if not wheel_files:
+                raise BuildError("No wheel file was created")
+            
+            for wheel_file in wheel_files:
+                dest = builder.releases_dir / wheel_file.name
+                shutil.move(wheel_file, dest)
+                print(f"[OK] Created Python wheel: {dest.name}")
 
 
         print(f"\n[DONE] Operation completed in {time.monotonic() - start_time:.2f} seconds.")

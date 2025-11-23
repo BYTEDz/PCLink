@@ -136,7 +136,7 @@ log "PCLink exited with code: $EXIT_CODE"
 exit $EXIT_CODE
 """
         launcher_path = self.staging_dir / "usr" / "bin" / "pclink"
-        launcher_path.write_text(launcher_content)
+        launcher_path.write_text(launcher_content, encoding='utf-8')
         launcher_path.chmod(0o755)
         
         # --- Sudoers File (from template) ---
@@ -156,7 +156,7 @@ exit $EXIT_CODE
 %plugdev ALL=(ALL) NOPASSWD: /sbin/shutdown
 %plugdev ALL=(ALL) NOPASSWD: /usr/sbin/pm-suspend
 """
-            sudoers_dst.write_text(sudoers_content)
+            sudoers_dst.write_text(sudoers_content, encoding='utf-8')
         # Note: chmod(0o440) is applied via nfpm.yaml file_info
         
         # --- Copy other resources (Simplified logic) ---
@@ -204,7 +204,7 @@ User configuration directory
 Azhar Zouhir <support@bytedz.xyz>
 """
         man_path = self.staging_dir / "usr" / "share" / "man" / "man1" / "pclink.1"
-        man_path.write_text(man_content)
+        man_path.write_text(man_content, encoding='utf-8')
 
         for doc_file in ["README.md", "LICENSE", "CHANGELOG.md"]:
             doc_src = self.root_dir / doc_file
@@ -218,214 +218,318 @@ Azhar Zouhir <support@bytedz.xyz>
         scripts_dir = self.build_dir / "scripts"
         scripts_dir.mkdir(exist_ok=True)
         
-        # --- postinst content (FIXED: Logic, Output, Robustness) ---
+        # --- postinst content (FIXED: Better detection and no set -e) ---
         postinst_content = """#!/bin/bash
-set -e
+# Note: Removed 'set -e' to prevent package manager corruption on non-fatal errors
+
+INSTALL_DIR="/usr/lib/pclink"
+VENV_DIR="$INSTALL_DIR/venv"
+
+echo "=== PCLink postinst: action='$1', old_version='$2' ==="
 
 # --- Core Setup Function ---
 install_pclink() {
-    echo "Installing PCLink..."
+    local IS_UPGRADE="$1"
+    
+    if [ "$IS_UPGRADE" = "true" ]; then
+        echo "PCLink: Upgrading from version $2..."
+    else
+        echo "PCLink: Fresh installation..."
+    fi
 
-    INSTALL_DIR="/usr/lib/pclink"
-    VENV_DIR="$INSTALL_DIR/venv"
-
-    # Clean up any existing virtual environment first (essential for clean upgrade/install)
-    if [ -d "$VENV_DIR" ]; then
-        echo "Cleaning old virtual environment..."
-        rm -rf "$VENV_DIR"
+    # For upgrades, try to preserve the venv if possible, only recreate if broken
+    if [ "$IS_UPGRADE" = "true" ] && [ -d "$VENV_DIR" ]; then
+        echo "Checking existing virtual environment..."
+        if "$VENV_DIR/bin/python" -c "import sys; sys.exit(0)" 2>/dev/null; then
+            echo "Existing venv is functional, upgrading in place..."
+            "$VENV_DIR/bin/pip" install --upgrade pip 2>/dev/null || true
+        else
+            echo "Existing venv is broken, recreating..."
+            rm -rf "$VENV_DIR"
+        fi
     fi
     
-    # Core installation steps
-    python3 -m venv --system-site-packages "$VENV_DIR"
-    
-    # Use explicit paths and suppress non-fatal warnings that could trigger set -e
-    "$VENV_DIR/bin/pip" install --upgrade pip 2>/dev/null || true
+    # Create venv if it doesn't exist
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "Creating virtual environment..."
+        python3 -m venv --system-site-packages "$VENV_DIR"
+        "$VENV_DIR/bin/pip" install --upgrade pip 2>/dev/null || true
+    fi
 
-    WHEEL_FILE=$(find "$INSTALL_DIR" -name "*.whl" | head -1)
+    # Find and install the wheel - use the newest one if multiple exist
+    WHEEL_FILE=$(find "$INSTALL_DIR" -name "*.whl" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
     if [ -z "$WHEEL_FILE" ]; then
-        echo "ERROR: No wheel file found"
-        exit 1
+        # Fallback to simple find if printf not available
+        WHEEL_FILE=$(find "$INSTALL_DIR" -name "*.whl" -type f | head -1)
+    fi
+    
+    if [ -z "$WHEEL_FILE" ] || [ ! -f "$WHEEL_FILE" ]; then
+        echo "ERROR: No wheel file found in $INSTALL_DIR"
+        ls -la "$INSTALL_DIR" || true
+        return 1
     fi
 
-    # Install the wheel
-    "$VENV_DIR/bin/pip" install "$WHEEL_FILE"
+    echo "PCLink: Installing package from $WHEEL_FILE..."
+    
+    # Clean up any old wheel files first (keep only the one we're installing)
+    find "$INSTALL_DIR" -name "*.whl" -type f ! -path "$WHEEL_FILE" -delete 2>/dev/null || true
+    
+    # Install/upgrade the wheel (--force-reinstall ensures clean upgrade)
+    if ! "$VENV_DIR/bin/pip" install --force-reinstall --no-deps "$WHEEL_FILE"; then
+        echo "ERROR: Failed to install wheel"
+        return 1
+    fi
 
-    # Test AppIndicator availability (using the python path from the venv)
+    # Test AppIndicator availability
     echo "Testing AppIndicator availability..."
     "$VENV_DIR/bin/python" -c "
 import sys
 try:
     import gi
     gi.require_version('AppIndicator3', '0.1')
-    print(' GI module imported successfully. AppIndicator3 is available - native tray menus will work')
+    print('✓ AppIndicator3 is available - native tray menus will work')
 except Exception as e:
-    print(' AppIndicator3 not available:', e)
+    print('⚠ AppIndicator3 not available:', e)
     print('  To fix: sudo apt install python3-gi gir1.2-appindicator3-0.1')
 " || true
 
-    # Set up permissions and groups
-    ACTUAL_USER=""
-    if [ -n "$SUDO_USER" ]; then
-        ACTUAL_USER="$SUDO_USER"
-    elif [ -n "$PKEXEC_UID" ]; then
-        ACTUAL_USER=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
-    elif [ "$USER" != "root" ]; then
-        ACTUAL_USER="$USER"
-    fi
+    # Only set up user permissions on fresh install, not upgrades
+    if [ "$IS_UPGRADE" != "true" ]; then
+        ACTUAL_USER=""
+        if [ -n "$SUDO_USER" ]; then
+            ACTUAL_USER="$SUDO_USER"
+        elif [ -n "$PKEXEC_UID" ]; then
+            ACTUAL_USER=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
+        elif [ "$USER" != "root" ]; then
+            ACTUAL_USER="$USER"
+        fi
 
-    if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
-        echo "Setting up permissions for user: $ACTUAL_USER"
-        
-        if getent group plugdev >/dev/null 2>&1; then
-            usermod -a -G plugdev "$ACTUAL_USER" 2>/dev/null || true
-            echo "Added $ACTUAL_USER to plugdev group"
+        if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
+            echo "Setting up permissions for user: $ACTUAL_USER"
+            
+            if getent group plugdev >/dev/null 2>&1; then
+                usermod -a -G plugdev "$ACTUAL_USER" 2>/dev/null || true
+                echo "✓ Added $ACTUAL_USER to plugdev group"
+            fi
+            
+            if getent group power >/dev/null 2>&1; then
+                usermod -a -G power "$ACTUAL_USER" 2>/dev/null || true
+                echo "✓ Added $ACTUAL_USER to power group"
+            fi
         fi
-        
-        if getent group power >/dev/null 2>&1; then
-            usermod -a -G power "$ACTUAL_USER" 2>/dev/null || true
-            echo "Added $ACTUAL_USER to power group"
-        fi
-    else
-        echo "Warning: Could not determine user for group permissions"
-        echo "To fix power commands manually, run: sudo usermod -a -G plugdev \$USER"
     fi
 
     # Validate sudoers file
     if [ -f "/etc/sudoers.d/pclink" ]; then
         if command -v visudo >/dev/null 2>&1; then
-            if visudo -c -f /etc/sudoers.d/pclink; then
-                echo " Sudoers file validated successfully"
+            if visudo -c -f /etc/sudoers.d/pclink >/dev/null 2>&1; then
+                echo "✓ Sudoers file validated"
             else
-                echo " Sudoers file validation failed, removing it"
+                echo "⚠ Sudoers file validation failed, removing it"
                 rm -f /etc/sudoers.d/pclink
             fi
-        else
-            echo " Warning: visudo not found, skipping sudoers file validation."
         fi
     fi
 
-    # Enable systemd user service
+    # Enable systemd user service (safe for both install and upgrade)
     if command -v systemctl >/dev/null 2>&1 && [ -f "/usr/lib/systemd/user/pclink.service" ]; then
         systemctl --global enable pclink.service 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
     fi
 
     # Update system caches
-    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications || true
-    command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
-    command -v mandb >/dev/null 2>&1 && mandb -q || true
+    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications 2>/dev/null || true
+    command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    command -v mandb >/dev/null 2>&1 && mandb -q 2>/dev/null || true
 
-    echo "PCLink installed successfully!"
-    echo ""
-    echo "To start PCLink: pclink"
-    echo "Web interface: https://localhost:38080/ui/"
+    if [ "$IS_UPGRADE" = "true" ]; then
+        echo "✓ PCLink upgraded successfully!"
+    else
+        echo "✓ PCLink installed successfully!"
+        echo ""
+        echo "To start PCLink: pclink"
+        echo "Web interface: https://localhost:38080/ui/"
+    fi
+    
+    return 0
 }
 # --- End Core Setup Function ---
 
-
-# Debug: Log the operation type and all arguments
-echo "DEBUG: postinst called with argument: '$1'"
-
-# Standard DPKG postinst logic to check for configure/upgrade
+# Standard DPKG postinst logic
 case "$1" in
     configure)
-        install_pclink
+        # Verify installation directory exists
+        if [ ! -d "$INSTALL_DIR" ]; then
+            echo "ERROR: Installation directory $INSTALL_DIR does not exist!"
+            echo "This may indicate a failed or incomplete package installation."
+            exit 1
+        fi
+        
+        # Check if wheel file exists
+        WHEEL_COUNT=$(find "$INSTALL_DIR" -name "*.whl" 2>/dev/null | wc -l)
+        if [ "$WHEEL_COUNT" -eq 0 ]; then
+            echo "ERROR: No wheel file found in $INSTALL_DIR"
+            echo "Package installation is incomplete. Please reinstall."
+            exit 1
+        fi
+        
+        # Check if this is an upgrade (previous version passed as $2)
+        if [ -n "$2" ] && [ "$2" != "<unknown>" ]; then
+            echo "PCLink: Detected upgrade from version $2"
+            install_pclink "true" "$2" || exit 1
+        else
+            echo "PCLink: Detected fresh installation"
+            install_pclink "false" "" || exit 1
+        fi
         ;;
     
-    # Fallthrough for abort-upgrade, abort-remove, abort-deconfigure, and any unexpected calls.
+    abort-upgrade|abort-remove|abort-deconfigure)
+        echo "PCLink: Package operation aborted: $1"
+        ;;
+    
     *)
-        echo "Skipping configuration (Action: $1). Proceeding with package management."
+        echo "PCLink: postinst called with unknown argument: $1"
         ;;
 esac
+
+echo "=== PCLink postinst completed successfully ==="
+exit 0
 """
         
         postinst_path = scripts_dir / "postinst"
-        postinst_path.write_text(postinst_content)
+        postinst_path.write_text(postinst_content, encoding='utf-8')
         postinst_path.chmod(0o755)
         
-        # --- prerm content (ULTIMATE FIX: No cleanup logic, only clean exit) ---
+        # --- prerm content (FIXED: Better detection and logging) ---
         prerm_content = """#!/bin/bash
-# Note: DO NOT use 'set -e' here. A cleanup failure must NOT halt removal.
+# Note: DO NOT use 'set -e' - failures must not block package operations
 
-# Debug: Log the operation type
-echo "DEBUG: prerm called with argument: '$1'"
+echo "=== PCLink prerm: action='$1', old_version='$2', new_version='$3' ==="
 
-# Check if this is actually a removal (not just an upgrade)
-if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-    echo "Stopping PCLink services for removal..."
+# Standard DPKG prerm logic
+case "$1" in
+    remove)
+        echo "PCLink: Stopping services for removal..."
+        
+        # Try to stop user services gracefully (but don't fail if they're not running)
+        if command -v systemctl >/dev/null 2>&1; then
+            # Stop all user instances
+            for user_dir in /run/user/*/; do
+                user_id=$(basename "$user_dir")
+                if [ -n "$user_id" ] && [ "$user_id" != "*" ]; then
+                    systemctl --user --machine="${user_id}@.host" stop pclink.service 2>/dev/null || true
+                fi
+            done
+        fi
+        
+        # Kill any remaining PCLink processes (but don't fail if none exist)
+        # Match against the installation directory to avoid killing apt or this script
+        pkill -f "/usr/lib/pclink" 2>/dev/null || true
+        
+        # Give processes time to terminate gracefully
+        sleep 1
+        ;;
     
-    # We must assume all pkill/systemctl calls are unstable in this specific environment,
-    # so we rely on the kernel killing the process once the binary is removed in the next step.
+    upgrade|deconfigure)
+        # During upgrade, do NOT stop services - let the new version handle it
+        echo "PCLink: Preparing for upgrade (keeping services running)..."
+        ;;
     
-    echo "Skipping service termination due to environment instability. Relying on kernel/systemd cleanup."
+    failed-upgrade)
+        echo "PCLink: Handling failed upgrade..."
+        ;;
+    
+    *)
+        echo "PCLink: prerm called with unknown argument: $1"
+        ;;
+esac
 
-    # NOTE: It is standard to explicitly stop the systemd service here, but since that
-    # caused the DPKG crash, we rely on the postrm hook to globally disable it instead.
-fi
-
-# IMPORTANT: Always exit successfully to prevent package removal failures
+echo "=== PCLink prerm completed ==="
 exit 0
 """
         
         prerm_path = scripts_dir / "prerm"
-        prerm_path.write_text(prerm_content)
+        prerm_path.write_text(prerm_content, encoding='utf-8')
         prerm_path.chmod(0o755)
         
-        # --- postrm content (Robust cleanup logic) ---
+        # --- postrm content (FIXED: Better logging and detection) ---
         postrm_content = """#!/bin/bash
-# Note: DO NOT use 'set -e' here. A cleanup failure must NOT halt removal.
-
-# Debug: Log the operation type
-echo "DEBUG: postrm called with argument: '$1'"
+# Note: DO NOT use 'set -e' - failures must not block package operations
 
 INSTALL_DIR="/usr/lib/pclink"
 VENV_DIR="$INSTALL_DIR/venv"
 
-# Check if this is actually a removal/purge (not just an upgrade)
-if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-    echo "Cleaning up PCLink installation (Remove/Purge)..."
-    
-    # Clean up virtual environment for both 'remove' and 'purge'
-    if [ -d "$VENV_DIR" ]; then
-        echo "Removing virtual environment: $VENV_DIR"
-        rm -rf "$VENV_DIR" 2>/dev/null || true
-    fi
-    
-    # Clean up installation directory (should be empty now)
-    if [ -d "$INSTALL_DIR" ]; then
-        rm -rf "$INSTALL_DIR" 2>/dev/null || true
-    fi
+echo "=== PCLink postrm: action='$1', old_version='$2' ==="
 
-    # Disable systemd user service globally
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl --global disable pclink.service 2>/dev/null || true
-    fi
-    # Also clean up the service file from user config (in case user enabled it)
-    rm -f ~/.config/systemd/user/pclink.service 2>/dev/null || true
-
-    # Only purge should remove configuration files
-    if [ "$1" = "purge" ]; then
-        echo "Removing configuration files (Purge action)."
-        # Clean up sudoers file (which is configuration)
-        if [ -f "/etc/sudoers.d/pclink" ]; then
-            rm -f "/etc/sudoers.d/pclink" 2>/dev/null || true
+# Standard DPKG postrm logic
+case "$1" in
+    remove)
+        echo "PCLink: Cleaning up installation..."
+        
+        # Remove virtual environment
+        if [ -d "$VENV_DIR" ]; then
+            echo "Removing virtual environment..."
+            rm -rf "$VENV_DIR" 2>/dev/null || true
         fi
-    fi
+        
+        # Remove wheel files
+        if [ -d "$INSTALL_DIR" ]; then
+            echo "Removing wheel files..."
+            find "$INSTALL_DIR" -name "*.whl" -type f -delete 2>/dev/null || true
+            
+            # Remove installation directory if empty
+            rmdir "$INSTALL_DIR" 2>/dev/null || true
+        fi
 
-else
-    echo "Skipping cleanup during upgrade"
-fi
+        # Disable systemd user service globally
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl --global disable pclink.service 2>/dev/null || true
+            systemctl daemon-reload 2>/dev/null || true
+        fi
+        ;;
+    
+    purge)
+        echo "PCLink: Purging configuration..."
+        
+        # Remove everything including config and wheels
+        if [ -d "$INSTALL_DIR" ]; then
+            echo "Removing installation directory..."
+            rm -rf "$INSTALL_DIR" 2>/dev/null || true
+        fi
+        rm -f "/etc/sudoers.d/pclink" 2>/dev/null || true
+        
+        # Disable and remove systemd service
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl --global disable pclink.service 2>/dev/null || true
+            systemctl daemon-reload 2>/dev/null || true
+        fi
+        
+        # Remove user config directories (optional - be careful here)
+        # Uncomment if you want to remove user data on purge:
+        # rm -rf /home/*/.config/pclink 2>/dev/null || true
+        ;;
+    
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # During upgrade, do NOT remove anything
+        echo "PCLink: Package operation '$1' (no cleanup needed)"
+        ;;
+    
+    *)
+        echo "PCLink: postrm called with unknown argument: $1"
+        ;;
+esac
 
-# Always update system databases (safe to do during upgrades too)
+# Update system databases (safe for all operations)
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications 2>/dev/null || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
 command -v mandb >/dev/null 2>&1 && mandb -q 2>/dev/null || true
 
-# Always exit successfully to prevent package removal failures
+echo "=== PCLink postrm completed ==="
 exit 0
 """
         
         postrm_path = scripts_dir / "postrm"
-        postrm_path.write_text(postrm_content)
+        postrm_path.write_text(postrm_content, encoding='utf-8')
         postrm_path.chmod(0o755)
         
         return {
@@ -458,6 +562,7 @@ exit 0
                 "libxcb-render-util0", "libxcb-keysyms1", "libxcb-image0",
                 "libxcb-icccm4", "python3-gi", "gir1.2-appindicator3-0.1",
                 "gir1.2-gtk-3.0", "systemd | sysvinit-core | runit", "dbus",
+                "procps",
             ],
             
             "contents": [

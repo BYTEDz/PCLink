@@ -38,6 +38,7 @@ depends:
 - gir1.2-gtk-3.0
 - systemd | sysvinit-core | runit
 - dbus
+- procps
 description: Cross-platform desktop app for secure remote PC control and management.
 homepage: https://github.com/BYTEDz/PCLink
 license: AGPL-3.0-or-later
