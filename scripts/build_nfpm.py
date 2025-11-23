@@ -275,7 +275,7 @@ install_pclink() {
     find "$INSTALL_DIR" -name "*.whl" -type f ! -path "$WHEEL_FILE" -delete 2>/dev/null || true
     
     # Install/upgrade the wheel (--force-reinstall ensures clean upgrade)
-    if ! "$VENV_DIR/bin/pip" install --force-reinstall --no-deps "$WHEEL_FILE"; then
+    if ! "$VENV_DIR/bin/pip" install --force-reinstall "$WHEEL_FILE"; then
         echo "ERROR: Failed to install wheel"
         return 1
     fi
