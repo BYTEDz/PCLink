@@ -750,10 +750,10 @@ class PCLinkWebUI {
 
                 if (serverPortInput) serverPortInput.value = window.location.port || '38080';
                 if (autoStartCheckbox) autoStartCheckbox.checked = settings.auto_start || false;
-                if (allowTerminalAccess) allowTerminalAccess.checked = settings.allow_terminal_access !== false;
+                if (allowTerminalAccess) allowTerminalAccess.checked = settings.allow_terminal_access === true;
                 if (autoOpenWebUI) autoOpenWebUI.checked = settings.auto_open_webui !== false;
 
-                this.updateTerminalVisibility(settings.allow_terminal_access !== false);
+                this.updateTerminalVisibility(settings.allow_terminal_access === true);
             }
         } catch (error) {
             console.error('Failed to load settings:', error);

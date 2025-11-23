@@ -23,7 +23,7 @@ DEFAULT_SETTINGS = {
     "skipped_version": "",
     
     # Core settings
-    "allow_terminal_access": True,
+    "allow_terminal_access": False,
     "allow_insecure_shell": False,
     "server_port": constants.DEFAULT_PORT,
     "auto_start": False,

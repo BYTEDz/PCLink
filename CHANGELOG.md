@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.6.0] - 2025-11-23
+
+This release introduces a significant architectural overhaul, replacing the legacy headless mode with a robust CLI-based controller and improved service management. It brings rich media control support for Windows (SMTC), media streaming capabilities, and enhanced security measures including rate limiting. Installation on Linux has been heavily improved with new rescue scripts and robust package manager hooks.
+
+New Features
+- CLI Interface: Completely rewrote the entry point using click. New commands include start, stop, restart, status, logs, and qr for terminal-based management.
+- Media Streaming: Added a new API endpoint (/files/stream) supporting HTTP Range requests for streaming video and audio content.
+- Rich Media Control (Windows): Implemented winsdk and pycaw integration to support System Media Transport Controls (SMTC), enabling retrieval of metadata (Title, Artist, Album, Timeline) and advanced playback control.
+- Security Policy: Added SECURITY.md and implemented rate limiting for Web UI login attempts to prevent brute-force attacks.
+- Pre-Install Safety: Introduced pre-install-pclink.sh to detect and clean broken installations or orphaned files before upgrading.
+
+Bug Fixes
+- Linux Package Scripts: Removed set -e from postinst, prerm, and postrm scripts to prevent package manager corruption during non-fatal errors.
+- IP Detection: Improved get_available_ips to filter out virtual interfaces (Docker, VMnet, veth) for more accurate QR code generation.
+- Timing Attacks: Switched to secrets.compare_digest for API key string comparison to prevent timing attacks.
+- Windows Drive Detection: Switched to Windows API for faster and safer logical drive detection in the file browser.
+
+Improvements
+- Async I/O: Integrated aiofiles for optimized asynchronous file writing and streaming.
+- Startup Management: Completely rewritten startup logic using Task Scheduler (Windows) and Systemd (Linux) for higher reliability compared to registry/desktop entries.
+- Rescue Script: Updated force-purge-pclink.sh to v2.5.0 with comprehensive cleanup capabilities for locking issues and corrupt dpkg states.
+- ZIP Handling: Optimized file compression and extraction with reduced system calls and better progress reporting.
+- Assets: Updated branding with new SVG assets and favicon handling.
+
+Refactors
+- Architecture: Removed HeadlessApp in favor of a centralized ServerController and SystemTrayManager.
+- Dependency Management: Removed requirements.txt files; dependencies are now managed centrally in pyproject.toml.
+- API Key Storage: Migrated legacy .env or api_key.txt storage to a hidden .api_key file.
+- Documentation: Moved extensive documentation from the repo to the GitHub Wiki; cleaned up docs/ directory.
+
+DevOps / Config
+- Build System: Added support for building Python Wheels (build-wheel job) in the CI pipeline.
+- Dependencies: Added procps to Linux package dependencies and winsdk/pycaw for Windows.
+- Config: Added allow_terminal_access configuration option (defaulting to False).
+
 ## [2.5.0] - 2025-11-16
 
 PCLink v2.5.0 “Astra” – Major Cross-Platform Upgrade

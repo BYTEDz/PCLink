@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pclink"
-version = "2.5.0"  # Fresh start version
+version = "2.6.0"  # Fresh start version
 description = "Cross-platform desktop app for secure remote PC control and management, featuring a lightweight built-in WebUI and API for local or remote access."
 readme = "README.md"
 license = "AGPL-3.0-or-later"

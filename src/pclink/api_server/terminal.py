@@ -363,7 +363,7 @@ def create_terminal_router(api_key: str) -> APIRouter:
             return
 
         # Check if terminal access is enabled
-        terminal_access_enabled = config_manager.get("allow_terminal_access", True)
+        terminal_access_enabled = config_manager.get("allow_terminal_access", False)
         log.info(f"Terminal access check: allow_terminal_access={terminal_access_enabled}")
         if not terminal_access_enabled:
             log.warning("Terminal WebSocket connection rejected: Terminal access is disabled.")

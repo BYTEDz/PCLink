@@ -419,7 +419,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def load_server_settings():
         try:
             from ..core.config import config_manager
-            return { "auto_start": config_manager.get("auto_start", False), "allow_terminal_access": config_manager.get("allow_terminal_access", True), "allow_insecure_shell": config_manager.get("allow_insecure_shell", False), "auto_open_webui": config_manager.get("auto_open_webui", True) }
+            return { "auto_start": config_manager.get("auto_start", False), "allow_terminal_access": config_manager.get("allow_terminal_access", False), "allow_insecure_shell": config_manager.get("allow_insecure_shell", False), "auto_open_webui": config_manager.get("auto_open_webui", True) }
         except Exception as e: log.error(f"Failed to load settings: {e}"); return {"status": "error", "message": str(e)}
     
     @app.get("/logs", dependencies=[WEB_AUTH])
