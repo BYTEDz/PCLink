@@ -21,8 +21,10 @@ from ..core.utils import get_cert_fingerprint
 from ..core.validators import ValidationError, validate_api_key
 from ..core.web_auth import web_auth_manager
 from ..web_ui.router import create_web_ui_router
-from .file_browser import (download_router, router as file_browser_router,
-                           upload_router)
+
+# --- API Router Imports ---
+from .file_browser import router as file_browser_router
+from .transfers import upload_router, download_router, restore_sessions
 from .info_router import router as info_router
 from .media_streaming import router as media_streaming_router
 from .input_router import router as input_router
@@ -184,7 +186,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 
     @app.on_event("startup")
     async def startup_event():
-        from .file_browser import restore_sessions
         try:
             result = restore_sessions()
             log.info(f"Session restoration: {result['restored_uploads']} uploads, {result['restored_downloads']} downloads")
@@ -541,7 +542,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def debug_performance():
         import psutil
         import time
-        from .file_browser import ACTIVE_UPLOADS, ACTIVE_DOWNLOADS, TRANSFER_LOCKS, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
+        from .transfers import ACTIVE_UPLOADS, ACTIVE_DOWNLOADS, TRANSFER_LOCKS, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
         
         process = psutil.Process()
         

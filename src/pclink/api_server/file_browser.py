@@ -8,20 +8,16 @@ import os
 import platform
 import shutil
 import subprocess
-import time
-import uuid
-import urllib.parse
-import zipfile
-import tempfile
 import hashlib
 import mimetypes
+import tempfile
+import urllib.parse
+import zipfile
 from io import BytesIO
-from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Literal, Generator
+from typing import List, Literal, Generator
 
-from fastapi import (APIRouter, BackgroundTasks, HTTPException, Query, Request,
-                     Header, Response)
+from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -75,42 +71,6 @@ class CreateFolderPayload(BaseModel):
     folder_name: str = Field(..., min_length=1)
 
 
-class UploadInitiatePayload(BaseModel):
-    file_name: str
-    destination_path: str
-    conflict_resolution: Literal["abort", "overwrite", "keep_both"] = "abort"
-
-
-class UploadInitiateResponse(BaseModel):
-    upload_id: str
-    final_file_name: str | None = None  # The actual filename that will be used (may be different if keep_both)
-
-
-class FileConflictResponse(BaseModel):
-    conflict: bool = True
-    existing_file: str
-    options: List[str] = ["abort", "overwrite", "keep_both"]
-    suggested_name: str | None = None  # For keep_both option
-
-
-class DownloadInitiatePayload(BaseModel):
-    file_path: str
-
-
-class DownloadInitiateResponse(BaseModel):
-    download_id: str
-    file_size: int
-    file_name: str
-
-
-class DownloadStatusResponse(BaseModel):
-    download_id: str
-    file_size: int
-    bytes_downloaded: int
-    progress_percent: float
-    status: str
-
-
 class PastePayload(BaseModel):
     source_paths: List[str] = Field(..., min_items=1)
     destination_path: str
@@ -137,31 +97,16 @@ class IsEncryptedResponse(BaseModel):
     is_encrypted: bool
 
 
-# --- API Routers ---
+# --- API Router ---
 router = APIRouter()
-upload_router = APIRouter()
-download_router = APIRouter()
 
 
-# --- Constants and State ---
+# --- Constants ---
 ROOT_IDENTIFIER = "_ROOT_"
 HOME_DIR = Path.home().resolve()
-TEMP_UPLOAD_DIR = HOME_DIR / ".pclink_uploads"
-TEMP_UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
-DOWNLOAD_SESSION_DIR = HOME_DIR / ".pclink_downloads"
-DOWNLOAD_SESSION_DIR.mkdir(exist_ok=True, parents=True)
 THUMBNAIL_CACHE_DIR = Path(tempfile.gettempdir()) / "pclink_thumbnails"
 THUMBNAIL_CACHE_DIR.mkdir(exist_ok=True, parents=True)
-
-# --- Performance Enhancement: Configurable chunk sizes ---
-DOWNLOAD_CHUNK_SIZE = 65536  # 64KB for better throughput
-UPLOAD_CHUNK_SIZE = 262144  # 256KB for faster uploads (4x download size)
-UPLOAD_BUFFER_SIZE = 1048576  # 1MB buffer for write operations
-
-ACTIVE_UPLOADS: Dict[str, str] = {}
-ACTIVE_DOWNLOADS: Dict[str, Dict] = {}
-TRANSFER_LOCKS: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-UPLOAD_BUFFERS: Dict[str, bytearray] = {}  # In-memory buffers for faster writes
+DOWNLOAD_CHUNK_SIZE = 65536  # Kept for simple download endpoint
 
 
 # --- Utility Functions ---
@@ -182,7 +127,6 @@ def _get_system_roots() -> List[Path]:
     if platform.system() == "Windows":
         roots = []
         try:
-            # Use Windows API to get logical drives - much faster and safer
             import string
             from ctypes import windll
             
@@ -192,7 +136,6 @@ def _get_system_roots() -> List[Path]:
                     roots.append(Path(f"{letter}:\\"))
             return roots
         except Exception as e:
-            # Fallback to old method if Windows API fails
             log.warning(f"Windows API drive detection failed, using fallback: {e}")
             for d in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
                 try:
@@ -213,7 +156,6 @@ def _is_path_within_safe_roots(path_to_check: Path) -> bool:
         resolved_path = path_to_check.absolute()
 
     for root in safe_roots:
-        # Use str comparison for robustness against different path object types or slight variations
         if str(resolved_path).startswith(str(root)):
             return True
     return False
@@ -246,173 +188,6 @@ def _validate_and_resolve_path(
         raise HTTPException(status_code=500, detail="An error occurred while processing the path.")
 
 
-async def write_file_async(file_path: Path, data: bytes, mode: str = "wb", offset: int | None = None):
-    """
-    Unified async/sync file writer with optional offset support.
-    
-    Args:
-        file_path: Path to the file
-        data: Data to write
-        mode: File open mode ('wb', 'ab', 'rb+')
-        offset: Optional seek offset for random access writes
-    """
-    if AIOFILES_INSTALLED:
-        open_mode = "r+b" if mode == "rb+" else mode
-        async with aiofiles.open(file_path, open_mode) as f:
-            if offset is not None:
-                await f.seek(offset)
-            await f.write(data)
-    else:
-        def _sync_write():
-            with open(file_path, mode) as f:
-                if offset is not None:
-                    f.seek(offset)
-                f.write(data)
-        await asyncio.to_thread(_sync_write)
-
-
-async def _cleanup_transfer_session(transfer_id: str):
-    """Clean up transfer session resources."""
-    TRANSFER_LOCKS.pop(transfer_id, None)
-    UPLOAD_BUFFERS.pop(transfer_id, None)
-
-
-def _manage_session_file(session_id: str, data: Dict | None = None, operation: str = "read", session_type: str = "download"):
-    """
-    Unified session file manager for both uploads and downloads.
-    
-    Args:
-        session_id: The session identifier
-        data: Session data (required for 'save' operation)
-        operation: 'read', 'save', or 'delete'
-        session_type: 'download' or 'upload'
-    
-    Returns:
-        Dict for 'read' operation, None otherwise
-    """
-    directory = DOWNLOAD_SESSION_DIR if session_type == "download" else TEMP_UPLOAD_DIR
-    extension = ".json" if session_type == "download" else ".meta"
-    session_file = directory / f"{session_id}{extension}"
-    
-    try:
-        if operation == "delete":
-            session_file.unlink(missing_ok=True)
-            if session_type == "upload":
-                (directory / f"{session_id}.part").unlink(missing_ok=True)
-        elif operation == "save" and data:
-            session_file.write_text(json.dumps(data), encoding="utf-8")
-        elif operation == "read":
-            if session_file.exists():
-                return json.loads(session_file.read_text(encoding="utf-8"))
-    except Exception as e:
-        log.error(f"Session {operation} failed for {session_id} ({session_type}): {e}")
-    return None
-
-
-# Legacy compatibility wrappers
-def _save_download_session(download_id: str, session_data: Dict):
-    _manage_session_file(download_id, session_data, operation="save", session_type="download")
-
-
-def _load_download_session(download_id: str) -> Dict | None:
-    return _manage_session_file(download_id, operation="read", session_type="download")
-
-
-def _delete_download_session(download_id: str):
-    _manage_session_file(download_id, operation="delete", session_type="download")
-
-
-def restore_sessions():
-    """Restore upload and download sessions from disk on startup."""
-    restored_uploads = 0
-    restored_downloads = 0
-    
-    # Restore uploads
-    for meta_file in TEMP_UPLOAD_DIR.glob("*.meta"):
-        try:
-            upload_id = meta_file.stem
-            part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
-            if part_file.exists():
-                metadata = _manage_session_file(upload_id, operation="read", session_type="upload")
-                if metadata:
-                    final_path = metadata.get("final_path")
-                    if final_path:
-                        ACTIVE_UPLOADS[final_path] = upload_id
-                        restored_uploads += 1
-                        log.info(f"Restored upload session: {upload_id} for {metadata.get('file_name', 'unknown')}")
-        except Exception as e:
-            log.warning(f"Failed to restore upload session from {meta_file}: {e}")
-    
-    # Restore downloads
-    for session_file in DOWNLOAD_SESSION_DIR.glob("*.json"):
-        try:
-            download_id = session_file.stem
-            session_data = _manage_session_file(download_id, operation="read", session_type="download")
-            
-            if session_data:
-                file_path = Path(session_data["file_path"])
-                if file_path.exists() and file_path.is_file():
-                    current_stat = file_path.stat()
-                    if current_stat.st_mtime == session_data.get("file_modified_at"):
-                        ACTIVE_DOWNLOADS[download_id] = session_data
-                        restored_downloads += 1
-                        log.info(f"Restored download session: {download_id} for {session_data.get('file_name', 'unknown')}")
-                    else:
-                        _manage_session_file(download_id, operation="delete", session_type="download")
-                        log.info(f"Removed stale download session {download_id} (file modified)")
-                else:
-                    _manage_session_file(download_id, operation="delete", session_type="download")
-                    log.info(f"Removed stale download session {download_id} (file not found)")
-        except Exception as e:
-            log.warning(f"Failed to restore download session from {session_file}: {e}")
-    
-    if restored_uploads or restored_downloads:
-        log.info(f"Session restoration complete: {restored_uploads} uploads, {restored_downloads} downloads")
-    
-    return {"restored_uploads": restored_uploads, "restored_downloads": restored_downloads}
-
-
-async def cleanup_stale_sessions():
-    """Background task to clean up old sessions and buffers."""
-    current_time = time.time()
-    stale_threshold = 7 * 24 * 60 * 60  # 7 days
-    cleaned_uploads, cleaned_downloads = 0, 0
-    
-    # Clean stale uploads
-    for upload_file in TEMP_UPLOAD_DIR.glob("*.meta"):
-        try:
-            if current_time - upload_file.stat().st_mtime > stale_threshold:
-                upload_id = upload_file.stem
-                _manage_session_file(upload_id, operation="delete", session_type="upload")
-                
-                # Clean up from active uploads
-                for path, uid in list(ACTIVE_UPLOADS.items()):
-                    if uid == upload_id:
-                        del ACTIVE_UPLOADS[path]
-                
-                # Clean up buffer
-                UPLOAD_BUFFERS.pop(upload_id, None)
-                cleaned_uploads += 1
-        except Exception as e:
-            log.warning(f"Error cleaning up stale upload {upload_file}: {e}")
-    
-    # Clean stale downloads
-    for session_file in DOWNLOAD_SESSION_DIR.glob("*.json"):
-        try:
-            if current_time - session_file.stat().st_mtime > stale_threshold:
-                download_id = session_file.stem
-                _manage_session_file(download_id, operation="delete", session_type="download")
-                ACTIVE_DOWNLOADS.pop(download_id, None)
-                cleaned_downloads += 1
-        except Exception as e:
-            log.warning(f"Error cleaning up stale download {session_file}: {e}")
-    
-    if cleaned_uploads or cleaned_downloads:
-        log.info(f"Cleaned up {cleaned_uploads} stale uploads and {cleaned_downloads} stale downloads")
-    
-    return {"cleaned_uploads": cleaned_uploads, "cleaned_downloads": cleaned_downloads}
-
-
 def _get_unique_filename(path: Path) -> Path:
     if not path.exists():
         return path
@@ -436,7 +211,7 @@ def _get_item_type(entry_name: str, is_dir: bool) -> str:
             return "audio"
         if mime_type == "application/zip":
             return "archive"
-    return "file"  # Fallback
+    return "file"
 
 
 # --- Thumbnail, Compression, and Extraction Logic ---
@@ -459,7 +234,6 @@ async def generate_thumbnail(file_path: str, size: tuple = (256, 256)) -> bytes 
 
     def _create_thumbnail_sync():
         try:
-            # --- Cache logic ---
             stat = path.stat()
             cache_key_source = f"{path.resolve()}:{stat.st_mtime}:{stat.st_size}"
             cache_key = hashlib.sha1(cache_key_source.encode()).hexdigest()
@@ -468,19 +242,15 @@ async def generate_thumbnail(file_path: str, size: tuple = (256, 256)) -> bytes 
             if cache_file.exists():
                 return cache_file.read_bytes()
 
-            # --- Generation logic ---
             mime_type, _ = mimetypes.guess_type(path)
             
-            # Image Thumbnail (Pillow only)
             if mime_type and mime_type.startswith("image/"):
                 with Image.open(path) as img:
                     img.thumbnail(size)
                     buffer = BytesIO()
-                    # Convert to RGB to avoid issues with paletted images (e.g. some GIFs)
                     img.convert("RGB").save(buffer, format="PNG")
                     thumbnail_bytes = buffer.getvalue()
                     
-                    # Cache the thumbnail
                     cache_file.write_bytes(thumbnail_bytes)
                     return thumbnail_bytes
 
@@ -493,17 +263,12 @@ async def generate_thumbnail(file_path: str, size: tuple = (256, 256)) -> bytes 
 
 
 def compress_files(file_paths: list, output_zip: str) -> Generator[int, None, None]:
-    """
-    Compresses files and directories into a zip archive, yielding progress.
-    Optimized to reduce redundant stat() calls.
-    """
     resolved_paths = [_validate_and_resolve_path(p) for p in file_paths]
     output_path = _validate_and_resolve_path(output_zip, check_existence=False)
 
     total_size = 0
     files_to_zip = []
 
-    # Build file list and calculate total size
     for path in resolved_paths:
         if path.is_file():
             try:
@@ -541,46 +306,39 @@ def compress_files(file_paths: list, output_zip: str) -> Generator[int, None, No
                     zf.write(file_path, arcname)
                     bytes_written += size
                     current_progress = int((bytes_written / total_size) * 100)
-                    # Only yield if progress changed (reduce overhead)
                     if current_progress > last_progress:
                         yield current_progress
                         last_progress = current_progress
                 except (OSError, PermissionError) as e:
                     log.warning(f"Skipping file during compression: {file_path} ({e})")
-                    bytes_written += size  # Count as processed even if skipped
+                    bytes_written += size
     except Exception as e:
         log.error(f"Compression failed for {output_zip}: {e}")
         if output_path.exists():
             output_path.unlink()
         raise
 
-    # Ensure we always end at 100%
     if last_progress < 100:
         yield 100
 
 
 def _is_zip_encrypted(zip_path: Path) -> bool:
-    """Checks if a zip file is password protected by reading its metadata."""
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
             for zinfo in zf.infolist():
-                # The first bit of flag_bits (0x1) indicates encryption
                 if zinfo.flag_bits & 0x1:
                     return True
     except (zipfile.BadZipFile, FileNotFoundError):
-        return False # Not a valid zip, so not encrypted for our purposes
+        return False
     except Exception as e:
         log.warning(f"Could not check zip encryption for {zip_path}: {e}")
         return False
     return False
 
+
 def extract_archive(
     zip_path: str, destination: str, password: str | None = None
 ) -> Generator[int, None, None]:
-    """
-    Extracts a zip archive to a destination, yielding progress.
-    Handles password-protected archives with optimized progress reporting.
-    """
     zip_file_path = _validate_and_resolve_path(zip_path)
     dest_path = _validate_and_resolve_path(destination, check_existence=False)
 
@@ -610,7 +368,6 @@ def extract_archive(
             yield 0
 
             for member in infolist:
-                # Security check: prevent path traversal attacks
                 if ".." in member.filename or os.path.isabs(member.filename):
                     log.warning(f"Skipping potentially malicious path in zip: {member.filename}")
                     continue
@@ -618,13 +375,11 @@ def extract_archive(
                 zf.extract(member, dest_path, pwd=pwd_bytes)
                 extracted_size += member.file_size
                 
-                # Only yield if progress changed (reduce overhead)
                 current_progress = int((extracted_size / total_size) * 100)
                 if current_progress > last_progress:
                     yield current_progress
                     last_progress = current_progress
 
-            # Ensure we always end at 100%
             if last_progress < 100:
                 yield 100
                 
@@ -639,646 +394,11 @@ def extract_archive(
         raise
 
 
-# --- Chunked File Upload Endpoints ---
-@upload_router.get("/config")
-async def get_upload_config():
-    """Return optimal upload configuration for clients."""
-    return {
-        "recommended_chunk_size": UPLOAD_CHUNK_SIZE,
-        "max_chunk_size": UPLOAD_CHUNK_SIZE * 2,  # Allow up to 512KB chunks
-        "min_chunk_size": 65536,  # Minimum 64KB
-        "buffer_size": UPLOAD_BUFFER_SIZE,
-        "supports_concurrent_chunks": False,  # Sequential for data integrity
-        "supports_resume": True,
-        "supports_pause": True,
-        "aiofiles_enabled": AIOFILES_INSTALLED  # Let clients know if async I/O is available
-    }
-
-
-@download_router.get("/config")
-async def get_download_config():
-    """Return optimal download configuration for clients."""
-    return {
-        "recommended_chunk_size": DOWNLOAD_CHUNK_SIZE,
-        "max_chunk_size": DOWNLOAD_CHUNK_SIZE * 4,  # Allow up to 256KB chunks
-        "min_chunk_size": 32768,  # Minimum 32KB
-        "supports_resume": True,
-        "supports_pause": True,
-        "supports_range_requests": True,
-        "aiofiles_enabled": AIOFILES_INSTALLED
-    }
-
-
-@upload_router.post("/check-conflict")
-async def check_upload_conflict(payload: UploadInitiatePayload):
-    dest_path = _validate_and_resolve_path(payload.destination_path)
-    if not dest_path.is_dir():
-        raise HTTPException(status_code=400, detail="Destination is not a directory")
-    safe_filename = validate_filename(payload.file_name)
-    file_path = dest_path / safe_filename
-    if file_path.exists():
-        suggested_name = _get_unique_filename(file_path).name
-        return {
-            "conflict": True, "existing_file": safe_filename,
-            "options": ["abort", "overwrite", "keep_both"], "suggested_name": suggested_name,
-            "message": f"File '{safe_filename}' already exists"
-        }
-    return {"conflict": False, "message": "No conflict, upload can proceed"}
-
-
-@upload_router.post("/initiate")
-async def initiate_upload(payload: UploadInitiatePayload):
-    dest_path = _validate_and_resolve_path(payload.destination_path)
-    if not dest_path.is_dir():
-        raise HTTPException(status_code=400, detail="Destination is not a directory")
-    safe_filename = validate_filename(payload.file_name)
-    original_file_path = dest_path / safe_filename
-    final_file_path = original_file_path
-    if original_file_path.exists():
-        if payload.conflict_resolution == "abort":
-            raise HTTPException(status_code=409, detail={
-                "conflict": True, "existing_file": safe_filename,
-                "options": ["abort", "overwrite", "keep_both"],
-                "suggested_name": _get_unique_filename(original_file_path).name,
-                "message": f"File '{safe_filename}' already exists"
-            })
-        elif payload.conflict_resolution == "keep_both":
-            final_file_path = _get_unique_filename(original_file_path)
-    final_file_path_str = str(final_file_path)
-    init_lock = TRANSFER_LOCKS[f"init_upload_{final_file_path_str}"]
-    async with init_lock:
-        if final_file_path_str in ACTIVE_UPLOADS:
-            existing_id = ACTIVE_UPLOADS[final_file_path_str]
-            if (TEMP_UPLOAD_DIR / f"{existing_id}.part").exists():
-                log.info(f"Resuming upload for {final_file_path.name} with ID {existing_id}")
-                return UploadInitiateResponse(upload_id=existing_id, final_file_name=final_file_path.name)
-            else:
-                del ACTIVE_UPLOADS[final_file_path_str]
-        upload_id = str(uuid.uuid4())
-        metadata = {"final_path": final_file_path_str, "file_name": final_file_path.name}
-        (TEMP_UPLOAD_DIR / f"{upload_id}.meta").write_text(json.dumps(metadata), encoding="utf-8")
-        (TEMP_UPLOAD_DIR / f"{upload_id}.part").touch()
-        ACTIVE_UPLOADS[final_file_path_str] = upload_id
-        log.info(f"Initiated new upload for {final_file_path.name} with ID {upload_id}")
-        return UploadInitiateResponse(upload_id=upload_id, final_file_name=final_file_path.name)
-
-
-@upload_router.get("/status/{upload_id}")
-async def get_upload_status(upload_id: str):
-    part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
-    meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
-    if not part_file.exists() or not meta_file.exists():
-        raise HTTPException(status_code=404, detail="Upload not found or expired.")
-    try:
-        metadata = json.loads(meta_file.read_text(encoding="utf-8"))
-        bytes_received = part_file.stat().st_size
-        return {
-            "upload_id": upload_id, "bytes_received": bytes_received,
-            "file_name": metadata.get("file_name", "unknown"),
-            "status": "active", "resumable": True
-        }
-    except Exception as e:
-        log.error(f"Error reading upload status for {upload_id}: {e}")
-        raise HTTPException(status_code=500, detail="Error reading upload status")
-
-
-@upload_router.post("/chunk/{upload_id}")
-async def upload_chunk(upload_id: str, request: Request, offset: int = Query(...)):
-    part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
-    meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
-    lock = TRANSFER_LOCKS[upload_id]
-    
-    # Initialize buffer if not exists
-    if upload_id not in UPLOAD_BUFFERS:
-        UPLOAD_BUFFERS[upload_id] = bytearray()
-    
-    bytes_written = 0
-    
-    async with lock:
-        if not part_file.exists() or not meta_file.exists():
-            raise HTTPException(status_code=404, detail="Upload session not found or expired.")
-        
-        try:
-            # Collect all chunks into buffer first for better performance
-            buffer = UPLOAD_BUFFERS[upload_id]
-            buffer.clear()
-            
-            async for chunk in request.stream():
-                buffer.extend(chunk)
-                bytes_written += len(chunk)
-            
-            # Write buffered data using unified helper
-            await write_file_async(part_file, buffer, mode="rb+", offset=offset)
-            
-            # Clear buffer after successful write
-            buffer.clear()
-            
-        except Exception as e:
-            log.error(f"Error writing chunk for upload {upload_id}: {e}")
-            raise HTTPException(status_code=500, detail=f"Error writing file chunk: {e}")
-    
-    return {"status": "chunk received", "bytes_written": bytes_written}
-
-
-@upload_router.post("/complete/{upload_id}")
-async def complete_upload(upload_id: str, background_tasks: BackgroundTasks):
-    part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
-    meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
-    lock = TRANSFER_LOCKS[upload_id]
-    async with lock:
-        if not part_file.exists() or not meta_file.exists():
-            raise HTTPException(status_code=404, detail="Upload not found or expired.")
-        metadata = json.loads(meta_file.read_text(encoding="utf-8"))
-        final_path = Path(metadata["final_path"])
-        final_path_str = str(final_path)
-        try:
-            # --- Performance Enhancement: Run blocking I/O in a thread ---
-            await asyncio.to_thread(final_path.parent.mkdir, parents=True, exist_ok=True)
-            await asyncio.to_thread(shutil.move, str(part_file), final_path_str)
-        except Exception as e:
-            if part_file.exists(): part_file.unlink()
-            raise HTTPException(status_code=500, detail=f"Error moving completed file: {e}")
-        finally:
-            if meta_file.exists(): meta_file.unlink()
-            if final_path_str in ACTIVE_UPLOADS:
-                del ACTIVE_UPLOADS[final_path_str]
-            # Clean up buffer
-            if upload_id in UPLOAD_BUFFERS:
-                del UPLOAD_BUFFERS[upload_id]
-    background_tasks.add_task(_cleanup_transfer_session, upload_id)
-    log.info(f"Completed upload for {final_path.name}")
-    return {"status": "completed", "path": final_path_str}
-
-
-@upload_router.post("/pause/{upload_id}")
-async def pause_upload(upload_id: str):
-    part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
-    meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
-    if not part_file.exists() or not meta_file.exists():
-        raise HTTPException(status_code=404, detail="Upload session not found")
-    try:
-        metadata = json.loads(meta_file.read_text(encoding="utf-8"))
-        metadata.update({"status": "paused", "paused_at": time.time()})
-        meta_file.write_text(json.dumps(metadata), encoding="utf-8")
-        bytes_received = part_file.stat().st_size
-        log.info(f"Paused upload {upload_id} at {bytes_received} bytes")
-        return {
-            "status": "paused", "upload_id": upload_id,
-            "bytes_received": bytes_received, "resumable": True
-        }
-    except Exception as e:
-        log.error(f"Error pausing upload {upload_id}: {e}")
-        raise HTTPException(status_code=500, detail="Error pausing upload")
-
-
-@upload_router.post("/resume/{upload_id}")
-async def resume_upload(upload_id: str):
-    part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
-    meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
-    if not part_file.exists() or not meta_file.exists():
-        raise HTTPException(status_code=404, detail="Upload session not found")
-    try:
-        metadata = json.loads(meta_file.read_text(encoding="utf-8"))
-        metadata.update({"status": "active", "resumed_at": time.time()})
-        meta_file.write_text(json.dumps(metadata), encoding="utf-8")
-        bytes_received = part_file.stat().st_size
-        log.info(f"Resumed upload {upload_id} from {bytes_received} bytes")
-        return {
-            "status": "resumed", "upload_id": upload_id,
-            "bytes_received": bytes_received, "resume_offset": bytes_received
-        }
-    except Exception as e:
-        log.error(f"Error resuming upload {upload_id}: {e}")
-        raise HTTPException(status_code=500, detail="Error resuming upload")
-
-
-@upload_router.delete("/cancel/{upload_id}")
-async def cancel_upload(upload_id: str, background_tasks: BackgroundTasks):
-    lock = TRANSFER_LOCKS[upload_id]
-    async with lock:
-        # Read metadata before deletion
-        metadata = _manage_session_file(upload_id, operation="read", session_type="upload")
-        final_path_str = metadata.get("final_path") if metadata else None
-        
-        # Delete session files
-        _manage_session_file(upload_id, operation="delete", session_type="upload")
-        
-        # Clean up active uploads tracking
-        if final_path_str and final_path_str in ACTIVE_UPLOADS:
-            del ACTIVE_UPLOADS[final_path_str]
-    
-    background_tasks.add_task(_cleanup_transfer_session, upload_id)
-    log.info(f"Cancelled upload {upload_id}")
-    return {"status": "cancelled"}
-
-
-@upload_router.post("/restore-sessions")
-async def restore_upload_sessions():
-    result = await asyncio.to_thread(restore_sessions)
-    return {
-        "status": "success", "message": "Sessions restored",
-        "restored_uploads": result["restored_uploads"],
-        "restored_downloads": result["restored_downloads"]
-    }
-
-
-@upload_router.get("/list-active")
-async def list_active_uploads():
-    active_uploads = []
-    for upload_file in TEMP_UPLOAD_DIR.glob("*.meta"):
-        try:
-            upload_id = upload_file.stem
-            part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
-            if part_file.exists():
-                metadata = json.loads(upload_file.read_text(encoding="utf-8"))
-                stat_info = part_file.stat()
-                active_uploads.append({
-                    "upload_id": upload_id,
-                    "file_name": metadata.get("file_name", "unknown"),
-                    "bytes_received": stat_info.st_size,
-                    "status": metadata.get("status", "active"),
-                    "created_at": stat_info.st_ctime,
-                    "resumable": True
-                })
-        except Exception as e:
-            log.warning(f"Error reading upload metadata {upload_file}: {e}")
-    return {"active_uploads": active_uploads}
-
-
-@download_router.get("/list-active")
-async def list_active_downloads():
-    active_downloads, seen_ids = [], set()
-    for download_id, info in ACTIVE_DOWNLOADS.items():
-        progress = (info["bytes_downloaded"] / info["file_size"]) * 100 if info["file_size"] > 0 else 0
-        active_downloads.append({
-            "download_id": download_id, "file_name": info["file_name"],
-            "file_size": info["file_size"], "bytes_downloaded": info["bytes_downloaded"],
-            "progress_percent": round(progress, 2), "status": info["status"],
-            "created_at": info["session_created_at"]
-        })
-        seen_ids.add(download_id)
-    for session_file in DOWNLOAD_SESSION_DIR.glob("*.json"):
-        try:
-            download_id = session_file.stem
-            if download_id not in seen_ids:
-                session_data = json.loads(session_file.read_text(encoding="utf-8"))
-                if Path(session_data["file_path"]).exists():
-                    progress = (session_data["bytes_downloaded"] / session_data["file_size"]) * 100 if session_data["file_size"] > 0 else 0
-                    active_downloads.append({
-                        "download_id": download_id, "file_name": session_data["file_name"],
-                        "file_size": session_data["file_size"], "bytes_downloaded": session_data["bytes_downloaded"],
-                        "progress_percent": round(progress, 2), "status": session_data.get("status", "paused"),
-                        "created_at": session_data["session_created_at"], "recoverable": True
-                    })
-        except Exception as e:
-            log.warning(f"Error reading persisted download session {session_file}: {e}")
-    return {"active_downloads": active_downloads}
-
-
-@upload_router.post("/stream/{upload_id}")
-async def stream_upload(upload_id: str, request: Request):
-    part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
-    meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
-    if not part_file.exists() or not meta_file.exists():
-        raise HTTPException(status_code=404, detail="Upload session not found or expired.")
-    
-    # Initialize buffer for this upload
-    if upload_id not in UPLOAD_BUFFERS:
-        UPLOAD_BUFFERS[upload_id] = bytearray()
-    
-    try:
-        bytes_written = 0
-        buffer = UPLOAD_BUFFERS[upload_id]
-        buffer.clear()
-        
-        if AIOFILES_INSTALLED:
-            async with aiofiles.open(part_file, "wb") as f:
-                async for chunk in request.stream():
-                    buffer.extend(chunk)
-                    bytes_written += len(chunk)
-                    
-                    # Flush buffer when it reaches threshold for better memory management
-                    if len(buffer) >= UPLOAD_BUFFER_SIZE:
-                        await f.write(buffer)
-                        buffer.clear()
-                
-                # Write remaining data
-                if buffer:
-                    await f.write(buffer)
-                    buffer.clear()
-        else:
-            # Fallback: use thread pool for blocking I/O with buffering
-            def write_stream_sync():
-                nonlocal bytes_written
-                with part_file.open("wb") as f:
-                    if buffer:
-                        f.write(buffer)
-                        bytes_written = len(buffer)
-            
-            async for chunk in request.stream():
-                buffer.extend(chunk)
-                
-                # Flush buffer when it reaches threshold
-                if len(buffer) >= UPLOAD_BUFFER_SIZE:
-                    await asyncio.to_thread(write_stream_sync)
-                    buffer.clear()
-            
-            # Write remaining data
-            if buffer:
-                await asyncio.to_thread(write_stream_sync)
-                buffer.clear()
-        
-        log.info(f"Streamed {bytes_written} bytes for upload {upload_id}")
-        return {"status": "stream received", "bytes_written": bytes_written}
-    except Exception as e:
-        log.error(f"Error in stream upload {upload_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error streaming file: {e}")
-    finally:
-        # Clean up buffer
-        if upload_id in UPLOAD_BUFFERS:
-            UPLOAD_BUFFERS[upload_id].clear()
-
-
-@upload_router.post("/direct")
-async def direct_upload(request: Request, destination_path: str = Query(...), file_name: str = Query(...),
-                      conflict_resolution: str = Query("keep_both", regex="^(abort|overwrite|keep_both)$")):
-    try:
-        dest_path = _validate_and_resolve_path(destination_path)
-        if not dest_path.is_dir():
-            raise HTTPException(status_code=400, detail="Destination is not a directory")
-        safe_filename = validate_filename(file_name)
-        original_file_path = dest_path / safe_filename
-        final_file_path = original_file_path
-        if original_file_path.exists():
-            if conflict_resolution == "abort":
-                raise HTTPException(status_code=409, detail={
-                    "conflict": True, "existing_file": safe_filename,
-                    "options": ["abort", "overwrite", "keep_both"],
-                    "suggested_name": _get_unique_filename(original_file_path).name,
-                    "message": f"File '{safe_filename}' already exists"
-                })
-            elif conflict_resolution == "keep_both":
-                final_file_path = _get_unique_filename(original_file_path)
-        
-        await asyncio.to_thread(final_file_path.parent.mkdir, parents=True, exist_ok=True)
-        
-        bytes_written = 0
-        buffer = bytearray()
-        
-        if AIOFILES_INSTALLED:
-            async with aiofiles.open(final_file_path, "wb") as f:
-                async for chunk in request.stream():
-                    buffer.extend(chunk)
-                    bytes_written += len(chunk)
-                    
-                    # Flush buffer when it reaches threshold
-                    if len(buffer) >= UPLOAD_BUFFER_SIZE:
-                        await f.write(buffer)
-                        buffer.clear()
-                
-                # Write remaining data
-                if buffer:
-                    await f.write(buffer)
-        else:
-            # Fallback: use thread pool with buffering
-            def write_buffered_sync():
-                with final_file_path.open("ab") as f:
-                    f.write(buffer)
-            
-            async for chunk in request.stream():
-                buffer.extend(chunk)
-                bytes_written += len(chunk)
-                
-                # Flush buffer when it reaches threshold
-                if len(buffer) >= UPLOAD_BUFFER_SIZE:
-                    await asyncio.to_thread(write_buffered_sync)
-                    buffer.clear()
-            
-            # Write remaining data
-            if buffer:
-                await asyncio.to_thread(write_buffered_sync)
-        
-        log.info(f"Direct upload completed: {final_file_path.name} ({bytes_written} bytes)")
-        return {
-            "status": "completed", "path": str(final_file_path),
-            "bytes_written": bytes_written, "file_name": final_file_path.name
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error(f"Error in direct upload: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
-
-
-# --- Chunked File Download Endpoints ---
-@download_router.post("/test-path")
-async def test_path_handling(payload: DownloadInitiatePayload):
-    try:
-        log.info(f"DEBUG TEST: Received path: {payload.file_path!r}")
-        path = Path(payload.file_path)
-        log.info(f"DEBUG TEST: Path object created: {path}")
-        resolved = await asyncio.to_thread(path.resolve, strict=False)
-        log.info(f"DEBUG TEST: Path resolved: {resolved}")
-        exists = await asyncio.to_thread(resolved.exists)
-        log.info(f"DEBUG TEST: Path exists: {exists}")
-        is_file = await asyncio.to_thread(resolved.is_file) if exists else False
-        log.info(f"DEBUG TEST: Is file: {is_file}")
-        if is_file:
-            stat_info = await asyncio.to_thread(resolved.stat)
-            log.info(f"DEBUG TEST: File size: {stat_info.st_size}")
-        return {"status": "success", "path": str(resolved), "exists": exists, "is_file": is_file}
-    except Exception as e:
-        log.error(f"DEBUG TEST: Error in path test: {e}")
-        return {"status": "error", "error": str(e), "error_type": type(e).__name__}
-
-
-@download_router.post("/initiate", response_model=DownloadInitiateResponse)
-async def initiate_download(payload: DownloadInitiatePayload):
-    try:
-        file_path_str = payload.file_path.decode('utf-8') if isinstance(payload.file_path, bytes) else payload.file_path
-        file_path = _validate_and_resolve_path(file_path_str)
-    except (HTTPException, UnicodeDecodeError) as e:
-        detail = e.detail if isinstance(e, HTTPException) else f"Invalid character encoding in file path: {e}"
-        log.error(f"Path validation failed for '{payload.file_path}': {detail}")
-        raise HTTPException(status_code=400, detail=detail) from e
-    except Exception as e:
-        log.error(f"Unexpected error during path validation: {e}")
-        raise HTTPException(status_code=500, detail=f"Error processing path: {e}") from e
-    
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="File not found or is not a file")
-    
-    try:
-        file_stat = await asyncio.to_thread(file_path.stat)
-        file_size = file_stat.st_size
-    except Exception as e:
-        log.error(f"Error accessing file stats for '{file_path}': {e}")
-        raise HTTPException(status_code=500, detail=f"Error accessing file: {e}") from e
-    
-    download_id = str(uuid.uuid4())
-    session_data = {
-        "file_path": str(file_path), "file_name": file_path.name,
-        "file_size": file_size, "bytes_downloaded": 0, "status": "active",
-        "file_modified_at": file_stat.st_mtime, "session_created_at": time.time(),
-    }
-    ACTIVE_DOWNLOADS[download_id] = session_data
-    await asyncio.to_thread(_save_download_session, download_id, session_data)
-    log.info(f"Successfully created download session for '{file_path.name}' with ID {download_id}")
-    return DownloadInitiateResponse(download_id=download_id, file_size=file_size, file_name=file_path.name)
-
-
-@download_router.get("/status/{download_id}", response_model=DownloadStatusResponse)
-async def get_download_status(download_id: str):
-    if download_id not in ACTIVE_DOWNLOADS:
-        session_data = await asyncio.to_thread(_load_download_session, download_id)
-        if session_data and Path(session_data["file_path"]).exists():
-            ACTIVE_DOWNLOADS[download_id] = session_data
-            log.info(f"Restored download session {download_id} from disk")
-        else:
-            if session_data: _delete_download_session(download_id)
-            raise HTTPException(status_code=404, detail="Download session not found")
-    info = ACTIVE_DOWNLOADS[download_id]
-    progress = (info["bytes_downloaded"] / info["file_size"]) * 100 if info["file_size"] > 0 else 0
-    return DownloadStatusResponse(
-        download_id=download_id, file_size=info["file_size"],
-        bytes_downloaded=info["bytes_downloaded"], progress_percent=round(progress, 2),
-        status=info["status"]
-    )
-
-
-@download_router.get("/chunk/{download_id}")
-async def download_chunk(download_id: str, request: Request, range_header: str = Header(None, alias="Range")):
-    if download_id not in ACTIVE_DOWNLOADS:
-        session_data = _load_download_session(download_id)
-        if session_data:
-            ACTIVE_DOWNLOADS[download_id] = session_data
-        else:
-            raise HTTPException(status_code=404, detail="Download session not found")
-    info = ACTIVE_DOWNLOADS[download_id]
-    file_path, file_size = Path(info["file_path"]), info["file_size"]
-    try:
-        current_stat = file_path.stat()
-        if current_stat.st_size != file_size or current_stat.st_mtime != info["file_modified_at"]:
-            raise HTTPException(status_code=409, detail="File has changed since download was initiated.")
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="File no longer exists.")
-    start_byte, end_byte = 0, file_size - 1
-    if range_header:
-        try:
-            range_val = range_header.replace("bytes=", "").split("-")
-            start_byte = int(range_val[0])
-            end_byte = int(range_val[1]) if len(range_val) > 1 and range_val[1] else file_size - 1
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid Range header.")
-    if start_byte >= file_size:
-        raise HTTPException(status_code=416, detail="Requested range not satisfiable.")
-    
-    chunk_size = (end_byte - start_byte) + 1
-    
-    async def stream_file_range():
-        try:
-            if AIOFILES_INSTALLED:
-                async with aiofiles.open(file_path, "rb") as f:
-                    await f.seek(start_byte)
-                    bytes_to_send = chunk_size
-                    while bytes_to_send > 0:
-                        data = await f.read(min(DOWNLOAD_CHUNK_SIZE, bytes_to_send))
-                        if not data: break
-                        bytes_to_send -= len(data)
-                        yield data
-            else: # Fallback for non-aiofiles environment
-                with file_path.open("rb") as f:
-                    f.seek(start_byte)
-                    bytes_to_send = chunk_size
-                    while bytes_to_send > 0:
-                        data = f.read(min(DOWNLOAD_CHUNK_SIZE, bytes_to_send))
-                        if not data: break
-                        bytes_to_send -= len(data)
-                        yield data
-            info["bytes_downloaded"] = end_byte + 1
-            _save_download_session(download_id, info)
-        except Exception as e:
-            log.error(f"Error streaming file chunk for download {download_id}: {e}")
-
-    headers = {
-        "Content-Range": f"bytes {start_byte}-{end_byte}/{file_size}",
-        "Accept-Ranges": "bytes", "Content-Length": str(chunk_size),
-        "Content-Disposition": _encode_filename_for_header(info["file_name"])
-    }
-    return StreamingResponse(stream_file_range(), status_code=206, headers=headers, media_type="application/octet-stream")
-
-
-@download_router.post("/complete/{download_id}")
-async def complete_download(download_id: str, background_tasks: BackgroundTasks):
-    if download_id not in ACTIVE_DOWNLOADS:
-        raise HTTPException(status_code=404, detail="Download session not found")
-    _delete_download_session(download_id)
-    del ACTIVE_DOWNLOADS[download_id]
-    background_tasks.add_task(_cleanup_transfer_session, download_id)
-    log.info(f"Completed download {download_id}")
-    return {"status": "completed"}
-
-
-@download_router.post("/pause/{download_id}")
-async def pause_download(download_id: str):
-    if download_id not in ACTIVE_DOWNLOADS:
-        session_data = _load_download_session(download_id)
-        if session_data:
-            ACTIVE_DOWNLOADS[download_id] = session_data
-        else:
-            raise HTTPException(status_code=404, detail="Download session not found")
-    info = ACTIVE_DOWNLOADS[download_id]
-    info.update({"status": "paused", "paused_at": time.time()})
-    _save_download_session(download_id, info)
-    log.info(f"Paused download {download_id} for {info['file_name']}")
-    return {"status": "paused", "download_id": download_id, "bytes_downloaded": info["bytes_downloaded"],
-            "file_size": info["file_size"], "resumable": True}
-
-
-@download_router.post("/resume/{download_id}")
-async def resume_download(download_id: str):
-    if download_id not in ACTIVE_DOWNLOADS:
-        session_data = _load_download_session(download_id)
-        if session_data:
-            ACTIVE_DOWNLOADS[download_id] = session_data
-        else:
-            raise HTTPException(status_code=404, detail="Download session not found")
-    info = ACTIVE_DOWNLOADS[download_id]
-    file_path = Path(info["file_path"])
-    if not file_path.exists():
-        _delete_download_session(download_id)
-        del ACTIVE_DOWNLOADS[download_id]
-        raise HTTPException(status_code=404, detail="File no longer exists")
-    current_stat = file_path.stat()
-    if current_stat.st_mtime != info.get("file_modified_at"):
-        _delete_download_session(download_id)
-        del ACTIVE_DOWNLOADS[download_id]
-        raise HTTPException(status_code=409, detail="File has been modified since download started")
-    info.update({"status": "active", "resumed_at": time.time()})
-    _save_download_session(download_id, info)
-    log.info(f"Resumed download {download_id} for {info['file_name']}")
-    return {"status": "resumed", "download_id": download_id, "bytes_downloaded": info["bytes_downloaded"],
-            "file_size": info["file_size"], "resume_offset": info["bytes_downloaded"]}
-
-
-@download_router.delete("/cancel/{download_id}")
-async def cancel_download(download_id: str, background_tasks: BackgroundTasks):
-    file_name = "unknown"
-    if download_id in ACTIVE_DOWNLOADS:
-        file_name = ACTIVE_DOWNLOADS[download_id].get('file_name', 'unknown')
-        del ACTIVE_DOWNLOADS[download_id]
-    _delete_download_session(download_id)
-    background_tasks.add_task(_cleanup_transfer_session, download_id)
-    log.info(f"Cancelled download {download_id} for {file_name}")
-    return {"status": "cancelled"}
-
-
 # --- File Browsing and Management Endpoints ---
 def _scan_directory(path: Path):
     """Blocking function to scan a directory."""
     content = []
     try:
-        # Check if directory is accessible first
         if not os.access(path, os.R_OK):
              raise PermissionError(f"Access denied to {path}")
              
@@ -1299,7 +419,6 @@ def _scan_directory(path: Path):
             except (OSError, PermissionError) as e:
                 log.warning(f"Could not access item {entry.path}: {e}")
     except Exception as e:
-        # Propagate exception to be handled by the async wrapper
         raise HTTPException(status_code=500, detail=f"Error reading directory: {e}") from e
     content.sort(key=lambda x: (not x.is_dir, x.name.lower()))
     return content
@@ -1318,7 +437,6 @@ async def browse_directory(path: str | None = Query(None)):
     if not current_path.is_dir():
         raise HTTPException(status_code=400, detail="Path is not a directory.")
 
-    # --- Performance Enhancement: Run blocking scandir in a thread ---
     content = await asyncio.to_thread(_scan_directory, current_path)
 
     is_root_drive = any(str(current_path).startswith(str(r)) for r in _get_system_roots() if str(current_path) == str(r))
@@ -1332,10 +450,9 @@ async def browse_directory(path: str | None = Query(None)):
 async def get_thumbnail(path: str = Query(...)):
     thumbnail_bytes = await generate_thumbnail(path)
     if thumbnail_bytes:
-        # Add cache headers to prevent infinite re-requests
         headers = {
-            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
-            "ETag": hashlib.md5(thumbnail_bytes).hexdigest()  # Add ETag for validation
+            "Cache-Control": "public, max-age=3600",
+            "ETag": hashlib.md5(thumbnail_bytes).hexdigest()
         }
         return Response(content=thumbnail_bytes, media_type="image/png", headers=headers)
     else:
@@ -1347,7 +464,6 @@ async def stream_compress_files(payload: CompressPayload):
     async def progress_generator():
         last_progress = -1
         try:
-            # Run blocking compression in thread pool
             loop = asyncio.get_event_loop()
             queue = asyncio.Queue()
             
@@ -1359,15 +475,13 @@ async def stream_compress_files(payload: CompressPayload):
                 except Exception as e:
                     loop.call_soon_threadsafe(queue.put_nowait, {'status': 'error', 'message': str(e)})
                 finally:
-                    loop.call_soon_threadsafe(queue.put_nowait, None)  # Signal completion
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
             
-            # Start compression in background thread
             asyncio.create_task(asyncio.to_thread(run_compression))
             
-            # Stream progress updates
             while True:
                 data = await queue.get()
-                if data is None:  # Completion signal
+                if data is None:
                     break
                 if 'progress' in data and data['progress'] > last_progress:
                     yield f"data: {json.dumps(data)}\n\n"
@@ -1399,7 +513,6 @@ async def stream_extract_archive(payload: ExtractPayload):
     async def progress_generator():
         last_progress = -1
         try:
-            # Run blocking extraction in thread pool
             loop = asyncio.get_event_loop()
             queue = asyncio.Queue()
             
@@ -1415,15 +528,13 @@ async def stream_extract_archive(payload: ExtractPayload):
                 except Exception as e:
                     loop.call_soon_threadsafe(queue.put_nowait, {'status': 'error', 'message': str(e)})
                 finally:
-                    loop.call_soon_threadsafe(queue.put_nowait, None)  # Signal completion
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
             
-            # Start extraction in background thread
             asyncio.create_task(asyncio.to_thread(run_extraction))
             
-            # Stream progress updates
             while True:
                 data = await queue.get()
-                if data is None:  # Completion signal
+                if data is None:
                     break
                 if 'progress' in data and data['progress'] > last_progress:
                     yield f"data: {json.dumps(data)}\n\n"
@@ -1447,7 +558,6 @@ async def create_folder(payload: CreateFolderPayload):
     if new_folder_path.exists():
         raise HTTPException(status_code=409, detail="A file or folder with this name already exists.")
     try:
-        # --- Performance Enhancement: Run blocking mkdir in a thread ---
         await asyncio.to_thread(new_folder_path.mkdir)
         return {"status": "success", "message": f"Folder '{safe_folder_name}' created."}
     except Exception as e:
@@ -1462,7 +572,6 @@ async def rename_item(payload: RenamePayload):
     if dest_path.exists():
         raise HTTPException(status_code=409, detail="An item with the new name already exists.")
     try:
-        # --- Performance Enhancement: Run blocking rename in a thread ---
         await asyncio.to_thread(source_path.rename, dest_path)
         return {"status": "success", "message": "Item renamed successfully."}
     except Exception as e:
@@ -1488,7 +597,6 @@ async def _delete_item_task(path_str: str) -> dict:
 
 @router.post("/delete")
 async def delete_items(payload: PathsPayload):
-    # --- Performance Enhancement: Run deletions concurrently ---
     tasks = [_delete_item_task(path_str) for path_str in payload.paths]
     results = await asyncio.gather(*tasks)
     
@@ -1503,16 +611,15 @@ async def delete_items(payload: PathsPayload):
 
 @router.get("/download")
 async def download_file(path: str = Query(...)):
+    """
+    Simple file download endpoint.
+    For large files or resuming support, use the transfers/download endpoints.
+    """
     file_path = _validate_and_resolve_path(path)
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail="The specified path is not a file.")
     
     file_size = file_path.stat().st_size
-    if file_size > 50 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail={
-            "message": "File is large. Use the chunked download API for reliability.",
-            "file_size": file_size, "chunked_download_required": True
-        })
     
     async def create_file_iterator():
         if AIOFILES_INSTALLED:
@@ -1534,7 +641,6 @@ async def open_file_on_server(payload: PathPayload):
     if not target_path.exists():
         raise HTTPException(status_code=404, detail="File or directory not found.")
     try:
-        # This operation is inherently OS-dependent and quick, so threading is optional
         if platform.system() == "Windows":
             os.startfile(target_path)
         elif platform.system() == "Darwin":
@@ -1573,7 +679,6 @@ async def paste_items(payload: PastePayload):
                     if is_same_dir:
                         failed.append({"path": src_path_str, "reason": "Cannot overwrite an item with itself."})
                         continue
-                    # --- Performance Enhancement: Run blocking I/O in a thread ---
                     if await asyncio.to_thread(final_dest_path.is_dir):
                         await asyncio.to_thread(shutil.rmtree, final_dest_path)
                     else:
@@ -1581,7 +686,6 @@ async def paste_items(payload: PastePayload):
                 elif payload.conflict_resolution == "rename":
                     final_dest_path = await asyncio.to_thread(_get_unique_filename, final_dest_path)
 
-            # --- Performance Enhancement: Run blocking I/O in a thread ---
             if payload.action == "cut":
                 await asyncio.to_thread(shutil.move, str(src_path), str(final_dest_path))
                 succeeded.append({"path": src_path_str, "action": "moved"})
