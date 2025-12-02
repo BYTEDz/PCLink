@@ -596,6 +596,11 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 async def broadcast_updates_task(manager: ConnectionManager, state: Any, network_monitor: NetworkMonitor):
     while True:
         try:
+            # Optimization: Skip expensive polling when no clients are connected
+            if not manager.active_connections:
+                await asyncio.sleep(5)  # Longer sleep when idle
+                continue
+            
             system_data = await get_system_info_data(network_monitor)
             media_data = await get_media_info_data()
             system_data["allow_insecure_shell"] = state.allow_insecure_shell

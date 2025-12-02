@@ -126,7 +126,7 @@ async def handle_windows_terminal(websocket: WebSocket, shell_type: str = "cmd")
                             await websocket.send_bytes(data)
                         else:
                             # Short sleep if no data is immediately available to prevent tight looping.
-                            await asyncio.sleep(0.01)
+                            await asyncio.sleep(0.05)  # Optimized: 20 iterations/sec instead of 100
                     except Exception as e:
                         log.error(f"Error reading subprocess output: {e}")
                         break
