@@ -274,7 +274,8 @@ async def get_upload_config():
         "max_chunk_size": UPLOAD_CHUNK_SIZE * 2,
         "min_chunk_size": 65536,
         "buffer_size": UPLOAD_BUFFER_SIZE,
-        "supports_concurrent_chunks": False,
+        "supports_concurrent_chunks": True,  # ENABLED: Supports parallel uploads
+        "max_concurrent_chunks": 6,  # NEW: Maximum parallel workers
         "supports_resume": True,
         "supports_pause": True,
         "aiofiles_enabled": AIOFILES_INSTALLED
@@ -355,10 +356,23 @@ async def get_upload_status(upload_id: str):
 
 
 @upload_router.post("/chunk/{upload_id}")
-async def upload_chunk(upload_id: str, request: Request, offset: int = Query(...)):
+async def upload_chunk(
+    upload_id: str, 
+    request: Request, 
+    offset: int = Query(...),
+    chunk_index: int = Query(None)  # NEW: Optional for parallel uploads
+):
+    """Upload a chunk of data. Supports concurrent chunk uploads when chunk_index is provided."""
     part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
     meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
-    lock = TRANSFER_LOCKS[upload_id]
+    
+    # NEW: Use chunk-specific lock for parallel uploads, or upload-wide lock for sequential
+    if chunk_index is not None:
+        lock_key = f"{upload_id}_chunk_{chunk_index}"
+    else:
+        lock_key = upload_id  # Backward compatibility
+    
+    lock = TRANSFER_LOCKS[lock_key]
     
     if upload_id not in UPLOAD_BUFFERS:
         UPLOAD_BUFFERS[upload_id] = bytearray()
@@ -377,11 +391,12 @@ async def upload_chunk(upload_id: str, request: Request, offset: int = Query(...
                 buffer.extend(chunk)
                 bytes_written += len(chunk)
             
+            # Write at specific offset (supports concurrent writes to different offsets)
             await write_file_async(part_file, buffer, mode="rb+", offset=offset)
             buffer.clear()
             
         except Exception as e:
-            log.error(f"Error writing chunk for upload {upload_id}: {e}")
+            log.error(f"Error writing chunk for upload {upload_id} at offset {offset}: {e}")
             raise HTTPException(status_code=500, detail=f"Error writing file chunk: {e}")
     
     return {"status": "chunk received", "bytes_written": bytes_written}
