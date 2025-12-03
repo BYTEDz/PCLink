@@ -39,33 +39,54 @@ def _get_current_user():
             return os.environ.get('USER', os.environ.get('USERNAME', 'unknown'))
 
 
-async def run_subprocess(cmd: list[str]) -> str:
+async def run_subprocess(cmd: list[str], timeout: float = 5.0) -> str:
     """
-    Asynchronously runs a subprocess and returns its stdout.
+    Asynchronously runs a subprocess and returns its stdout with a strict timeout.
 
     Args:
         cmd: A list of strings representing the command and its arguments.
+        timeout: Maximum time in seconds to wait for the command.
 
     Returns:
         The decoded stdout from the subprocess.
 
     Raises:
-        HTTPException: If the command fails to execute or returns a non-zero exit code.
+        HTTPException: If the command fails, times out, or returns a non-zero exit code.
     """
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        creationflags=SUBPROCESS_FLAGS,
-    )
-    stdout, stderr = await process.communicate()
-
-    if process.returncode != 0:
-        error_msg = stderr.decode().strip()
-        raise HTTPException(
-            status_code=500, detail=f"Command failed: {cmd[0]} - {error_msg}"
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            creationflags=SUBPROCESS_FLAGS,
         )
-    return stdout.decode()
+
+        # FIX: Wrap communication in a timeout to prevent server hangs
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            log.warning(f"Command timed out after {timeout}s: {cmd[0]}")
+            raise HTTPException(status_code=504, detail="System command timed out")
+
+        if process.returncode != 0:
+            error_msg = stderr.decode().strip()
+            # Log debug info but return clean error
+            log.debug(f"Command execution failed: {cmd} -> {error_msg}")
+            raise HTTPException(
+                status_code=500, detail=f"Command failed: {cmd[0]} - {error_msg}"
+            )
+        
+        return stdout.decode()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Subprocess error for {cmd}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal system error: {str(e)}")
 
 
 async def try_power_command_with_fallbacks(command: str, primary_cmd: list[str]) -> bool:
@@ -210,8 +231,17 @@ async def try_power_command_with_fallbacks(command: str, primary_cmd: list[str])
                     creationflags=SUBPROCESS_FLAGS,
                 )
             
-            stdout, stderr = await process.communicate()
-            
+            # Wait with timeout
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+            except asyncio.TimeoutError:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                log.debug(f"Fallback command timed out: {cmd}")
+                continue
+
             if process.returncode == 0:
                 log.info(f"Power command '{command}' succeeded with: {' '.join(cmd)}")
                 return True
@@ -229,11 +259,6 @@ async def try_power_command_with_fallbacks(command: str, primary_cmd: list[str])
 def _execute_sync_power_command(cmd: list[str]):
     """
     Synchronously runs a command in a hidden window.
-    This is used because asyncio.create_subprocess_exec was causing a
-    NotImplementedError on the default Windows event loop.
-
-    Args:
-        cmd: A list of strings representing the command and its arguments.
     """
     try:
         subprocess.run(
@@ -241,7 +266,10 @@ def _execute_sync_power_command(cmd: list[str]):
             check=True,
             capture_output=True,
             creationflags=SUBPROCESS_FLAGS,
+            timeout=5.0 # Add timeout to sync call as well
         )
+    except subprocess.TimeoutExpired:
+        log.error(f"Power command timed out: {' '.join(cmd)}")
     except subprocess.CalledProcessError as e:
         error_output = e.stderr.decode().strip()
         log.error(f"Power command failed: {' '.join(cmd)}. Error: {error_output}")
@@ -253,18 +281,6 @@ def _execute_sync_power_command(cmd: list[str]):
 async def power_command(command: str, hybrid: bool = True):
     """
     Handles power commands such as shutdown, reboot, lock, sleep, and logout.
-
-    Args:
-        command: The power command to execute (shutdown, reboot, lock, sleep, logout).
-        hybrid: For Windows shutdown/reboot - use hybrid shutdown (Fast Startup) for faster boots.
-                True (default) = hybrid shutdown (saves state, faster boot)
-                False = full shutdown (clears everything, slower boot but cleaner)
-
-    Returns:
-        A dictionary indicating the status of the command.
-
-    Raises:
-        HTTPException: If the command is not supported for the current operating system.
     """
     cmd_map = {
         "win32": {
@@ -310,12 +326,6 @@ async def power_command(command: str, hybrid: bool = True):
 
 
 def _get_volume_win32() -> Dict[str, Any]:
-    """
-    Synchronously retrieves the current master volume level and mute status on Windows.
-
-    Returns:
-        A dictionary containing the volume level (0-100) and mute status.
-    """
     from comtypes import CLSCTX_ALL
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
@@ -329,12 +339,6 @@ def _get_volume_win32() -> Dict[str, Any]:
 
 
 def _set_volume_win32(level: int):
-    """
-    Synchronously sets the master volume level on Windows.
-
-    Args:
-        level: The desired volume level (0-100). Mutes at 0.
-    """
     from comtypes import CLSCTX_ALL
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
@@ -348,16 +352,62 @@ def _set_volume_win32(level: int):
         volume.SetMasterVolumeLevelScalar(level / 100, None)
 
 
+async def _get_volume_linux_fallback():
+    """Try multiple methods to get volume on Linux."""
+    methods = [
+        # Method 1: amixer with Master
+        (["amixer", "sget", "Master"], "amixer_master"),
+        # Method 2: amixer with PCM
+        (["amixer", "sget", "PCM"], "amixer_pcm"),
+        # Method 3: pactl (PulseAudio)
+        (["pactl", "get-sink-volume", "@DEFAULT_SINK@"], "pactl"),
+    ]
+    
+    for cmd, method_name in methods:
+        try:
+            # Use small timeout for volume checks
+            result = await run_subprocess(cmd, timeout=2.0)
+            
+            if method_name.startswith("amixer"):
+                level_match = re.search(r"\[(\d+)%\]", result)
+                mute_match = re.search(r"\[(on|off)\]", result)
+                if level_match:
+                    return {
+                        "level": int(level_match.group(1)),
+                        "muted": mute_match.group(1) == "off" if mute_match else False,
+                    }
+            elif method_name == "pactl":
+                # Parse pactl output
+                level_match = re.search(r"(\d+)%", result)
+                if level_match:
+                    # Check mute status separately for pactl
+                    is_muted = False
+                    try:
+                        mute_out = await run_subprocess(["pactl", "get-sink-mute", "@DEFAULT_SINK@"], timeout=1.0)
+                        is_muted = "yes" in mute_out.lower()
+                    except:
+                        pass
+                        
+                    return {
+                        "level": int(level_match.group(1)),
+                        "muted": is_muted,
+                    }
+        except HTTPException:
+            continue
+        except Exception:
+            continue
+    
+    # All methods failed
+    raise HTTPException(
+        status_code=503,
+        detail="Volume control not available. Install 'alsa-utils' or 'pulseaudio-utils'."
+    )
+
+
 @router.get("/volume")
 async def get_volume():
     """
     Gets the current master volume level and mute status.
-
-    Returns:
-        A dictionary containing the volume level (0-100) and mute status.
-
-    Raises:
-        HTTPException: If there's an error retrieving the volume information.
     """
     try:
         if sys.platform == "win32":
@@ -370,15 +420,12 @@ async def get_volume():
                 ["osascript", "-e", "output muted of (get volume settings)"]
             )
             return {"level": int(vol_str.strip()), "muted": mute_str.strip() == "true"}
-        else:  # linux with amixer
-            result = await run_subprocess(["amixer", "sget", "Master"])
-            level_match = re.search(r"\[(\d+)%\]", result)
-            mute_match = re.search(r"\[(on|off)\]", result)
-            return {
-                "level": int(level_match.group(1)) if level_match else 50,
-                "muted": mute_match.group(1) == "off" if mute_match else False,
-            }
+        else:  # linux
+            return await _get_volume_linux_fallback()
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
+        log.error(f"Unexpected error getting volume: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get volume: {e}")
 
 
@@ -386,15 +433,6 @@ async def get_volume():
 async def set_volume(level: int):
     """
     Sets the master volume level (0-100). Mutes at 0 and unmutes otherwise.
-
-    Args:
-        level: The desired volume level (0-100).
-
-    Returns:
-        A dictionary indicating the status of the command.
-
-    Raises:
-        HTTPException: If the volume level is out of range or if there's an error setting it.
     """
     if not 0 <= level <= 100:
         raise HTTPException(
@@ -430,15 +468,10 @@ async def set_volume(level: int):
 async def get_wake_on_lan_info():
     """
     Retrieves Wake-on-LAN capability and MAC address using a reliable library.
-
-    Returns:
-        A dictionary containing WoL support status, MAC address, interface name,
-        and WoL enabled status.
     """
     log.info("Attempting to retrieve MAC address for WoL.")
     try:
         # Use the getmac library to find the MAC address of the active interface.
-        # This is a synchronous call, so we run it in a thread to avoid blocking.
         mac = await asyncio.to_thread(get_mac_address)
 
         if mac:
@@ -446,8 +479,8 @@ async def get_wake_on_lan_info():
             return {
                 "supported": True,
                 "mac_address": mac,
-                "interface_name": "unknown", # Library does not provide interface name.
-                "wol_enabled": None, # Assume enabled if MAC is found.
+                "interface_name": "unknown", 
+                "wol_enabled": None, 
             }
         else:
             log.warning("get_mac_address() returned None. No active network interface found?")

@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 
 # --- Pydantic Models ---
 class AnnouncePayload(BaseModel): name: str; local_ip: Optional[str] = None
-class QrPayload(BaseModel): protocol: str; ip: str; port: int; apiKey: str; certFingerprint: Optional[str]
+class QrPayload(BaseModel): protocol: str; ip: str; port: int; apiKey: str; certFingerprint: Optional[str] = None
 class PairingRequestPayload(BaseModel): device_name: str; device_id: Optional[str] = None; device_fingerprint: Optional[str] = None; client_version: Optional[str] = None; platform: Optional[str] = None
 
 # Web Auth Models
@@ -65,7 +65,7 @@ def handle_mouse_command(data: Dict[str, Any]):
     try:
         button = button_map.get(data.get("button", "left"))
         if action == "move": mouse_controller.move(data.get("dx", 0), data.get("dy", 0))
-        elif action == "click": mouse_controller.click(button, 1)
+        elif action == "click": mouse_controller.click(button, data.get("clicks", 1))
         elif action == "double_click": mouse_controller.click(button, 2)
         elif action == "down": mouse_controller.press(button)
         elif action == "up": mouse_controller.release(button)
@@ -167,19 +167,22 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         @app.get("/ui/")
         async def web_ui_fallback(): return {"message": "Web UI not available", "error": str(e)}
     
-    app.include_router(system_router, prefix="/system", dependencies=MOBILE_API)
-    app.include_router(file_browser_router, prefix="/files", dependencies=MOBILE_API)
-    app.include_router(upload_router, prefix="/files/upload", dependencies=MOBILE_API)
-    app.include_router(download_router, prefix="/files/download", dependencies=MOBILE_API)
-    app.include_router(media_streaming_router, prefix="/files", dependencies=MOBILE_API)
-    app.include_router(process_manager_router, prefix="/system", dependencies=MOBILE_API)
-    app.include_router(info_router, prefix="/info", dependencies=MOBILE_API)
-    app.include_router(input_router, prefix="/input", dependencies=MOBILE_API)
-    app.include_router(media_router, prefix="/media", dependencies=MOBILE_API)
-    app.include_router(utils_router, prefix="/utils", dependencies=MOBILE_API)
-    app.include_router(terminal_router, prefix="/terminal")
-    app.include_router(macro_router, prefix="/macro", dependencies=MOBILE_API)
-    app.include_router(applications_router, prefix="/applications", dependencies=MOBILE_API)
+    # --- Register Routers (ORDER MATTERS) ---
+    # Register specific transfer routers BEFORE general file browser
+    app.include_router(upload_router, prefix="/files/upload", tags=["Uploads"], dependencies=MOBILE_API)
+    app.include_router(download_router, prefix="/files/download", tags=["Downloads"], dependencies=MOBILE_API)
+    app.include_router(file_browser_router, prefix="/files", tags=["Files"], dependencies=MOBILE_API)
+    
+    app.include_router(system_router, prefix="/system", tags=["System"], dependencies=MOBILE_API)
+    app.include_router(media_streaming_router, prefix="/files", tags=["Streaming"], dependencies=MOBILE_API)
+    app.include_router(process_manager_router, prefix="/system", tags=["Processes"], dependencies=MOBILE_API)
+    app.include_router(info_router, prefix="/info", tags=["Info"], dependencies=MOBILE_API)
+    app.include_router(input_router, prefix="/input", tags=["Input"], dependencies=MOBILE_API)
+    app.include_router(media_router, prefix="/media", tags=["Media"], dependencies=MOBILE_API)
+    app.include_router(utils_router, prefix="/utils", tags=["Utils"], dependencies=MOBILE_API)
+    app.include_router(terminal_router, prefix="/terminal", tags=["Terminal"])
+    app.include_router(macro_router, prefix="/macro", tags=["Macros"], dependencies=MOBILE_API)
+    app.include_router(applications_router, prefix="/applications", tags=["Apps"], dependencies=MOBILE_API)
     
     app.state.allow_insecure_shell = allow_insecure_shell
     app.state.api_key = server_api_key
@@ -187,6 +190,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     @app.on_event("startup")
     async def startup_event():
         try:
+            # Restore interrupted sessions
             result = restore_sessions()
             log.info(f"Session restoration: {result['restored_uploads']} uploads, {result['restored_downloads']} downloads")
         except Exception as e:
@@ -230,7 +234,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             is_enabled = getattr(controller, 'mobile_api_enabled', False) if controller else False
             initial_status = "running" if is_enabled else "stopped"
             await websocket.send_json({"type": "server_status", "status": initial_status})
-            log.info(f"Sent initial status '{initial_status}' to new UI client.")
         except Exception as e:
             log.error(f"Failed to send initial status to UI client: {e}")
             

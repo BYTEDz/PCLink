@@ -107,19 +107,23 @@ async def write_file_async(file_path: Path, data: bytes, mode: str = "wb", offse
         mode: File open mode ('wb', 'ab', 'rb+')
         offset: Optional seek offset for random access writes
     """
-    if AIOFILES_INSTALLED:
-        open_mode = "r+b" if mode == "rb+" else mode
-        async with aiofiles.open(file_path, open_mode) as f:
-            if offset is not None:
-                await f.seek(offset)
-            await f.write(data)
-    else:
-        def _sync_write():
-            with open(file_path, mode) as f:
+    try:
+        if AIOFILES_INSTALLED:
+            open_mode = "r+b" if mode == "rb+" else mode
+            async with aiofiles.open(file_path, open_mode) as f:
                 if offset is not None:
-                    f.seek(offset)
-                f.write(data)
-        await asyncio.to_thread(_sync_write)
+                    await f.seek(offset)
+                await f.write(data)
+        else:
+            def _sync_write():
+                with open(file_path, mode) as f:
+                    if offset is not None:
+                        f.seek(offset)
+                    f.write(data)
+            await asyncio.to_thread(_sync_write)
+    except OSError as e:
+        log.error(f"File write error at {file_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"File write failed: {e}")
 
 
 async def _cleanup_transfer_session(transfer_id: str):
@@ -131,15 +135,6 @@ async def _cleanup_transfer_session(transfer_id: str):
 def _manage_session_file(session_id: str, data: Dict | None = None, operation: str = "read", session_type: str = "download"):
     """
     Unified session file manager for both uploads and downloads.
-    
-    Args:
-        session_id: The session identifier
-        data: Session data (required for 'save' operation)
-        operation: 'read', 'save', or 'delete'
-        session_type: 'download' or 'upload'
-    
-    Returns:
-        Dict for 'read' operation, None otherwise
     """
     directory = DOWNLOAD_SESSION_DIR if session_type == "download" else TEMP_UPLOAD_DIR
     extension = ".json" if session_type == "download" else ".meta"
@@ -274,8 +269,8 @@ async def get_upload_config():
         "max_chunk_size": UPLOAD_CHUNK_SIZE * 2,
         "min_chunk_size": 65536,
         "buffer_size": UPLOAD_BUFFER_SIZE,
-        "supports_concurrent_chunks": True,  # ENABLED: Supports parallel uploads
-        "max_concurrent_chunks": 6,  # NEW: Maximum parallel workers
+        "supports_concurrent_chunks": True,
+        "max_concurrent_chunks": 6,
         "supports_resume": True,
         "supports_pause": True,
         "aiofiles_enabled": AIOFILES_INSTALLED
@@ -307,6 +302,8 @@ async def initiate_upload(payload: UploadInitiatePayload):
     safe_filename = validate_filename(payload.file_name)
     original_file_path = dest_path / safe_filename
     final_file_path = original_file_path
+    
+    # Conflict Resolution
     if original_file_path.exists():
         if payload.conflict_resolution == "abort":
             raise HTTPException(status_code=409, detail={
@@ -317,9 +314,12 @@ async def initiate_upload(payload: UploadInitiatePayload):
             })
         elif payload.conflict_resolution == "keep_both":
             final_file_path = _get_unique_filename(original_file_path)
+            
     final_file_path_str = str(final_file_path)
     init_lock = TRANSFER_LOCKS[f"init_upload_{final_file_path_str}"]
+    
     async with init_lock:
+        # Check for existing session
         if final_file_path_str in ACTIVE_UPLOADS:
             existing_id = ACTIVE_UPLOADS[final_file_path_str]
             if (TEMP_UPLOAD_DIR / f"{existing_id}.part").exists():
@@ -327,10 +327,15 @@ async def initiate_upload(payload: UploadInitiatePayload):
                 return UploadInitiateResponse(upload_id=existing_id, final_file_name=final_file_path.name)
             else:
                 del ACTIVE_UPLOADS[final_file_path_str]
+        
+        # New Session
         upload_id = str(uuid.uuid4())
-        metadata = {"final_path": final_file_path_str, "file_name": final_file_path.name}
+        metadata = {"final_path": final_file_path_str, "file_name": final_file_path.name, "created_at": time.time()}
         (TEMP_UPLOAD_DIR / f"{upload_id}.meta").write_text(json.dumps(metadata), encoding="utf-8")
+        
+        # Create empty part file
         (TEMP_UPLOAD_DIR / f"{upload_id}.part").touch()
+        
         ACTIVE_UPLOADS[final_file_path_str] = upload_id
         log.info(f"Initiated new upload for {final_file_path.name} with ID {upload_id}")
         return UploadInitiateResponse(upload_id=upload_id, final_file_name=final_file_path.name)
@@ -360,17 +365,17 @@ async def upload_chunk(
     upload_id: str, 
     request: Request, 
     offset: int = Query(...),
-    chunk_index: int = Query(None)  # NEW: Optional for parallel uploads
+    chunk_index: int = Query(None)
 ):
     """Upload a chunk of data. Supports concurrent chunk uploads when chunk_index is provided."""
     part_file = TEMP_UPLOAD_DIR / f"{upload_id}.part"
     meta_file = TEMP_UPLOAD_DIR / f"{upload_id}.meta"
     
-    # NEW: Use chunk-specific lock for parallel uploads, or upload-wide lock for sequential
+    # Use granular locks for parallel uploads
     if chunk_index is not None:
         lock_key = f"{upload_id}_chunk_{chunk_index}"
     else:
-        lock_key = upload_id  # Backward compatibility
+        lock_key = upload_id
     
     lock = TRANSFER_LOCKS[lock_key]
     
@@ -391,7 +396,7 @@ async def upload_chunk(
                 buffer.extend(chunk)
                 bytes_written += len(chunk)
             
-            # Write at specific offset (supports concurrent writes to different offsets)
+            # Atomic Write: Write directly to the .part file at the correct offset
             await write_file_async(part_file, buffer, mode="rb+", offset=offset)
             buffer.clear()
             
@@ -414,10 +419,17 @@ async def complete_upload(upload_id: str, background_tasks: BackgroundTasks):
         final_path = Path(metadata["final_path"])
         final_path_str = str(final_path)
         try:
+            # Ensure parent dir exists
             await asyncio.to_thread(final_path.parent.mkdir, parents=True, exist_ok=True)
+            
+            # ATOMIC MOVE: Rename .part to final file
+            if final_path.exists():
+                final_path.unlink() # Overwrite if needed (handled by init conflict check usually)
+            
             await asyncio.to_thread(shutil.move, str(part_file), final_path_str)
+            
         except Exception as e:
-            if part_file.exists(): part_file.unlink()
+            # Don't delete part file on error so user can retry
             raise HTTPException(status_code=500, detail=f"Error moving completed file: {e}")
         finally:
             if meta_file.exists(): meta_file.unlink()
@@ -486,10 +498,13 @@ async def cancel_upload(upload_id: str, background_tasks: BackgroundTasks):
                 del ACTIVE_UPLOADS[final_path_str]
         except Exception:
             pass
+    
+    # Clean up both meta and part files
     if part_file.exists(): part_file.unlink()
     if meta_file.exists(): meta_file.unlink()
     if upload_id in UPLOAD_BUFFERS:
         del UPLOAD_BUFFERS[upload_id]
+        
     background_tasks.add_task(_cleanup_transfer_session, upload_id)
     log.info(f"Cancelled upload {upload_id} for {file_name}")
     return {"status": "cancelled"}
