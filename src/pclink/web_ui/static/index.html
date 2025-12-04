@@ -86,18 +86,30 @@
         <!-- Update Banner -->
         <div id="updateBanner" class="update-banner" style="display: none;">
             <div class="update-content">
-                <i data-feather="download" class="update-icon"></i>
-                <div class="update-text">
-                    <strong>New Update Available!</strong>
-                    <span id="updateVersion">Version X.X.X is now available</span>
+                <div class="update-header">
+                    <i data-feather="download" class="update-icon"></i>
+                    <div class="update-title">
+                        <strong>New Update Available!</strong>
+                        <span id="updateVersion">Version X.X.X is now available</span>
+                    </div>
+                    <button class="btn-icon" onclick="dismissUpdate()" title="Dismiss">
+                        <i data-feather="x"></i>
+                    </button>
+                </div>
+                <div id="updateReleaseNotes" class="update-release-notes" style="display: none;">
+                    <div class="release-notes-content" id="releaseNotesContent"></div>
                 </div>
                 <div class="update-actions">
                     <button class="btn btn-sm btn-primary" onclick="downloadUpdate()">
-                        <i data-feather="download"></i> Download
+                        <i data-feather="download"></i> Download Update
                     </button>
-                    <button class="btn btn-sm btn-secondary" onclick="dismissUpdate()">
-                        <i data-feather="x"></i> Dismiss
+                    <button class="btn btn-sm btn-secondary" id="toggleReleaseNotes" onclick="toggleReleaseNotes()"
+                        style="display: none;">
+                        <i data-feather="chevron-down"></i> <span id="toggleNotesText">Show Release Notes</span>
                     </button>
+                    <a id="viewFullReleaseLink" class="btn btn-sm" href="#" target="_blank" style="display: none;">
+                        <i data-feather="external-link"></i> View Full Release
+                    </a>
                 </div>
             </div>
         </div>

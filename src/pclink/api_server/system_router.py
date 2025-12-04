@@ -326,30 +326,38 @@ async def power_command(command: str, hybrid: bool = True):
 
 
 def _get_volume_win32() -> Dict[str, Any]:
-    from comtypes import CLSCTX_ALL
+    from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
-    devices = AudioUtilities.GetSpeakers()
-    interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    volume = interface.QueryInterface(IAudioEndpointVolume)
-    return {
-        "level": round(volume.GetMasterVolumeLevelScalar() * 100),
-        "muted": bool(volume.GetMute()),
-    }
+    try:
+        CoInitialize()  # Initialize COM for this thread
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume = interface.QueryInterface(IAudioEndpointVolume)
+        return {
+            "level": round(volume.GetMasterVolumeLevelScalar() * 100),
+            "muted": bool(volume.GetMute()),
+        }
+    finally:
+        CoUninitialize()  # Clean up COM
 
 
 def _set_volume_win32(level: int):
-    from comtypes import CLSCTX_ALL
+    from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
-    devices = AudioUtilities.GetSpeakers()
-    interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    volume = interface.QueryInterface(IAudioEndpointVolume)
-    if level == 0:
-        volume.SetMute(1, None)
-    else:
-        volume.SetMute(0, None)
-        volume.SetMasterVolumeLevelScalar(level / 100, None)
+    try:
+        CoInitialize()  # Initialize COM for this thread
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        volume = interface.QueryInterface(IAudioEndpointVolume)
+        if level == 0:
+            volume.SetMute(1, None)
+        else:
+            volume.SetMute(0, None)
+            volume.SetMasterVolumeLevelScalar(level / 100, None)
+    finally:
+        CoUninitialize()  # Clean up COM
 
 
 async def _get_volume_linux_fallback():

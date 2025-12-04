@@ -1234,10 +1234,89 @@ async function checkForUpdates() {
 function showUpdateBanner(updateData) {
     const banner = document.getElementById('updateBanner');
     const versionSpan = document.getElementById('updateVersion');
+    const releaseNotesDiv = document.getElementById('updateReleaseNotes');
+    const releaseNotesContent = document.getElementById('releaseNotesContent');
+    const toggleButton = document.getElementById('toggleReleaseNotes');
+    const viewFullLink = document.getElementById('viewFullReleaseLink');
+
     if (banner && versionSpan) {
         versionSpan.textContent = `Version ${updateData.latest_version} is now available`;
+
+        // Handle release notes
+        if (updateData.release_notes && updateData.release_notes.trim()) {
+            // Parse and format release notes (basic markdown support)
+            const formattedNotes = formatReleaseNotes(updateData.release_notes);
+            releaseNotesContent.innerHTML = formattedNotes;
+
+            // Show toggle button
+            if (toggleButton) {
+                toggleButton.style.display = 'inline-flex';
+            }
+        }
+
+        // Show "View Full Release" link if available
+        if (updateData.download_url && viewFullLink) {
+            viewFullLink.href = updateData.download_url;
+            viewFullLink.style.display = 'inline-flex';
+        }
+
         banner.style.display = 'block';
         window.updateData = updateData;
+
+        // Replace feather icons
+        if (typeof feather !== 'undefined') {
+            feather.replace();
+        }
+    }
+}
+
+function formatReleaseNotes(notes) {
+    // Basic markdown-style formatting
+    let formatted = notes
+        // Convert headers
+        .replace(/^### (.*$)/gim, '<h4>$1</h4>')
+        .replace(/^## (.*$)/gim, '<h3>$1</h3>')
+        .replace(/^# (.*$)/gim, '<h3>$1</h3>')
+        // Convert bold
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        // Convert lists
+        .replace(/^\* (.*$)/gim, '<li>$1</li>')
+        .replace(/^- (.*$)/gim, '<li>$1</li>')
+        // Convert line breaks
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/\n/g, '<br>');
+
+    // Wrap list items in ul tags
+    formatted = formatted.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+
+    // Wrap in paragraph if not already wrapped
+    if (!formatted.startsWith('<h') && !formatted.startsWith('<ul')) {
+        formatted = '<p>' + formatted + '</p>';
+    }
+
+    return formatted;
+}
+
+function toggleReleaseNotes() {
+    const releaseNotesDiv = document.getElementById('updateReleaseNotes');
+    const toggleButton = document.getElementById('toggleReleaseNotes');
+    const toggleText = document.getElementById('toggleNotesText');
+    const icon = toggleButton ? toggleButton.querySelector('i') : null;
+
+    if (releaseNotesDiv && toggleButton) {
+        const isHidden = releaseNotesDiv.style.display === 'none';
+        releaseNotesDiv.style.display = isHidden ? 'block' : 'none';
+
+        if (toggleText) {
+            toggleText.textContent = isHidden ? 'Hide Release Notes' : 'Show Release Notes';
+        }
+
+        if (icon) {
+            icon.setAttribute('data-feather', isHidden ? 'chevron-up' : 'chevron-down');
+            if (typeof feather !== 'undefined') {
+                feather.replace();
+            }
+        }
     }
 }
 
