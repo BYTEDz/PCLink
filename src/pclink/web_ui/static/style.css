@@ -1124,3 +1124,88 @@ body {
         flex-direction: column;
     }
 }
+
+/* Guide Tab Styles */
+.guide-section {
+    margin-bottom: 28px;
+}
+
+.guide-section h4 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text-primary);
+}
+
+.guide-section h4 i {
+    width: 18px;
+    height: 18px;
+    color: var(--primary-color);
+}
+
+.guide-note {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.command-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.command-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.command-item:hover {
+    border-color: var(--primary-color);
+    background: var(--surface-hover);
+}
+
+.command-item.copied {
+    border-color: var(--success-color);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.command-item code {
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 0.95rem;
+    color: var(--primary-color);
+    background: rgba(37, 99, 235, 0.1);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.command-desc {
+    flex: 1;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.copy-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--text-secondary);
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.command-item:hover .copy-icon {
+    opacity: 1;
+    color: var(--primary-color);
+}

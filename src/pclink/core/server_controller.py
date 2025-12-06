@@ -194,14 +194,19 @@ class ServerController:
             except Exception as e:
                 log.error(f"Failed to read API key file: {e}")
         
+        # Only generate API key if setup is completed
         if not api_key:
-            api_key = str(uuid.uuid4())
-            try:
-                constants.API_KEY_FILE.write_text(api_key)
-                log.info(f"Generated new API key and saved to {constants.API_KEY_FILE}")
-            except Exception as e:
-                log.critical(f"Failed to write API key file: {e}")
-                # If we can't write the key, we should probably fail, but for now let's run in memory
+            if web_auth_manager.is_setup_completed():
+                api_key = str(uuid.uuid4())
+                try:
+                    constants.API_KEY_FILE.write_text(api_key)
+                    log.info(f"Generated new API key and saved to {constants.API_KEY_FILE}")
+                except Exception as e:
+                    log.critical(f"Failed to write API key file: {e}")
+            else:
+                # Use temporary in-memory key for initial setup
+                api_key = str(uuid.uuid4())
+                log.info("Using temporary API key for initial setup (not saved to disk)")
         
         app = create_api_app(
             api_key,

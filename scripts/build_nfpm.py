@@ -561,7 +561,8 @@ exit 0
                 "libxcb-cursor0", "libxcb-xinerama0", "libxcb-randr0",
                 "libxcb-render-util0", "libxcb-keysyms1", "libxcb-image0",
                 "libxcb-icccm4", "python3-gi", "gir1.2-appindicator3-0.1",
-                "gir1.2-gtk-3.0", "systemd | sysvinit-core | runit", "dbus",
+                "gir1.2-gtk-3.0",
+                "systemd | sysvinit-core | runit", "dbus",
                 "procps",
             ],
             

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import asyncio
 import logging
 import os
 import sys
@@ -17,6 +18,14 @@ from .core.version import __app_name__, __version__
 
 
 def main() -> int:
+    # Fix for Windows 8.1 asyncio issues - use SelectorEventLoop instead of ProactorEventLoop
+    if sys.platform == 'win32':
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        except AttributeError:
+            # Fallback for older Python versions
+            pass
+    
     setup_logging()
     log = logging.getLogger(__name__)
     
