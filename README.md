@@ -86,9 +86,11 @@ This script safely removes broken package installations and cleans up your syste
 
 ## 💻 System Requirements
 
-### ✅ Tested Platforms
-- **Windows 10/11** - Full support with system tray and power management
+### ✅ Supported Platforms
+- **Windows 10 or later** (Windows 10/11) - Full support with system tray and power management
 - **Linux Mint 22.1 Xia** - Complete integration with AppIndicator tray and systemd
+
+> ⚠️ **Windows Users**: PCLink requires Windows 10 or later. Earlier versions (Windows 7, 8, 8.1) are not supported.
 
 ### 🔧 Requirements
 - **Python 3.8+** (automatically handled in packaged installations)
@@ -111,10 +113,12 @@ The server requires the companion mobile app:
 
 ### 🚀 Recommended: Native Packages
 
-#### Windows 10/11
+#### Windows (10 or later)
 1. Download the latest `.exe` installer from [Releases](https://github.com/BYTEDz/PCLink/releases)
 2. Run the installer with administrator privileges
 3. PCLink will be available in Start Menu and system tray
+
+> **Note**: Windows 10 or later is required. Earlier Windows versions are not supported.
 
 #### Linux (Ubuntu/Debian/RPM-based)
 1. Download the latest `.deb` or `.rpm` package from [Releases](https://github.com/BYTEDz/PCLink/releases)

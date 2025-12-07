@@ -1654,3 +1654,36 @@ window.testTabSwitch = function (tabName) {
         console.error('PCLink UI not initialized');
     }
 };
+
+// Copy command to clipboard (Guide tab)
+async function copyCommand(element) {
+    const codeElement = element.querySelector('code');
+    if (!codeElement) return;
+
+    const command = codeElement.textContent;
+
+    try {
+        await navigator.clipboard.writeText(command);
+
+        // Visual feedback
+        element.classList.add('copied');
+        const originalDesc = element.querySelector('.command-desc').textContent;
+        element.querySelector('.command-desc').textContent = '✓ Copied!';
+
+        setTimeout(() => {
+            element.classList.remove('copied');
+            element.querySelector('.command-desc').textContent = originalDesc;
+        }, 1500);
+    } catch (err) {
+        console.error('Failed to copy:', err);
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = command;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+    }
+}
+
+window.copyCommand = copyCommand;

@@ -88,10 +88,15 @@ class SystemTrayManager:
         try:
             if sys.platform == "win32":
                 import winreg
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
-                value, _ = winreg.QueryValueEx(key, "SystemUsesLightTheme")
-                winreg.CloseKey(key)
-                return value == 0
+                try:
+                    # This registry key only exists on Windows 10+
+                    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+                    value, _ = winreg.QueryValueEx(key, "SystemUsesLightTheme")
+                    winreg.CloseKey(key)
+                    return value == 0
+                except (FileNotFoundError, OSError):
+                    # Windows 8.1 and earlier don't have this key - default to light theme
+                    return False
             elif sys.platform.startswith('linux'):
                 # Try to detect GTK theme preference
                 try:

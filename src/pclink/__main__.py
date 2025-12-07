@@ -14,6 +14,7 @@ from .core import constants
 from .core.config import config_manager
 from .core.utils import get_startup_manager
 from .core.version import __version__
+from .core.web_auth import web_auth_manager
 
 try:
     import qrcode
@@ -265,6 +266,7 @@ def qr():
             return
         
         click.echo("Scan the QR code below with the PCLink mobile app:")
+        click.echo("")
         
         qr_obj = qrcode.QRCode(
             error_correction=qr_constants.ERROR_CORRECT_L,
@@ -273,10 +275,115 @@ def qr():
         )
         qr_obj.add_data(qr_data)
         qr_obj.make(fit=True)
-        qr_obj.print_tty()
+        
+        try:
+            qr_obj.print_tty()
+        except Exception:
+            # Fallback for non-TTY environments (SSH, pipes, etc.)
+            click.echo("(QR code display not available in this terminal)")
+            click.echo("")
+            click.echo("QR Code Data (for manual entry):")
+            click.echo(qr_data)
 
     except requests.RequestException as e:
         click.echo(f"Failed to fetch QR code data from server: {e}", err=True)
+    except Exception as e:
+        click.echo(f"An unexpected error occurred: {e}", err=True)
+
+
+@cli.command()
+def setup():
+    """Complete initial password setup for web UI."""
+    if web_auth_manager.is_setup_completed():
+        click.echo("Setup already completed. Use the web UI to change your password.")
+        return
+    
+    click.echo("=== PCLink Initial Setup ===")
+    click.echo("")
+    click.echo("Create a password for the web UI (minimum 8 characters)")
+    
+    password = click.prompt("Password", hide_input=True)
+    confirm_password = click.prompt("Confirm password", hide_input=True)
+    
+    if len(password) < 8:
+        click.echo("Error: Password must be at least 8 characters long.", err=True)
+        return
+    
+    if password != confirm_password:
+        click.echo("Error: Passwords do not match.", err=True)
+        return
+    
+    if web_auth_manager.setup_password(password):
+        click.echo("")
+        click.echo("✓ Password setup completed successfully!")
+        click.echo("")
+        click.echo("You can now:")
+        click.echo("  1. Start PCLink: pclink start")
+        click.echo("  2. Access web UI: https://localhost:38080/ui/")
+        click.echo("  3. View pairing info: pclink pair")
+    else:
+        click.echo("Error: Failed to setup password.", err=True)
+
+
+@cli.command()
+def pair():
+    """Display pairing information for mobile devices."""
+    if not web_auth_manager.is_setup_completed():
+        click.echo("Error: Setup not completed. Run 'pclink setup' first.", err=True)
+        return
+    
+    if not is_server_running():
+        click.echo("Error: PCLink is not running. Start it with 'pclink start'.", err=True)
+        return
+    
+    # Prompt for password to verify identity
+    password = click.prompt("Enter your web UI password", hide_input=True)
+    
+    # Validate password
+    if not web_auth_manager.verify_password(password):
+        click.echo("Error: Incorrect password.", err=True)
+        return
+    
+    try:
+        # Get pairing data from server
+        response = requests.get(f"{CONTROL_API_URL}/qr-data", timeout=5)
+        response.raise_for_status()
+        qr_data = response.json().get("qr_data")
+        
+        if not qr_data:
+            click.echo("Failed to retrieve pairing data from server.", err=True)
+            return
+        
+        # Display pairing information
+        click.echo("")
+        click.echo("=== PCLink Pairing Information ===")
+        click.echo("")
+        
+        # Try to display QR code
+        if qrcode:
+            qr_obj = qrcode.QRCode(
+                error_correction=qr_constants.ERROR_CORRECT_L,
+                box_size=1,
+                border=4,
+            )
+            qr_obj.add_data(qr_data)
+            qr_obj.make(fit=True)
+            
+            try:
+                qr_obj.print_tty()
+                click.echo("")
+            except Exception:
+                click.echo("(QR code display not available in this terminal)")
+                click.echo("")
+        
+        # Always show manual pairing data
+        click.echo("Manual Pairing Data:")
+        click.echo(qr_data)
+        click.echo("")
+        click.echo("Scan the QR code or manually enter the data above in the PCLink mobile app.")
+        
+    except requests.RequestException as e:
+        click.echo(f"Failed to fetch pairing data: {e}", err=True)
     except Exception as e:
         click.echo(f"An unexpected error occurred: {e}", err=True)
 

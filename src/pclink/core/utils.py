@@ -464,6 +464,18 @@ class _LinuxStartupManager(_StartupManager):
         self.systemd_dir = Path.home() / ".config" / "systemd" / "user"
         self.is_packaged = self._detect_packaged_installation()
 
+    def _get_systemctl_env(self) -> dict:
+        """Get environment for systemctl --user commands in headless contexts."""
+        env = os.environ.copy()
+        uid = os.getuid()
+        # Ensure XDG_RUNTIME_DIR is set (required for systemctl --user)
+        if "XDG_RUNTIME_DIR" not in env:
+            env["XDG_RUNTIME_DIR"] = f"/run/user/{uid}"
+        # Ensure DBUS_SESSION_BUS_ADDRESS is set
+        if "DBUS_SESSION_BUS_ADDRESS" not in env:
+            env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path=/run/user/{uid}/bus"
+        return env
+
     def _detect_packaged_installation(self) -> bool:
         """Detect if running from a system package installation."""
         try:
@@ -488,37 +500,57 @@ class _LinuxStartupManager(_StartupManager):
         except Exception:
             return False
 
-    def add(self, app_name: str, exe_path: Path):
+    def add(self, app_name: str, exe_path: Union[str, Path]):
         success_methods = []
         
+        # Prepare command string
+        # exe_path comes from __main__ and may be a command string (e.g. "python -m pclink")
+        # or a Path object. We ensure it's a string.
+        cmd_str = str(exe_path)
+        
+        # Determine Working Directory
+        # We use sys.executable parent because the command string might be complex
+        if self.is_packaged:
+            working_dir = "/usr/lib/pclink"
+        else:
+            working_dir = str(Path(sys.executable).parent)
+
         # Method 1: Systemd user service (preferred for modern Linux)
         try:
             self.systemd_dir.mkdir(parents=True, exist_ok=True)
             svc_path = self.systemd_dir / f"{app_name.lower()}.service"
             
-            exec_start = "/usr/bin/pclink --startup" if self.is_packaged else f'"{exe_path}" --startup'
-            working_dir = "/usr/lib/pclink" if self.is_packaged else exe_path.parent
+            # Construct ExecStart
+            if self.is_packaged:
+                exec_start = "/usr/bin/pclink start"
+            else:
+                # exe_path already includes arguments like "-m pclink" if needed, 
+                # and quotes around the executable if needed.
+                exec_start = f"{cmd_str} start"
             
             service_content = f"""[Unit]
 Description={app_name} Remote Control Server
-After=graphical-session.target
-Wants=graphical-session.target
+After=graphical-session.target network-online.target
+Wants=graphical-session.target network-online.target
 
 [Service]
-Type=simple
+Type=forking
 ExecStart={exec_start}
 WorkingDirectory={working_dir}
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 
 [Install]
 WantedBy=default.target
 """
             svc_path.write_text(service_content, encoding="utf-8")
             
-            subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True)
-            subprocess.run(["systemctl", "--user", "enable", svc_path.name], check=False, capture_output=True)
+            # Reload and enable service (with proper env for headless contexts)
+            env = self._get_systemctl_env()
+            subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, env=env)
+            subprocess.run(["systemctl", "--user", "enable", svc_path.name], capture_output=True, env=env)
             
             log.info(f"Created systemd user service: {svc_path}")
             success_methods.append("systemd")
@@ -535,23 +567,30 @@ WantedBy=default.target
             except Exception:
                 icon_path = "pclink"
             
-            exec_command = "/usr/bin/pclink --startup" if self.is_packaged else f'"{exe_path}" --startup'
+            if self.is_packaged:
+                exec_command = "/usr/bin/pclink start"
+            else:
+                exec_command = f"{cmd_str} start"
             
             desktop_entry = (
                 f"[Desktop Entry]\n"
                 f"Type=Application\n"
                 f"Name={app_name}\n"
-                f"Exec=sh -c 'sleep 10 && {exec_command}'\n"
+                f"Exec=sh -c 'sleep 3 && {exec_command}'\n"
                 f"Comment={app_name} Remote Control Server\n"
                 f"Icon={icon_path}\n"
                 f"X-GNOME-Autostart-enabled=true\n"
+                f"X-GNOME-Autostart-Delay=3\n"
                 f"X-KDE-autostart-after=panel\n"
+                f"X-MATE-Autostart-Delay=3\n"
                 f"Hidden=false\n"
                 f"NoDisplay=true\n"
                 f"StartupNotify=false\n"
+                f"Terminal=false\n"
             )
             
             desktop_file.write_text(desktop_entry, encoding="utf-8")
+            desktop_file.chmod(0o755)
             log.info(f"Added '{app_name}' to desktop autostart")
             success_methods.append("desktop")
         except IOError as e:
@@ -564,28 +603,38 @@ WantedBy=default.target
 
     def remove(self, app_name: str):
         removed_methods = []
+        service_name = f"{app_name.lower()}.service"
+        env = self._get_systemctl_env()
         
-        # Remove systemd service
+        # Step 1: Attempt to disable via systemctl (with proper env for headless)
         try:
-            service_name = f"{app_name.lower()}.service"
-            subprocess.run(["systemctl", "--user", "disable", service_name], check=False, capture_output=True)
-            subprocess.run(["systemctl", "--user", "stop", service_name], check=False, capture_output=True)
-            
+            subprocess.run(["systemctl", "--user", "disable", service_name], check=False, capture_output=True, env=env)
+        except Exception as e:
+            log.warning(f"systemctl disable failed (proceeding to file deletion): {e}")
+        
+        # Step 2: Forcefully delete the service file
+        try:
             svc_path = self.systemd_dir / service_name
             if svc_path.exists():
                 svc_path.unlink()
                 removed_methods.append("systemd")
-            
-            subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True)
+                log.info(f"Deleted service file: {svc_path}")
         except Exception as e:
-            log.warning(f"Failed to remove systemd service: {e}")
-        
-        # Remove desktop autostart
-        desktop_file = self.autostart_path / f"{app_name.lower()}.desktop"
+            log.error(f"Failed to delete service file {svc_path}: {e}")
+
+        # Step 3: Reload daemon (best effort, with proper env)
         try:
+            subprocess.run(["systemctl", "--user", "daemon-reload"], check=False, capture_output=True, env=env)
+        except Exception:
+            pass
+        
+        # Step 4: Remove desktop autostart
+        try:
+            desktop_file = self.autostart_path / f"{app_name.lower()}.desktop"
             if desktop_file.exists():
                 desktop_file.unlink()
                 removed_methods.append("desktop")
+                log.info(f"Deleted desktop entry: {desktop_file}")
         except IOError as e:
             log.warning(f"Failed to remove desktop autostart: {e}")
         
@@ -595,11 +644,11 @@ WantedBy=default.target
             log.debug(f"'{app_name}' not found in any startup location")
 
     def is_enabled(self, app_name: str) -> bool:
-        # Check systemd
+        # Check systemd (with proper env for headless contexts)
         try:
             result = subprocess.run(
                 ["systemctl", "--user", "is-enabled", f"{app_name.lower()}.service"],
-                capture_output=True, text=True, timeout=5
+                capture_output=True, text=True, timeout=5, env=self._get_systemctl_env()
             )
             if result.returncode == 0 and "enabled" in result.stdout:
                 return True

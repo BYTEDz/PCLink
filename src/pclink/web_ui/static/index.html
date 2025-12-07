@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PCLink Control Panel</title>
-    <link rel="stylesheet" href="/ui/static/style.css?v=18">
+    <link rel="stylesheet" href="/ui/static/style.css?v=20">
 
     <!-- Favicon - SVG with ICO fallback -->
     <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg">
@@ -73,6 +73,10 @@
                 <button class="nav-btn" data-tab="logs">
                     <i data-feather="terminal"></i>
                     <span>Logs</span>
+                </button>
+                <button class="nav-btn" data-tab="guide">
+                    <i data-feather="book-open"></i>
+                    <span>Guide</span>
                 </button>
                 <button class="nav-btn" data-tab="about">
                     <i data-feather="help-circle"></i>
@@ -302,7 +306,7 @@
                             <input type="number" id="serverPortInput" min="1024" max="65535" readonly>
                             <small>Restart required to change port</small>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" id="autoStartGroup">
                             <label>
                                 <input type="checkbox" id="autoStartCheckbox">
                                 Start PCLink with system
@@ -417,6 +421,112 @@
                 </div>
             </div>
 
+            <!-- Guide Tab -->
+            <div class="tab-content" id="guide">
+                <div class="card">
+                    <h3><i data-feather="book-open"></i> PCLink Quick Start Guide</h3>
+                    <p>Use these commands to manage PCLink from the terminal. Click any command to copy it.</p>
+
+                    <div class="guide-section">
+                        <h4><i data-feather="play"></i> Basic Commands</h4>
+                        <div class="command-list">
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink start</code>
+                                <span class="command-desc">Start PCLink server in background</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink stop</code>
+                                <span class="command-desc">Stop running PCLink server</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink status</code>
+                                <span class="command-desc">Check if server is running</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink restart</code>
+                                <span class="command-desc">Restart the server</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="guide-section">
+                        <h4><i data-feather="power"></i> Auto-Start at Boot</h4>
+                        <p class="guide-note">Configure PCLink to start automatically when you log in:</p>
+                        <div class="command-list">
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink startup enable</code>
+                                <span class="command-desc">Enable auto-start at system login</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink startup disable</code>
+                                <span class="command-desc">Disable auto-start at system login</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="guide-section">
+                        <h4><i data-feather="info"></i> Other Commands</h4>
+                        <div class="command-list">
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink --version</code>
+                                <span class="command-desc">Show PCLink version</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink --help</code>
+                                <span class="command-desc">Show all available commands</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink webui</code>
+                                <span class="command-desc">Open PCLink web interface in browser</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="guide-section">
+                        <h4><i data-feather="smartphone"></i> Mobile Pairing</h4>
+                        <p class="guide-note">Connect your mobile device to PCLink:</p>
+                        <div class="command-list">
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink pair</code>
+                                <span class="command-desc">Display QR code and pairing info for mobile app</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink qr</code>
+                                <span class="command-desc">Display connection QR code in terminal</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="guide-section">
+                        <h4><i data-feather="file-text"></i> Logs & Debugging</h4>
+                        <p class="guide-note">View logs and troubleshoot issues:</p>
+                        <div class="command-list">
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink logs</code>
+                                <span class="command-desc">Display the application log file</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                            <div class="command-item" onclick="copyCommand(this)">
+                                <code>pclink logs -f</code>
+                                <span class="command-desc">Follow logs in real-time (like tail -f)</span>
+                                <i data-feather="copy" class="copy-icon"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- About Tab -->
             <div class="tab-content" id="about">
                 <div class="card">
@@ -523,9 +633,9 @@
         </div>
     </div>
 
-    <script src="/ui/static/qrcode.min.js?v=18"></script>
-    <script src="/ui/static/feather.min.js?v=18"></script>
-    <script src="/ui/static/app.js?v=18"></script>
+    <script src="/ui/static/qrcode.min.js?v=20"></script>
+    <script src="/ui/static/feather.min.js?v=20"></script>
+    <script src="/ui/static/app.js?v=20"></script>
     <script>
         feather.replace();
     </script>

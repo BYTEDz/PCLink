@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -189,13 +190,13 @@ class Controller:
 
     def handle_startup_change(self, checked: bool):
         try:
-            exe = Path(sys.executable)
-            app_path = str(exe)
-            if exe.name.lower() == "python.exe":
-                 app_path = f'"{exe}" -m pclink'
+            if getattr(sys, "frozen", False):
+                app_path = str(Path(sys.executable))
+            else:
+                app_path = f'"{sys.executable}" -m pclink'
             
             if checked:
-                self.startup_manager.add(constants.APP_NAME, Path(app_path))
+                self.startup_manager.add(constants.APP_NAME, app_path)
             else:
                 self.startup_manager.remove(constants.APP_NAME)
         except Exception as e:
@@ -204,20 +205,22 @@ class Controller:
     def _sync_startup_state(self):
         try:
             auto_start_enabled = config_manager.get("auto_start", False)
-            is_currently_enabled = self.startup_manager.is_enabled(constants.APP_NAME)
             
+            # If auto_start is DISABLED in config, ensure it's removed
+            if not auto_start_enabled:
+                self.startup_manager.remove(constants.APP_NAME)
+                return
+
+            # Only add if enabled in config but missing in system
+            is_currently_enabled = self.startup_manager.is_enabled(constants.APP_NAME)
             if auto_start_enabled and not is_currently_enabled:
                 if getattr(sys, "frozen", False):
-                    app_path = Path(sys.executable)
+                    app_path = str(Path(sys.executable))
                 else:
-                    app_path = Path(sys.executable)
+                    app_path = f'"{sys.executable}" -m pclink'
                 
                 self.startup_manager.add(constants.APP_NAME, app_path)
                 log.info("Startup enabled to match config setting")
-                
-            elif not auto_start_enabled and is_currently_enabled:
-                self.startup_manager.remove(constants.APP_NAME)
-                log.info("Startup disabled to match config setting")
                 
         except Exception as e:
             log.error(f"Failed to sync startup state: {e}")

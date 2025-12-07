@@ -24,7 +24,10 @@ from ..web_ui.router import create_web_ui_router
 
 # --- API Router Imports ---
 from .file_browser import router as file_browser_router
-from .transfers import upload_router, download_router, restore_sessions
+
+# UPDATED: Import from the new transfers package
+from .transfers import upload_router, download_router, restore_sessions, cleanup_stale_sessions
+
 from .info_router import router as info_router
 from .media_streaming import router as media_streaming_router
 from .input_router import router as input_router
@@ -168,7 +171,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         async def web_ui_fallback(): return {"message": "Web UI not available", "error": str(e)}
     
     # --- Register Routers (ORDER MATTERS) ---
-    # Register specific transfer routers BEFORE general file browser
     app.include_router(upload_router, prefix="/files/upload", tags=["Uploads"], dependencies=MOBILE_API)
     app.include_router(download_router, prefix="/files/download", tags=["Downloads"], dependencies=MOBILE_API)
     app.include_router(file_browser_router, prefix="/files", tags=["Files"], dependencies=MOBILE_API)
@@ -190,9 +192,19 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     @app.on_event("startup")
     async def startup_event():
         try:
-            # Restore interrupted sessions
-            result = restore_sessions()
+            result = await asyncio.to_thread(restore_sessions)
             log.info(f"Session restoration: {result['restored_uploads']} uploads, {result['restored_downloads']} downloads")
+            
+            async def periodic_cleanup():
+                while True:
+                    await asyncio.sleep(3600)
+                    try:
+                        await cleanup_stale_sessions()
+                    except Exception as e:
+                        log.error(f"Periodic cleanup failed: {e}")
+            
+            asyncio.create_task(periodic_cleanup())
+            
         except Exception as e:
             log.error(f"Failed to restore sessions on startup: {e}")
         
@@ -282,9 +294,10 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 
     @app.get("/status")
     async def server_status():
+        import sys
         from ..core.version import __version__
         mobile_api_enabled = getattr(controller, 'mobile_api_enabled', False) if controller else False
-        return { "status": "running", "server_running": mobile_api_enabled, "web_ui_running": True, "mobile_api_enabled": mobile_api_enabled, "version": __version__, "port": app.state.host_port if hasattr(app.state, 'host_port') else 38080 }
+        return { "status": "running", "server_running": mobile_api_enabled, "web_ui_running": True, "mobile_api_enabled": mobile_api_enabled, "version": __version__, "port": app.state.host_port if hasattr(app.state, 'host_port') else 38080, "platform": sys.platform }
     
     @app.get("/auth/status")
     async def auth_status(): return web_auth_manager.get_session_info()
@@ -302,6 +315,15 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         if web_auth_manager.is_setup_completed(): raise HTTPException(status_code=400, detail="Setup already completed")
         if len(payload.password) < 8: raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
         if not web_auth_manager.setup_password(payload.password): raise HTTPException(status_code=400, detail="Failed to setup password")
+        
+        if not constants.API_KEY_FILE.exists():
+            try:
+                api_key = str(uuid.uuid4())
+                constants.API_KEY_FILE.write_text(api_key)
+                app.state.api_key = api_key
+                log.info(f"Generated and saved API key after setup completion: {constants.API_KEY_FILE}")
+            except Exception as e:
+                log.error(f"Failed to save API key after setup: {e}")
         
         if controller and hasattr(controller, 'activate_secure_mode'):
             controller.activate_secure_mode()
@@ -387,27 +409,17 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             
             if "auto_start" in data:
                 auto_start_enabled = data["auto_start"]
-                config_manager.set("auto_start", auto_start_enabled)
-                
-                if controller and hasattr(controller, 'startup_manager'):
+                # Delegate to controller to apply OS-level changes
+                if controller and hasattr(controller, 'handle_startup_change'):
                     try:
-                        import sys
-                        from pathlib import Path
-                        from ..core import constants
-                        
-                        if getattr(sys, "frozen", False):
-                            app_path = Path(sys.executable)
-                        else:
-                            app_path = Path(sys.executable)
-                        
-                        if auto_start_enabled:
-                            controller.startup_manager.add(constants.APP_NAME, app_path)
-                            log.info("Auto-start enabled via web UI")
-                        else:
-                            controller.startup_manager.remove(constants.APP_NAME)
-                            log.info("Auto-start disabled via web UI")
+                        controller.handle_startup_change(auto_start_enabled)
+                        log.info(f"Auto-start {'enabled' if auto_start_enabled else 'disabled'} via web UI")
                     except Exception as e:
                         log.error(f"Failed to update startup setting: {e}")
+                        raise HTTPException(status_code=500, detail=str(e))
+                else:
+                    # Fallback (mostly for testing/dev if controller not injected)
+                    config_manager.set("auto_start", auto_start_enabled)
             
             if "allow_terminal_access" in data:
                 terminal_access = data["allow_terminal_access"]
@@ -417,13 +429,35 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             if "auto_open_webui" in data: config_manager.set("auto_open_webui", data["auto_open_webui"])
             log.info(f"Server settings updated via web UI: {data}")
             return {"status": "success", "message": "Settings saved successfully"}
+        except HTTPException as he: raise he
         except Exception as e: log.error(f"Failed to save settings: {e}"); return {"status": "error", "message": str(e)}
     
     @app.get("/settings/load", dependencies=[WEB_AUTH])
     async def load_server_settings():
         try:
             from ..core.config import config_manager
-            return { "auto_start": config_manager.get("auto_start", False), "allow_terminal_access": config_manager.get("allow_terminal_access", False), "allow_insecure_shell": config_manager.get("allow_insecure_shell", False), "auto_open_webui": config_manager.get("auto_open_webui", True) }
+            from ..core import constants
+            
+            # Default from config
+            auto_start_status = config_manager.get("auto_start", False)
+            
+            # Verify with actual OS state via controller
+            if controller and hasattr(controller, 'startup_manager'):
+                try:
+                    real_status = controller.startup_manager.is_enabled()
+                    if real_status != auto_start_status:
+                        log.warning(f"Config auto_start ({auto_start_status}) mismatch with system ({real_status}). Updating config.")
+                        config_manager.set("auto_start", real_status)
+                        auto_start_status = real_status
+                except Exception as e:
+                    log.error(f"Failed to verify startup status: {e}")
+
+            return { 
+                "auto_start": auto_start_status, 
+                "allow_terminal_access": config_manager.get("allow_terminal_access", False), 
+                "allow_insecure_shell": config_manager.get("allow_insecure_shell", False), 
+                "auto_open_webui": config_manager.get("auto_open_webui", True) 
+            }
         except Exception as e: log.error(f"Failed to load settings: {e}"); return {"status": "error", "message": str(e)}
     
     @app.get("/logs", dependencies=[WEB_AUTH])
@@ -525,7 +559,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         try:
             if controller and hasattr(controller, 'stop_server') and hasattr(controller, 'start_server'):
                 await ui_manager.broadcast({"type": "server_status", "status": "restarting"})
-                
                 async def delayed_restart():
                     controller.stop_server()
                     await asyncio.sleep(2)
@@ -545,10 +578,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def debug_performance():
         import psutil
         import time
-        from .transfers import ACTIVE_UPLOADS, ACTIVE_DOWNLOADS, TRANSFER_LOCKS, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
+        from .transfers.session import ACTIVE_UPLOADS, ACTIVE_DOWNLOADS, TRANSFER_LOCKS, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
         
         process = psutil.Process()
-        
         persisted_uploads = len(list(TEMP_UPLOAD_DIR.glob("*.meta")))
         persisted_downloads = len(list(DOWNLOAD_SESSION_DIR.glob("*.json")))
         
@@ -571,7 +603,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         try:
             log.info("Shutdown endpoint called via web UI")
             await ui_manager.broadcast({"type": "server_status", "status": "shutting_down"})
-            
             def do_shutdown():
                 try:
                     log.info("Executing shutdown sequence...")
@@ -584,11 +615,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                     log.info("Forcing application exit...")
                     import os
                     os._exit(0)
-            
             import threading
             log.info("Starting shutdown timer...")
             threading.Timer(0.5, do_shutdown).start()
-            
             return {"status": "success", "message": "Server shutting down"}
         except Exception as e:
             log.error(f"Failed to shutdown server: {e}")
@@ -599,9 +628,8 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 async def broadcast_updates_task(manager: ConnectionManager, state: Any, network_monitor: NetworkMonitor):
     while True:
         try:
-            # Optimization: Skip expensive polling when no clients are connected
             if not manager.active_connections:
-                await asyncio.sleep(5)  # Longer sleep when idle
+                await asyncio.sleep(5)
                 continue
             
             system_data = await get_system_info_data(network_monitor)
