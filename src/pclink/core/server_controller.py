@@ -20,6 +20,7 @@ from .config import config_manager
 from .state import connected_devices
 from .utils import DummyTty
 from .web_auth import web_auth_manager
+from .startup import StartupManager  # NEW IMPORT
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +37,36 @@ class ServerController:
         self.mobile_api_enabled = False
         self._shutdown_callback = shutdown_callback
         self.status = "stopped"
+        
+        # Initialize Startup Manager
+        self.startup_manager = StartupManager()
+        # Sync config file with actual OS state
+        self._sync_startup_config()
+
+    def _sync_startup_config(self):
+        """Ensure config.json matches OS startup state."""
+        try:
+            is_enabled_os = self.startup_manager.is_enabled()
+            # Update config without triggering write if not needed
+            if config_manager.get("auto_start") != is_enabled_os:
+                log.info(f"Syncing auto_start config with OS state: {is_enabled_os}")
+                config_manager.set("auto_start", is_enabled_os)
+        except Exception as e:
+            log.warning(f"Failed to sync startup config: {e}")
+
+    def handle_startup_change(self, enable: bool):
+        """Called by API or CLI to toggle startup at OS level."""
+        success = False
+        if enable:
+            success = self.startup_manager.enable()
+        else:
+            success = self.startup_manager.disable()
+            
+        if success:
+            config_manager.set("auto_start", enable)
+            return True
+        else:
+            raise Exception("Failed to change startup settings in Operating System")
 
     def get_status(self):
         return {"status": self.status, "port": self.get_port(), "mobile_api_enabled": self.mobile_api_enabled}

@@ -5,7 +5,9 @@ import uuid
 import logging
 from pathlib import Path
 
+# UPDATED: Import ClientDisconnect to handle pauses/cancellations gracefully
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Depends
+from starlette.requests import ClientDisconnect 
 
 from ...core.validators import validate_filename
 from ..file_browser import _validate_and_resolve_path, _get_unique_filename
@@ -107,8 +109,14 @@ async def upload_chunk(
         raise HTTPException(status_code=404, detail="Upload not found")
 
     chunk_data = bytearray()
-    async for chunk in request.stream():
-        chunk_data.extend(chunk)
+    
+    # FIX: Handle client disconnection (Pause/Cancel) gracefully
+    try:
+        async for chunk in request.stream():
+            chunk_data.extend(chunk)
+    except ClientDisconnect:
+        log.info(f"Client disconnected during chunk upload {upload_id} (likely paused)")
+        return {"status": "interrupted"} # Stops processing immediately
 
     async with TRANSFER_LOCKS[upload_id]:
         if upload_id not in CHUNK_BUFFERS: CHUNK_BUFFERS[upload_id] = {}
@@ -175,6 +183,16 @@ async def complete_upload(
         bg_tasks.add_task(cleanup_transfer_session, upload_id)
         
     return {"status": "completed", "path": str(final_path)}
+
+@upload_router.post("/pause/{upload_id}")
+async def pause_upload(upload_id: str, client_id: str = Depends(get_client_id)):
+    metadata = manage_session_file(upload_id, operation="read", session_type="upload")
+    if not metadata or not verify_session_ownership(metadata, client_id):
+        raise HTTPException(status_code=404, detail="Upload not found")
+    
+    metadata["status"] = "paused"
+    manage_session_file(upload_id, metadata, "save", "upload")
+    return {"status": "paused", "upload_id": upload_id}
 
 @upload_router.delete("/cancel/{upload_id}")
 async def cancel_upload(

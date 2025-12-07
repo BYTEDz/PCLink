@@ -192,15 +192,12 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     @app.on_event("startup")
     async def startup_event():
         try:
-            # Restore sessions using the new function which runs in a thread
-            # Since restore_sessions is now synchronous but handles heavy I/O, we run it in thread
             result = await asyncio.to_thread(restore_sessions)
             log.info(f"Session restoration: {result['restored_uploads']} uploads, {result['restored_downloads']} downloads")
             
-            # Start the background cleanup task
             async def periodic_cleanup():
                 while True:
-                    await asyncio.sleep(3600)  # Check every hour
+                    await asyncio.sleep(3600)
                     try:
                         await cleanup_stale_sessions()
                     except Exception as e:
@@ -213,9 +210,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         
         asyncio.create_task(broadcast_updates_task(mobile_manager, app.state, network_monitor))
 
-    # ... [Rest of the file remains exactly the same] ...
-    # (WebSockets, Pairing, Auth endpoints, etc.)
-    
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
         if not token: await websocket.close(code=1008, reason="Missing API Key"); return
@@ -415,13 +409,17 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             
             if "auto_start" in data:
                 auto_start_enabled = data["auto_start"]
-                config_manager.set("auto_start", auto_start_enabled)
+                # Delegate to controller to apply OS-level changes
                 if controller and hasattr(controller, 'handle_startup_change'):
                     try:
                         controller.handle_startup_change(auto_start_enabled)
                         log.info(f"Auto-start {'enabled' if auto_start_enabled else 'disabled'} via web UI")
                     except Exception as e:
                         log.error(f"Failed to update startup setting: {e}")
+                        raise HTTPException(status_code=500, detail=str(e))
+                else:
+                    # Fallback (mostly for testing/dev if controller not injected)
+                    config_manager.set("auto_start", auto_start_enabled)
             
             if "allow_terminal_access" in data:
                 terminal_access = data["allow_terminal_access"]
@@ -431,6 +429,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             if "auto_open_webui" in data: config_manager.set("auto_open_webui", data["auto_open_webui"])
             log.info(f"Server settings updated via web UI: {data}")
             return {"status": "success", "message": "Settings saved successfully"}
+        except HTTPException as he: raise he
         except Exception as e: log.error(f"Failed to save settings: {e}"); return {"status": "error", "message": str(e)}
     
     @app.get("/settings/load", dependencies=[WEB_AUTH])
@@ -438,10 +437,14 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         try:
             from ..core.config import config_manager
             from ..core import constants
+            
+            # Default from config
             auto_start_status = config_manager.get("auto_start", False)
+            
+            # Verify with actual OS state via controller
             if controller and hasattr(controller, 'startup_manager'):
                 try:
-                    real_status = controller.startup_manager.is_enabled(constants.APP_NAME)
+                    real_status = controller.startup_manager.is_enabled()
                     if real_status != auto_start_status:
                         log.warning(f"Config auto_start ({auto_start_status}) mismatch with system ({real_status}). Updating config.")
                         config_manager.set("auto_start", real_status)
@@ -575,7 +578,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def debug_performance():
         import psutil
         import time
-        # UPDATED: Import from the new session module for debug info
         from .transfers.session import ACTIVE_UPLOADS, ACTIVE_DOWNLOADS, TRANSFER_LOCKS, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
         
         process = psutil.Process()

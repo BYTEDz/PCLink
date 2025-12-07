@@ -1686,27 +1686,4 @@ async function copyCommand(element) {
     }
 }
 
-// Hide autostart checkbox on Linux (use CLI instead)
-async function detectPlatformAndUpdateUI() {
-    try {
-        const response = await fetch('/status');
-        if (response.ok) {
-            const data = await response.json();
-            if (data.platform === 'linux') {
-                const autoStartGroup = document.getElementById('autoStartGroup');
-                if (autoStartGroup) {
-                    autoStartGroup.style.display = 'none';
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Failed to detect platform:', error);
-    }
-}
-
-// Run platform detection on load
-document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(detectPlatformAndUpdateUI, 500);
-});
-
 window.copyCommand = copyCommand;
