@@ -1,3 +1,4 @@
+# src/pclink/api_server/services.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -8,9 +9,11 @@ import socket
 import subprocess
 import sys
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional, Any
 
 import psutil
+
+# --- Imports for Input Control ---
 try:
     from pynput.keyboard import Controller as KeyboardController
     from pynput.keyboard import Key
@@ -19,10 +22,17 @@ try:
     PYNPUT_AVAILABLE = True
 except ImportError:
     PYNPUT_AVAILABLE = False
-    log = logging.getLogger(__name__)
-    log.warning("pynput not available - input control features disabled")
+
+# --- Imports for Legacy Window Scraping (Windows) ---
+try:
+    import win32gui
+    import win32process
+    LEGACY_SUPPORT_AVAILABLE = True
+except ImportError:
+    LEGACY_SUPPORT_AVAILABLE = False
 
 log = logging.getLogger(__name__)
+
 DEFAULT_MEDIA_INFO = {
     "title": "Nothing Playing",
     "artist": "",
@@ -32,30 +42,57 @@ DEFAULT_MEDIA_INFO = {
     "duration_sec": 0,
     "is_shuffle_active": False,
     "repeat_mode": "NONE",
+    "control_level": "basic",
+    "source_app": None
 }
 
 SUBPROCESS_FLAGS = 0
 if sys.platform == "win32":
     SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
 
-# Media info cache to reduce subprocess spawning
-_media_info_cache = {"data": None, "timestamp": 0}
-_MEDIA_CACHE_TTL = 2  # seconds
+# --- Cache State ---
+_media_info_cache = {
+    "data": DEFAULT_MEDIA_INFO, 
+    "timestamp": 0,
+    "last_valid_data": None,
+    "last_valid_time": 0
+}
+_MEDIA_CACHE_TTL = 1.0  # Reduced to 1s for snappier updates
+_LEGACY_STATE_RETENTION = 5.0 
 
+# --- Legacy Player Config ---
+KNOWN_LEGACY_PLAYERS = {
+    "vlc.exe": "VLC",
+    "mpc-hc.exe": "MPC-HC",
+    "mpc-hc64.exe": "MPC-HC",
+    "mpc-be.exe": "MPC-BE",
+    "mpc-be64.exe": "MPC-BE",
+    "potplayer.exe": "PotPlayer",
+    "potplayermini.exe": "PotPlayer",
+    "potplayermini64.exe": "PotPlayer",
+    "kmplayer.exe": "KMPlayer",
+    "kmplayer64.exe": "KMPlayer",
+    "wmplayer.exe": "Windows Media Player",
+    "gom.exe": "GOM Player",
+    "gomplayerplus.exe": "GOM Player Plus",
+    "spotify.exe": "Spotify",
+    "itunes.exe": "iTunes",
+    "foobar2000.exe": "foobar2000",
+    "aimp.exe": "AIMP",
+    "musicbee.exe": "MusicBee",
+    "winamp.exe": "Winamp",
+    "chrome.exe": "Chrome",
+    "firefox.exe": "Firefox",
+    "msedge.exe": "Edge",
+    "opera.exe": "Opera",
+    "brave.exe": "Brave",
+}
+
+TITLE_CLEANUP_PATTERNS = [
+    " - YouTube", " - Spotify", " - SoundCloud", " - Twitch", "[Paused]", "[Stopped]",
+]
 
 async def run_subprocess(cmd: list[str]) -> str:
-    """
-    Asynchronously runs a subprocess and returns its stdout.
-
-    Args:
-        cmd: A list of strings representing the command and its arguments.
-
-    Returns:
-        The decoded and stripped stdout from the subprocess.
-
-    Raises:
-        subprocess.CalledProcessError: If the command returns a non-zero exit code.
-    """
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -63,98 +100,174 @@ async def run_subprocess(cmd: list[str]) -> str:
         creationflags=SUBPROCESS_FLAGS,
     )
     stdout, stderr = await process.communicate()
-
     if process.returncode != 0:
-        raise subprocess.CalledProcessError(
-            process.returncode, cmd, output=stdout, stderr=stderr
-        )
+        raise subprocess.CalledProcessError(process.returncode, cmd, output=stdout, stderr=stderr)
     return stdout.decode().strip()
 
+# --- Legacy Helper Functions ---
 
-async def _get_media_info_win32() -> Dict[str, str]:
-    """
-    Fetches media information on Windows using the Windows SDK.
+def _clean_media_title(title: str, app_name: str) -> tuple[Optional[str], Optional[str]]:
+    if not title or title.strip() == app_name:
+        return None, None
+    
+    clean_title = title
+    for suffix in [f" - {app_name}", f" — {app_name}", f"- {app_name}"]:
+        if clean_title.endswith(suffix):
+            clean_title = clean_title[:-len(suffix)]
+    
+    clean_title = clean_title.replace(app_name, "").strip()
+    for pattern in TITLE_CLEANUP_PATTERNS:
+        clean_title = clean_title.replace(pattern, "")
+    
+    clean_title = clean_title.strip(" -—|")
+    if not clean_title or len(clean_title) < 2:
+        return None, None
+    
+    artist = None
+    song_title = clean_title
+    for separator in [" - ", " — ", " – "]:
+        if separator in clean_title:
+            parts = clean_title.split(separator, 1)
+            if len(parts[0]) < len(parts[1]):
+                artist = parts[0].strip()
+                song_title = parts[1].strip()
+            else:
+                song_title = parts[0].strip()
+                artist = parts[1].strip()
+            break
+    return song_title, artist
 
-    Returns:
-        A dictionary containing media playback information. Returns default
-        values if media is not playing or if the SDK is unavailable/fails.
-    """
+def _get_legacy_media_info_sync() -> Optional[Dict[str, Any]]:
+    if not LEGACY_SUPPORT_AVAILABLE:
+        return None
+
+    found_media = None
+    best_match_priority = -1 
+
+    def enum_window_callback(hwnd, _):
+        nonlocal found_media, best_match_priority
+        if not win32gui.IsWindowVisible(hwnd): return
+        try:
+            length = win32gui.GetWindowTextLength(hwnd)
+            if length == 0: return
+            
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            try:
+                proc = psutil.Process(pid)
+                proc_name = proc.name().lower()
+            except (psutil.NoSuchProcess, psutil.AccessDenied): return
+
+            if proc_name not in KNOWN_LEGACY_PLAYERS: return
+            
+            app_name = KNOWN_LEGACY_PLAYERS[proc_name]
+            title = win32gui.GetWindowText(hwnd)
+            song_title, artist = _clean_media_title(title, app_name)
+            
+            if not song_title: return
+            
+            priority = 10 if proc_name not in ["chrome.exe", "firefox.exe", "msedge.exe"] else 5
+            
+            if priority > best_match_priority:
+                best_match_priority = priority
+                found_media = {
+                    "title": song_title,
+                    "artist": artist or "",
+                    "album_title": "",
+                    "status": "PLAYING", # Assume playing if window title has info
+                    "position_sec": 0,
+                    "duration_sec": 0,
+                    "is_shuffle_active": False,
+                    "repeat_mode": "NONE",
+                    "control_level": "basic",
+                    "source_app": f"{app_name} (Legacy)"
+                }
+        except Exception: pass
+
+    try:
+        win32gui.EnumWindows(enum_window_callback, None)
+    except Exception: pass
+    
+    return found_media
+
+# --- OS Specific Fetchers ---
+
+async def _get_media_info_win32() -> Dict[str, Any]:
+    # 1. Try Modern SMTC
+    smtc_data = None
     try:
         from winsdk.windows.media import MediaPlaybackAutoRepeatMode
-        from winsdk.windows.media.control import (
-            GlobalSystemMediaTransportControlsSessionManager as MediaManager,
-        )
+        from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
 
         manager = await MediaManager.request_async()
         session = manager.get_current_session()
-        if not session:
-            return DEFAULT_MEDIA_INFO
+        
+        if session:
+            info = await session.try_get_media_properties_async()
+            playback_info = session.get_playback_info()
+            timeline = session.get_timeline_properties()
 
-        info = await session.try_get_media_properties_async()
-        timeline = session.get_timeline_properties()
-        playback_info = session.get_playback_info()
+            status_map = {0: "STOPPED", 1: "PAUSED", 2: "STOPPED", 3: "STOPPED", 4: "PLAYING", 5: "PAUSED"}
+            status = status_map.get(playback_info.playback_status, "STOPPED")
+            
+            # Check if data looks valid
+            if info.title and info.title.lower() not in ["", "unknown"]:
+                repeat_map = {
+                    MediaPlaybackAutoRepeatMode.NONE: "NONE",
+                    MediaPlaybackAutoRepeatMode.TRACK: "ONE",
+                    MediaPlaybackAutoRepeatMode.LIST: "ALL",
+                }
+                smtc_data = {
+                    "title": info.title,
+                    "artist": info.artist or "",
+                    "album_title": info.album_title or "",
+                    "status": status,
+                    "position_sec": int(timeline.position.total_seconds()),
+                    "duration_sec": int(timeline.end_time.total_seconds()),
+                    "is_shuffle_active": playback_info.is_shuffle_active or False,
+                    "repeat_mode": repeat_map.get(playback_info.auto_repeat_mode, "NONE"),
+                    "control_level": "full",
+                    "source_app": "Windows Media"
+                }
+    except Exception: pass
 
-        status_map = {
-            0: "STOPPED",
-            1: "PAUSED",
-            2: "STOPPED",
-            3: "STOPPED",
-            4: "PLAYING",
-            5: "PAUSED",
-        }
-        repeat_map = {
-            MediaPlaybackAutoRepeatMode.NONE: "NONE",
-            MediaPlaybackAutoRepeatMode.TRACK: "ONE",
-            MediaPlaybackAutoRepeatMode.LIST: "ALL",
-        }
+    # 2. Try Legacy
+    legacy_data = await asyncio.to_thread(_get_legacy_media_info_sync)
 
-        return {
-            "title": info.title or "Unknown Title",
-            "artist": info.artist or "Unknown Artist",
-            "album_title": info.album_title or "",
-            "status": status_map.get(playback_info.playback_status, "STOPPED"),
-            "position_sec": int(timeline.position.total_seconds()),
-            "duration_sec": int(timeline.end_time.total_seconds()),
-            "is_shuffle_active": playback_info.is_shuffle_active or False,
-            "repeat_mode": repeat_map.get(playback_info.auto_repeat_mode, "NONE"),
-        }
-    except (ImportError, RuntimeError):
-        return DEFAULT_MEDIA_INFO
-    except Exception:
-        return DEFAULT_MEDIA_INFO
+    # 3. Decide which to return
+    # Prefer SMTC if playing or paused with valid title
+    if smtc_data:
+        if smtc_data["status"] == "PLAYING": return smtc_data
+        if smtc_data["status"] == "PAUSED" and not legacy_data: return smtc_data
+    
+    # If legacy has data (title implies it's running), use it
+    if legacy_data:
+        # Legacy scraper assumes PLAYING, but if we have a manual override from a command, logic below handles it
+        return legacy_data
+        
+    # If we have paused SMTC data, return it as fallback
+    if smtc_data:
+        return smtc_data
+        
+    return DEFAULT_MEDIA_INFO.copy()
 
-
-async def _get_media_info_linux() -> Dict[str, str]:
-    """
-    Fetches media information on Linux using `playerctl` asynchronously.
-
-    Returns:
-        A dictionary containing media playback information. Returns default
-        values if no media player is active or if `playerctl` is not found.
-    """
+async def _get_media_info_linux() -> Dict[str, Any]:
     try:
         status_raw = await run_subprocess(["playerctl", "status"])
         status_map = {"Playing": "PLAYING", "Paused": "PAUSED", "Stopped": "STOPPED"}
         status = status_map.get(status_raw, "STOPPED")
 
-        if status == "STOPPED":
-            return DEFAULT_MEDIA_INFO
+        if status == "STOPPED": return DEFAULT_MEDIA_INFO.copy()
 
         metadata_format = "{{title}}||{{artist}}||{{album}}||{{mpris:length}}"
-        metadata_raw = await run_subprocess(
-            ["playerctl", "metadata", "--format", metadata_format]
-        )
-        title, artist, album, length_str = (
-            metadata_raw.split("||", 3) + ["", "", "", ""]
-        )[:4]
+        metadata_raw = await run_subprocess(["playerctl", "metadata", "--format", metadata_format])
+        title, artist, album, length_str = (metadata_raw.split("||", 3) + ["", "", "", ""])[:4]
 
         position_str, shuffle_str, loop_str = await asyncio.gather(
             run_subprocess(["playerctl", "position"]),
             run_subprocess(["playerctl", "shuffle"]),
             run_subprocess(["playerctl", "loop"]),
         )
-        repeat_map = {"None": "NONE", "Track": "ONE", "Playlist": "ALL"}
-
+        
         return {
             "title": title,
             "artist": artist,
@@ -163,22 +276,14 @@ async def _get_media_info_linux() -> Dict[str, str]:
             "position_sec": int(float(position_str)) if position_str else 0,
             "duration_sec": int(int(length_str) / 1_000_000) if length_str else 0,
             "is_shuffle_active": shuffle_str == "On",
-            "repeat_mode": repeat_map.get(loop_str, "NONE"),
+            "repeat_mode": {"None": "NONE", "Track": "ONE", "Playlist": "ALL"}.get(loop_str, "NONE"),
+            "control_level": "full",
+            "source_app": "Playerctl"
         }
-    except (FileNotFoundError, subprocess.CalledProcessError, ValueError):
-        return DEFAULT_MEDIA_INFO
+    except Exception:
+        return DEFAULT_MEDIA_INFO.copy()
 
-
-async def _get_media_info_darwin() -> Dict[str, str]:
-    """
-    Fetches media information on macOS using AppleScript asynchronously.
-
-    Supports Spotify and Music applications.
-
-    Returns:
-        A dictionary containing media playback information. Returns default
-        values if no supported media player is active or if AppleScript fails.
-    """
+async def _get_media_info_darwin() -> Dict[str, Any]:
     script = """
     on getTrackInfo(appName)
         tell application appName
@@ -194,7 +299,6 @@ async def _get_media_info_darwin() -> Dict[str, str]:
         end tell
         return ""
     end getTrackInfo
-
     tell application "System Events"
         if (name of processes) contains "Spotify" then
             set info to my getTrackInfo("Spotify")
@@ -209,16 +313,14 @@ async def _get_media_info_darwin() -> Dict[str, str]:
     """
     try:
         result = await run_subprocess(["osascript", "-e", script])
-        if not result:
-            return DEFAULT_MEDIA_INFO
-
+        if not result: return DEFAULT_MEDIA_INFO.copy()
+        
         parts = result.split("||", 5)
-        if len(parts) != 6:
-            return DEFAULT_MEDIA_INFO
-
+        if len(parts) != 6: return DEFAULT_MEDIA_INFO.copy()
+        
         state, artist, title, album, position, duration = parts
         status_map = {"playing": "PLAYING", "paused": "PAUSED", "stopped": "STOPPED"}
-
+        
         return {
             "title": title,
             "artist": artist,
@@ -228,38 +330,76 @@ async def _get_media_info_darwin() -> Dict[str, str]:
             "duration_sec": int(float(duration)),
             "is_shuffle_active": False,
             "repeat_mode": "NONE",
+            "control_level": "basic",
+            "source_app": "macOS Script"
         }
-    except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
-        return DEFAULT_MEDIA_INFO
+    except Exception:
+        return DEFAULT_MEDIA_INFO.copy()
 
+# --- Main Public Function ---
+
+async def get_media_info_data() -> Dict[str, Any]:
+    current_time = time.time()
+    
+    # 1. Check short-term cache
+    if (_media_info_cache["data"] is not None and 
+        _media_info_cache["data"].get("title") != "Nothing Playing" and
+        current_time - _media_info_cache["timestamp"] < _MEDIA_CACHE_TTL):
+        return _media_info_cache["data"]
+    
+    # 2. Fetch OS Data
+    if sys.platform == "win32":
+        data = await _get_media_info_win32()
+    elif sys.platform == "darwin":
+        data = await _get_media_info_darwin()
+    elif sys.platform.startswith("linux"):
+        data = await _get_media_info_linux()
+    else:
+        data = DEFAULT_MEDIA_INFO.copy()
+    
+    # 3. Sticky Logic for Legacy/Flickering
+    is_empty = (data.get("status") in ["STOPPED", "NO_SESSION", "INACTIVE"] 
+                or data.get("title") in ["Nothing Playing", "Unknown", ""])
+    
+    last_valid = _media_info_cache.get("last_valid_data")
+    last_time = _media_info_cache.get("last_valid_time", 0)
+
+    # If current is empty but we had valid data recently
+    if is_empty and last_valid and (current_time - last_time < _LEGACY_STATE_RETENTION):
+        # Infer PAUSED state
+        synthetic_data = last_valid.copy()
+        if last_valid.get("status") == "PLAYING":
+            synthetic_data["status"] = "PAUSED"
+        _media_info_cache["data"] = synthetic_data
+        _media_info_cache["timestamp"] = current_time
+        return synthetic_data
+
+    # 4. Update Cache
+    _media_info_cache["data"] = data
+    _media_info_cache["timestamp"] = current_time
+    
+    if not is_empty and data.get("title") != "Nothing Playing":
+        _media_info_cache["last_valid_data"] = data
+        _media_info_cache["last_valid_time"] = current_time
+        
+    return data
+
+# --- System Info Helpers (Unchanged) ---
 
 class NetworkMonitor:
-    """
-    Monitors network speed by calculating the difference in I/O counters over time.
-    """
     def __init__(self):
         self.last_update_time = time.time()
         self.last_io_counters = psutil.net_io_counters()
 
     def get_speed(self) -> Dict[str, float]:
-        """
-        Calculates and returns the current upload and download speeds in Mbps.
-
-        Returns:
-            A dictionary with 'upload_mbps' and 'download_mbps'.
-        """
         current_time = time.time()
         current_io_counters = psutil.net_io_counters()
         time_delta = current_time - self.last_update_time
         if time_delta < 0.1:
             return {"upload_mbps": 0.0, "download_mbps": 0.0}
 
-        bytes_sent_delta = (
-            current_io_counters.bytes_sent - self.last_io_counters.bytes_sent
-        )
-        bytes_recv_delta = (
-            current_io_counters.bytes_recv - self.last_io_counters.bytes_recv
-        )
+        bytes_sent_delta = current_io_counters.bytes_sent - self.last_io_counters.bytes_sent
+        bytes_recv_delta = current_io_counters.bytes_recv - self.last_io_counters.bytes_recv
 
         upload_speed_mbps = (bytes_sent_delta * 8 / time_delta) / 1_000_000
         download_speed_mbps = (bytes_recv_delta * 8 / time_delta) / 1_000_000
@@ -272,56 +412,12 @@ class NetworkMonitor:
             "download_mbps": round(download_speed_mbps, 2),
         }
 
-
-async def get_media_info_data() -> Dict[str, str]:
-    """
-    Retrieves media playback information based on the operating system.
-    Uses caching to reduce expensive subprocess spawning and SDK calls.
-
-    Returns:
-        A dictionary containing media playback details.
-    """
-    current_time = time.time()
-    
-    # Return cached data if still valid
-    if (_media_info_cache["data"] is not None and 
-        current_time - _media_info_cache["timestamp"] < _MEDIA_CACHE_TTL):
-        return _media_info_cache["data"]
-    
-    # Fetch new data
-    if sys.platform == "win32":
-        data = await _get_media_info_win32()
-    elif sys.platform == "darwin":
-        data = await _get_media_info_darwin()
-    elif sys.platform.startswith("linux"):
-        data = await _get_media_info_linux()
-    else:
-        data = DEFAULT_MEDIA_INFO
-    
-    # Update cache
-    _media_info_cache["data"] = data
-    _media_info_cache["timestamp"] = current_time
-    
-    return data
-
-
 def _get_sync_system_info(network_monitor: NetworkMonitor) -> Dict:
-    """
-    Synchronously gathers a comprehensive set of system information using psutil.
-
-    Args:
-        network_monitor: An instance of NetworkMonitor to get real-time network speed.
-
-    Returns:
-        A dictionary containing detailed system, CPU, RAM, swap, and network info.
-    """
     mem = psutil.virtual_memory()
     swap = psutil.swap_memory()
     cpu_freq = psutil.cpu_freq()
     boot_timestamp = psutil.boot_time()
     uptime_seconds = time.time() - boot_timestamp
-
-    # Get network speed once to use in both old and new data structures
     current_speed = network_monitor.get_speed()
 
     temps_info = {}
@@ -333,8 +429,7 @@ def _get_sync_system_info(network_monitor: NetworkMonitor) -> Dict:
                     temps_info['cpu_temp_celsius'] = temps['coretemp'][0].current
                 elif 'k10temp' in temps and temps['k10temp']:
                     temps_info['cpu_temp_celsius'] = temps['k10temp'][0].current
-        except Exception:
-            pass
+        except Exception: pass
 
     return {
         "os": f"{platform.system()} {platform.release()}",
@@ -362,46 +457,24 @@ def _get_sync_system_info(network_monitor: NetworkMonitor) -> Dict:
             "used_gb": round(swap.used / (1024**3), 2),
             "free_gb": round(swap.free / (1024**3), 2),
         },
-        # The new, richer network object for updated clients
         "network": {
             "speed": current_speed,
             "io_total": psutil.net_io_counters()._asdict(),
         },
-        # FIX: Restore the original 'network_speed' key for backward compatibility
         "network_speed": current_speed,
         "sensors": temps_info,
     }
 
-
 async def get_system_info_data(network_monitor: NetworkMonitor) -> Dict:
-    """
-    Asynchronously retrieves system information by running synchronous calls
-    in a thread pool executor.
-
-    Args:
-        network_monitor: An instance of NetworkMonitor to get network speed.
-
-    Returns:
-        A dictionary containing system, CPU, RAM, and network speed information.
-    """
     return await asyncio.to_thread(_get_sync_system_info, network_monitor)
 
-
 def _get_sync_disks_info() -> Dict[str, List]:
-    """
-    Synchronously gathers detailed information about all physical disk partitions.
-    Filters out virtual filesystems, loop devices, and CD-ROMs.
-    """
     disks = []
     try:
         partitions = psutil.disk_partitions(all=False)
         for p in partitions:
-            if not p.fstype:
-                continue
-
-            if sys.platform.startswith("linux") and p.device.startswith(("/dev/loop", "/dev/snap")):
-                continue
-
+            if not p.fstype: continue
+            if sys.platform.startswith("linux") and p.device.startswith(("/dev/loop", "/dev/snap")): continue
             try:
                 usage = psutil.disk_usage(p.mountpoint)
                 disks.append({
@@ -411,21 +484,12 @@ def _get_sync_disks_info() -> Dict[str, List]:
                     "free": f"{round(usage.free / (1024**3), 1)} GB",
                     "percent": int(usage.percent),
                 })
-            except (PermissionError, FileNotFoundError):
-                log.warning(f"Could not access disk usage for {p.mountpoint}")
-                continue
+            except Exception: continue
         return {"disks": disks}
-    except Exception as e:
-        log.error(f"An unexpected error occurred while getting disk info: {e}")
-        return {"disks": []}
-
+    except Exception: return {"disks": []}
 
 async def get_disks_info_data() -> Dict[str, List]:
-    """
-    Asynchronously retrieves disk information for all physical drives.
-    """
     return await asyncio.to_thread(_get_sync_disks_info)
-
 
 if PYNPUT_AVAILABLE:
     mouse_controller = MouseController()
@@ -440,35 +504,12 @@ else:
     button_map = {}
 
 key_map = {
-    "enter": Key.enter,
-    "esc": Key.esc,
-    "shift": Key.shift,
-    "ctrl": Key.ctrl,
-    "alt": Key.alt,
-    "cmd": Key.cmd,
-    "win": Key.cmd,
-    "backspace": Key.backspace,
-    "delete": Key.delete,
-    "tab": Key.tab,
-    "space": Key.space,
-    "up": Key.up,
-    "down": Key.down,
-    "left": Key.left,
-    "right": Key.right,
-    "f1": Key.f1, "f2": Key.f2, "f3": Key.f3, "f4": Key.f4,
-    "f5": Key.f5, "f6": Key.f6, "f7": Key.f7, "f8": Key.f8,
-    "f9": Key.f9, "f10": Key.f10, "f11": Key.f11, "f12": Key.f12,
+    "enter": Key.enter, "esc": Key.esc, "shift": Key.shift, "ctrl": Key.ctrl, "alt": Key.alt,
+    "cmd": Key.cmd, "win": Key.cmd, "backspace": Key.backspace, "delete": Key.delete, "tab": Key.tab,
+    "space": Key.space, "up": Key.up, "down": Key.down, "left": Key.left, "right": Key.right,
+    "f1": Key.f1, "f2": Key.f2, "f3": Key.f3, "f4": Key.f4, "f5": Key.f5, "f6": Key.f6,
+    "f7": Key.f7, "f8": Key.f8, "f9": Key.f9, "f10": Key.f10, "f11": Key.f11, "f12": Key.f12,
 }
 
-
 def get_key(key_str: str):
-    """
-    Converts a string representation of a key to a pynput Key object.
-
-    Args:
-        key_str: The string representation of the key (e.g., "enter", "a").
-
-    Returns:
-        A pynput Key object or the original string if it's not a special key.
-    """
     return key_map.get(key_str.lower(), key_str)
