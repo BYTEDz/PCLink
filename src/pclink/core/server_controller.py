@@ -20,7 +20,7 @@ from .config import config_manager
 from .state import connected_devices
 from .utils import DummyTty
 from .web_auth import web_auth_manager
-from .startup import StartupManager  # NEW IMPORT
+from .startup import StartupManager
 
 log = logging.getLogger(__name__)
 
@@ -156,6 +156,29 @@ class ServerController:
     def start_mobile_api(self):
         if web_auth_manager.is_setup_completed():
             self.activate_secure_mode()
+
+    # --- Compatibility methods for API (api.py expects these names) ---
+    def start_server(self):
+        """
+        Alias for start_mobile_api to be compatible with api.py expectation.
+        This enables the device connectivity (Mobile API & Discovery).
+        """
+        self.start_mobile_api()
+
+    def stop_server(self):
+        """
+        Alias for stop_mobile_api to be compatible with api.py expectation.
+        This disables device connectivity but keeps the Web UI running.
+        """
+        self.stop_mobile_api()
+
+    def stop_server_completely(self):
+        """
+        Alias for shutdown to be compatible with api.py expectation.
+        Stops the entire application.
+        """
+        self.shutdown()
+    # ------------------------------------------------------------------
 
     def restart(self):
         log.info("Restarting PCLink server...")

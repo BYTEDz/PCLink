@@ -3,6 +3,7 @@ import shutil
 import time
 import uuid
 import logging
+import json
 from pathlib import Path
 
 # UPDATED: Import ClientDisconnect to handle pauses/cancellations gracefully
@@ -207,6 +208,51 @@ async def cancel_upload(
     manage_session_file(upload_id, operation="delete", session_type="upload")
     bg_tasks.add_task(cleanup_transfer_session, upload_id)
     return {"status": "cancelled"}
+
+@upload_router.get("/list-active")
+async def list_active_uploads(client_id: str = Depends(get_client_id)):
+    active = []
+    # From Memory
+    for uid, uid_str in ACTIVE_UPLOADS.get(client_id, {}).items():
+        # ACTIVE_UPLOADS stores {final_path: upload_id}
+        # We need to look up metadata
+        try:
+             metadata = manage_session_file(uid_str, operation="read", session_type="upload")
+             if metadata:
+                 part_file = TEMP_UPLOAD_DIR / f"{uid_str}.part"
+                 bytes_received = part_file.stat().st_size if part_file.exists() else 0
+                 
+                 active.append({
+                     "upload_id": uid_str,
+                     "file_name": metadata.get("file_name"),
+                     "status": metadata.get("status", "active"),
+                     "progress": (bytes_received / metadata["file_size"]) * 100 if metadata.get("file_size") else 0,
+                     "bytes_transferred": bytes_received,
+                     "total_size": metadata.get("file_size")
+                 })
+        except: pass
+    
+    # From Disk (orphaned/paused sessions not in memory)
+    seen = {x["upload_id"] for x in active}
+    for sess_file in TEMP_UPLOAD_DIR.glob("*.meta"):
+        if sess_file.stem in seen: continue
+        try:
+            data = json.loads(sess_file.read_text(encoding="utf-8"))
+            if data.get("client_id") == client_id:
+                 part_file = TEMP_UPLOAD_DIR / f"{sess_file.stem}.part"
+                 bytes_received = part_file.stat().st_size if part_file.exists() else 0
+                 
+                 active.append({
+                    "upload_id": sess_file.stem,
+                    "file_name": data["file_name"],
+                    "status": data.get("status", "paused"),
+                    "progress": (bytes_received / data["file_size"]) * 100 if data.get("file_size") else 0,
+                    "bytes_transferred": bytes_received,
+                    "total_size": data.get("file_size")
+                 })
+        except: pass
+        
+    return {"active_uploads": active}
 
 @upload_router.post("/restore-sessions")
 async def restore_upload_sessions():
