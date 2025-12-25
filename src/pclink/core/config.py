@@ -27,6 +27,7 @@ DEFAULT_SETTINGS = {
     "allow_insecure_shell": False,
     "server_port": constants.DEFAULT_PORT,
     "auto_start": False,
+    "transfer_cleanup_threshold": 7,
 }
 
 

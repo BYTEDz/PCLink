@@ -55,7 +55,7 @@ class PCLinkWebUI {
         }, 30 * 60 * 1000);
 
         setTimeout(() => checkForUpdates(), 5000);
-        setTimeout(() => loadNotificationSettings(), 1000);
+        setTimeout(() => this.loadNotificationSettings(), 1000);
     }
 
     setupEventListeners() {
@@ -344,27 +344,42 @@ class PCLinkWebUI {
 
     async loadDevices() {
         try {
-            const data = await fetch('/devices');
-            if (data.ok) {
-                const result = await data.json();
+            const response = await this.webUICall('/devices');
+            if (response.ok) {
+                const result = await response.json();
                 this.devices = result.devices || [];
                 this.displayDevices();
                 this.updateDeviceCount();
             }
         } catch (error) {
-            document.getElementById('deviceList').innerHTML = '<p class="error">Failed to load devices</p>';
+            console.error('Failed to load devices:', error);
+            const deviceList = document.getElementById('deviceList');
+            if (deviceList) deviceList.innerHTML = '<p class="error">Failed to load devices</p>';
         }
     }
 
     async loadLogs() {
         try {
-            const response = await fetch('/logs');
+            const logContainer = document.getElementById('logContainer');
+            const isAtBottom = logContainer && (logContainer.scrollHeight - logContainer.scrollTop <= logContainer.clientHeight + 50);
+
+            const response = await this.webUICall('/logs');
             if (response.ok) {
                 const data = await response.json();
-                document.getElementById('logContent').textContent = data.logs || 'No logs available';
+                const logContent = document.getElementById('logContent');
+                if (logContent) {
+                    logContent.textContent = data.logs || 'No logs available';
+
+                    // Auto-scroll to bottom if user was already at the bottom
+                    if (isAtBottom && logContainer) {
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                    }
+                }
             }
         } catch (error) {
-            document.getElementById('logContent').textContent = 'Failed to load logs';
+            console.error('Failed to load logs:', error);
+            const logContent = document.getElementById('logContent');
+            if (logContent) logContent.textContent = 'Failed to load logs';
         }
     }
 
@@ -493,13 +508,10 @@ class PCLinkWebUI {
                 if (allowTerminal) {
                     allowTerminal.checked = settings.allow_terminal_access !== false; // Default to true
                 }
-                // Only update visibility if setting is explicitly false
-                if (settings.allow_terminal_access === false) {
-                    this.updateTerminalVisibility(false);
-                }
-
                 const autoOpen = document.getElementById('autoOpenWebUI');
                 if (autoOpen) autoOpen.checked = settings.auto_open_webui !== false;
+
+                await this.loadTransferSettings();
             }
         } catch (e) {
             // If settings fail to load, keep logs visible by default
@@ -509,6 +521,24 @@ class PCLinkWebUI {
     updateTerminalVisibility(isAllowed) {
         const terminalBtn = document.querySelector('.nav-item[data-tab="logs"]');
         if (terminalBtn) terminalBtn.style.display = isAllowed ? '' : 'none';
+    }
+
+    async loadTransferSettings() {
+        try {
+            const response = await fetch('/transfers/cleanup/status');
+            if (response.ok) {
+                const data = await response.json();
+                const thresholdInput = document.getElementById('cleanupThresholdInput');
+                if (thresholdInput) thresholdInput.value = data.threshold_days;
+
+                const statusText = document.getElementById('cleanupStatusText');
+                if (statusText) {
+                    statusText.innerHTML = `Found <strong>${data.total_stale}</strong> stale items (${data.stale_uploads} uploads, ${data.stale_downloads} downloads).`;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load transfer settings:', e);
+        }
     }
 }
 
@@ -542,7 +572,12 @@ function refreshLogs() { window.pclinkUI.loadLogs(); }
 function toggleAutoRefresh() {
     window.pclinkUI.autoRefreshEnabled = !window.pclinkUI.autoRefreshEnabled;
     const btn = document.getElementById('autoRefreshToggle');
-    if (btn) btn.innerHTML = window.pclinkUI.autoRefreshEnabled ? 'Auto-refresh: ON' : 'Auto-refresh: OFF';
+    if (btn) {
+        const statusText = window.pclinkUI.autoRefreshEnabled ? 'ON' : 'OFF';
+        const iconName = window.pclinkUI.autoRefreshEnabled ? 'pause' : 'play';
+        btn.innerHTML = `<i data-feather="${iconName}"></i> Auto-refresh: ${statusText}`;
+        if (window.feather) feather.replace();
+    }
 }
 
 async function saveSettings() {
@@ -561,9 +596,44 @@ async function saveSettings() {
             })
         });
         window.pclinkUI.showToast('Success', 'Settings saved');
-        window.pclinkUI.updateTerminalVisibility(allowTerminal);
     } catch (e) {
         window.pclinkUI.showToast('Error', 'Failed to save settings', 'error');
+    }
+}
+
+async function saveTransferSettings() {
+    const threshold = parseInt(document.getElementById('cleanupThresholdInput').value);
+    if (isNaN(threshold) || threshold < 0) {
+        window.pclinkUI.showToast('Error', 'Invalid threshold value', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch('/transfers/cleanup/config', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ threshold: threshold })
+        });
+        if (response.ok) {
+            window.pclinkUI.showToast('Success', 'Cleanup threshold updated');
+            window.pclinkUI.loadTransferSettings();
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Failed to save transfer settings', 'error');
+    }
+}
+
+async function executeCleanup() {
+    try {
+        const response = await fetch('/transfers/cleanup/execute', { method: 'POST' });
+        if (response.ok) {
+            const data = await response.json();
+            const total = data.cleaned.uploads + data.cleaned.downloads;
+            window.pclinkUI.showToast('Success', `Cleaned up ${total} stale items`, 'success');
+            window.pclinkUI.loadTransferSettings();
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Failed to execute cleanup', 'error');
     }
 }
 

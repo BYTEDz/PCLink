@@ -345,6 +345,28 @@
                         </button>
                     </div>
                 </div>
+
+                <div class="card">
+                    <h3><i data-feather="trash-2"></i> Transfer Management</h3>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label>Session Cleanup Threshold (Days):</label>
+                            <input type="number" id="cleanupThresholdInput" min="0" max="365">
+                            <small>Partial uploads (.part) and download sessions older than this will be automatically cleaned up.</small>
+                        </div>
+                        <div class="form-group" id="cleanupStatusGroup">
+                            <p id="cleanupStatusText">Checking for stale sessions...</p>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" onclick="saveTransferSettings()">
+                                <i data-feather="save"></i> Save Threshold
+                            </button>
+                            <button class="btn btn-warning" onclick="executeCleanup()">
+                                <i data-feather="trash-2"></i> Clean Up Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="tab-content" id="logs">

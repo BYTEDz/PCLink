@@ -45,7 +45,7 @@ from .applications_router import router as applications_router
 log = logging.getLogger(__name__)
 
 # --- Pydantic Models ---
-class AnnouncePayload(BaseModel): name: str; local_ip: Optional[str] = None
+class AnnouncePayload(BaseModel): name: str; local_ip: Optional[str] = None; platform: Optional[str] = None; client_version: Optional[str] = None; device_id: Optional[str] = None
 class QrPayload(BaseModel): protocol: str; ip: str; port: int; apiKey: str; certFingerprint: Optional[str] = None
 class PairingRequestPayload(BaseModel): device_name: str; device_id: Optional[str] = None; device_fingerprint: Optional[str] = None; client_version: Optional[str] = None; platform: Optional[str] = None
 
@@ -199,7 +199,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                 while True:
                     await asyncio.sleep(3600)
                     try:
-                        await cleanup_stale_sessions()
+                        from ..core.config import config_manager
+                        threshold = config_manager.get("transfer_cleanup_threshold", 7)
+                        await cleanup_stale_sessions(threshold_days=threshold)
                     except Exception as e:
                         log.error(f"Periodic cleanup failed: {e}")
             
@@ -360,7 +362,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         for device in device_manager.get_all_devices():
             if device.is_approved: devices.append({ "id": device.device_id, "name": device.device_name, "ip": device.current_ip, "platform": device.platform, "last_seen": device.last_seen.isoformat() if device.last_seen else "Never", "client_version": device.client_version })
         for ip, device_info in connected_devices.items():
-            if not any(d["ip"] == ip for d in devices): devices.append({ "id": ip, "name": device_info.get("name", "Unknown Device"), "ip": ip, "platform": "Unknown", "last_seen": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(device_info.get("last_seen", 0))), "client_version": "Unknown" })
+            if not any(d["ip"] == ip for d in devices): devices.append({ "id": ip, "name": device_info.get("name", "Unknown Device"), "ip": ip, "platform": device_info.get("platform", "Unknown"), "last_seen": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(device_info.get("last_seen", 0))), "client_version": device_info.get("client_version", "Unknown") })
         return {"devices": devices}
     
     @app.post("/devices/remove-all", dependencies=[WEB_AUTH])
@@ -516,7 +518,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def announce_device(request: Request, payload: AnnouncePayload):
         client_ip = request.client.host
         is_new = client_ip not in connected_devices
-        connected_devices[client_ip] = {"last_seen": time.time(), "name": payload.name, "ip": client_ip}
+        connected_devices[client_ip] = {"last_seen": time.time(), "name": payload.name, "ip": client_ip, "platform": payload.platform, "client_version": payload.client_version, "device_id": payload.device_id}
         if is_new:
             log.info(f"New device connected: {payload.name} ({client_ip})")
             notification_payload = {"type": "notification", "data": {"title": "Device Connected", "message": f"{payload.name} ({client_ip}) has connected.", "timestamp": datetime.now(timezone.utc).isoformat()}}
@@ -623,6 +625,62 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             log.error(f"Failed to shutdown server: {e}")
             raise HTTPException(status_code=500, detail=str(e))
         
+    @app.get("/transfers/cleanup/status", dependencies=[WEB_AUTH])
+    async def get_transfer_cleanup_status():
+        try:
+            from .transfers.session import TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
+            from ..core.config import config_manager
+            
+            threshold = config_manager.get("transfer_cleanup_threshold", 7)
+            current_time = time.time()
+            threshold_seconds = threshold * 24 * 60 * 60
+            
+            stale_uploads = 0
+            for meta in TEMP_UPLOAD_DIR.glob("*.meta"):
+                if current_time - meta.stat().st_mtime > threshold_seconds:
+                    stale_uploads += 1
+                    
+            stale_downloads = 0
+            for sess in DOWNLOAD_SESSION_DIR.glob("*.json"):
+                if current_time - sess.stat().st_mtime > threshold_seconds:
+                    stale_downloads += 1
+                    
+            return {
+                "threshold_days": threshold,
+                "stale_uploads": stale_uploads,
+                "stale_downloads": stale_downloads,
+                "total_stale": stale_uploads + stale_downloads
+            }
+        except Exception as e:
+            log.error(f"Failed to get cleanup status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/transfers/cleanup/execute", dependencies=[WEB_AUTH])
+    async def execute_transfer_cleanup():
+        try:
+            from ..core.config import config_manager
+            threshold = config_manager.get("transfer_cleanup_threshold", 7)
+            result = await cleanup_stale_sessions(threshold_days=threshold)
+            return {"status": "success", "cleaned": result}
+        except Exception as e:
+            log.error(f"Manual cleanup failed: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.patch("/transfers/cleanup/config", dependencies=[WEB_AUTH])
+    async def update_transfer_cleanup_config(request: Request):
+        try:
+            data = await request.json()
+            threshold = data.get("threshold")
+            if threshold is None or not isinstance(threshold, int) or threshold < 0:
+                raise HTTPException(status_code=400, detail="Invalid threshold value")
+            
+            from ..core.config import config_manager
+            config_manager.set("transfer_cleanup_threshold", threshold)
+            return {"status": "success", "threshold": threshold}
+        except Exception as e:
+            log.error(f"Failed to update cleanup config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     return app
 
 async def broadcast_updates_task(manager: ConnectionManager, state: Any, network_monitor: NetworkMonitor):
