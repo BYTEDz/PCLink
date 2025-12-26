@@ -5,18 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PCLink Control Panel</title>
-    <link rel="stylesheet" href="/ui/static/style.css?v=20">
+    <link rel="stylesheet" href="/ui/static/style.css?v=31">
 
-    <!-- Favicon - SVG with ICO fallback -->
     <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg">
     <link rel="icon" type="image/x-icon" href="/ui/assets/icon.ico">
 </head>
 
 <body>
-    <!-- Redesigned Header -->
     <header class="main-header">
         <div class="header-container">
-            <!-- Brand Section -->
             <div class="header-brand">
                 <div class="brand-logo">
                     <img src="/ui/assets/pclink.svg" width="30" height="30" alt="PCLink Logo">
@@ -27,121 +24,99 @@
                 </div>
             </div>
 
-            <!-- Status Section -->
-            <div class="header-status">
-                <div class="connection-status" id="connectionStatus" onclick="window.pclinkUI?.updateConnectionStatus()"
-                    title="Click to refresh status">
-                    <div class="connection-icon">
-                        <i data-feather="wifi"></i>
-                        <span class="status-pulse offline"></span>
-                    </div>
-                    <div class="connection-info">
-                        <span class="connection-label">Server Status</span>
-                        <span class="connection-value">Checking...</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Actions Section -->
             <div class="header-actions">
+                <div class="status-badge" id="serverStatusBadge">
+                    <span class="status-dot online"></span>
+                    <span id="serverStatusText">Online</span>
+                </div>
                 <button class="action-btn logout-btn" onclick="logout()" title="Logout">
                     <i data-feather="log-out"></i>
                     <span>Logout</span>
                 </button>
             </div>
         </div>
+    </header>
 
-        <!-- Navigation Bar -->
-        <nav class="header-nav">
-            <div class="nav-container">
-                <button class="nav-btn active" data-tab="dashboard">
+    <div class="app-layout">
+        <aside class="sidebar">
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-tab="dashboard">
                     <i data-feather="home"></i>
                     <span>Dashboard</span>
                 </button>
-                <button class="nav-btn" data-tab="devices">
+                <button class="nav-item" data-tab="devices">
                     <i data-feather="smartphone"></i>
                     <span>Devices</span>
                 </button>
-                <button class="nav-btn" data-tab="pairing">
+                <button class="nav-item" data-tab="pairing">
                     <i data-feather="link"></i>
                     <span>Pairing</span>
                 </button>
-                <button class="nav-btn" data-tab="settings">
+                <button class="nav-item" data-tab="settings">
                     <i data-feather="settings"></i>
                     <span>Settings</span>
                 </button>
-                <button class="nav-btn" data-tab="logs">
+                <button class="nav-item" data-tab="logs">
                     <i data-feather="terminal"></i>
                     <span>Logs</span>
                 </button>
-                <button class="nav-btn" data-tab="guide">
+                <button class="nav-item" data-tab="guide">
                     <i data-feather="book-open"></i>
                     <span>Guide</span>
                 </button>
-                <button class="nav-btn" data-tab="about">
+                <button class="nav-item" data-tab="about">
                     <i data-feather="help-circle"></i>
                     <span>About</span>
                 </button>
-            </div>
-        </nav>
-    </header>
+            </nav>
 
-    <div class="container">
-        <!-- Update Banner -->
-        <div id="updateBanner" class="update-banner" style="display: none;">
-            <div class="update-content">
-                <div class="update-header">
-                    <i data-feather="download" class="update-icon"></i>
-                    <div class="update-title">
-                        <strong>New Update Available!</strong>
-                        <span id="updateVersion">Version X.X.X is now available</span>
+            <div class="sidebar-footer">
+                <a href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink" target="_blank"
+                    class="play-store-card">
+                    <div class="play-store-icon">
+                        <i data-feather="download"></i>
                     </div>
-                    <button class="btn-icon" onclick="dismissUpdate()" title="Dismiss">
-                        <i data-feather="x"></i>
-                    </button>
-                </div>
-                <div id="updateReleaseNotes" class="update-release-notes" style="display: none;">
-                    <div class="release-notes-content" id="releaseNotesContent"></div>
-                </div>
-                <div class="update-actions">
-                    <button class="btn btn-sm btn-primary" onclick="downloadUpdate()">
-                        <i data-feather="download"></i> Download Update
-                    </button>
-                    <button class="btn btn-sm btn-secondary" id="toggleReleaseNotes" onclick="toggleReleaseNotes()"
-                        style="display: none;">
-                        <i data-feather="chevron-down"></i> <span id="toggleNotesText">Show Release Notes</span>
-                    </button>
-                    <a id="viewFullReleaseLink" class="btn btn-sm" href="#" target="_blank" style="display: none;">
-                        <i data-feather="external-link"></i> View Full Release
-                    </a>
+                    <div class="play-store-text">
+                        <span>Get Companion App</span>
+                        <small>Google Play Store</small>
+                    </div>
+                </a>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div id="updateBanner" class="update-banner" style="display: none;">
+                <div class="update-content">
+                    <div class="update-header">
+                        <i data-feather="download" class="update-icon"></i>
+                        <div class="update-title">
+                            <strong>New Update Available!</strong>
+                            <span id="updateVersion">Version X.X.X is now available</span>
+                        </div>
+                        <button class="btn-icon" onclick="dismissUpdate()" title="Dismiss">
+                            <i data-feather="x"></i>
+                        </button>
+                    </div>
+                    <div id="updateReleaseNotes" class="update-release-notes" style="display: none;">
+                        <div class="release-notes-content" id="releaseNotesContent"></div>
+                    </div>
+                    <div class="update-actions">
+                        <button class="btn btn-sm btn-primary" onclick="downloadUpdate()">
+                            <i data-feather="download"></i> Download Update
+                        </button>
+                        <button class="btn btn-sm btn-secondary" id="toggleReleaseNotes" onclick="toggleReleaseNotes()"
+                            style="display: none;">
+                            <i data-feather="chevron-down"></i> <span id="toggleNotesText">Show Release Notes</span>
+                        </button>
+                        <a id="viewFullReleaseLink" class="btn btn-sm" href="#" target="_blank" style="display: none;">
+                            <i data-feather="external-link"></i> View Full Release
+                        </a>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <main>
-            <!-- Dashboard Tab -->
             <div class="tab-content active" id="dashboard">
                 <div class="card">
-                    <div class="status-header">
-                        <div class="status-icon-large">
-                            <img src="/ui/assets/pclink.svg" width="50" height="50" alt="PCLink Logo">
-                        </div>
-                        <div class="status-info">
-                            <h2>PCLink Server</h2>
-                            <div class="status-badge" id="serverStatusBadge">
-                                <span class="status-dot online"></span>
-                                <span id="serverStatusText">Online</span>
-                            </div>
-                        </div>
-                        <div class="status-actions">
-                            <button class="btn btn-sm" onclick="window.pclinkUI.updateConnectionStatus()">
-                                <i data-feather="refresh-cw"></i>
-                                Refresh
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Server Control Section -->
                     <div class="server-controls">
                         <h4><i data-feather="power"></i> Server Control</h4>
                         <div class="control-buttons">
@@ -168,7 +143,6 @@
                         </div>
                     </div>
 
-                    <!-- Consolidated Metrics -->
                     <div class="status-metrics">
                         <div class="metric">
                             <div class="metric-icon"><i data-feather="globe"></i></div>
@@ -199,34 +173,16 @@
                             </div>
                         </div>
                         <div class="metric">
-                            <div class="metric-icon"><i data-feather="activity"></i></div>
+                            <div class="metric-icon"><i data-feather="clock"></i></div>
                             <div class="metric-content">
-                                <span class="metric-label">Server Uptime</span>
+                                <span class="metric-label">Uptime</span>
                                 <span class="metric-value" id="serverUptime">Just started</span>
                             </div>
                         </div>
-                        <div class="metric">
-                            <div class="metric-icon"><i data-feather="shield"></i></div>
-                            <div class="metric-content">
-                                <span class="metric-label">Security</span>
-                                <span class="metric-value">HTTPS Enabled</span>
-                            </div>
-                        </div>
-                        <a href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink" target="_blank"
-                            class="metric metric-link">
-                            <div class="metric-icon"><i data-feather="download"></i></div>
-                            <div class="metric-content">
-                                <span class="metric-label">Companion App</span>
-                                <span class="metric-value">Get from Play Store</span>
-                            </div>
-                            <div class="metric-arrow"><i data-feather="arrow-right"></i></div>
-                        </a>
                     </div>
                 </div>
             </div>
 
-
-            <!-- Device Pairing Tab -->
             <div class="tab-content" id="pairing">
                 <div class="card">
                     <h3><i data-feather="smartphone"></i> Pair New Device</h3>
@@ -241,7 +197,6 @@
                             </button>
                         </div>
                         <div id="qrCodeDisplay" class="qr-display">
-                            <!-- QR code will appear here -->
                         </div>
                     </div>
                     <div class="pairing-instructions">
@@ -271,7 +226,6 @@
                 </div>
             </div>
 
-            <!-- Connected Devices Tab -->
             <div class="tab-content" id="devices">
                 <div class="card">
                     <h3><i data-feather="smartphone"></i> Connected Client Devices</h3>
@@ -296,7 +250,6 @@
                 </div>
             </div>
 
-            <!-- Server Settings Tab -->
             <div class="tab-content" id="settings">
                 <div class="card">
                     <h3><i data-feather="settings"></i> Server Configuration</h3>
@@ -392,9 +345,30 @@
                         </button>
                     </div>
                 </div>
+
+                <div class="card">
+                    <h3><i data-feather="trash-2"></i> Transfer Management</h3>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label>Session Cleanup Threshold (Days):</label>
+                            <input type="number" id="cleanupThresholdInput" min="0" max="365">
+                            <small>Partial uploads (.part) and download sessions older than this will be automatically cleaned up.</small>
+                        </div>
+                        <div class="form-group" id="cleanupStatusGroup">
+                            <p id="cleanupStatusText">Checking for stale sessions...</p>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" onclick="saveTransferSettings()">
+                                <i data-feather="save"></i> Save Threshold
+                            </button>
+                            <button class="btn btn-warning" onclick="executeCleanup()">
+                                <i data-feather="trash-2"></i> Clean Up Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <!-- Logs Tab -->
             <div class="tab-content" id="logs">
                 <div class="card">
                     <h3><i data-feather="file-text"></i> Server Logs</h3>
@@ -421,8 +395,117 @@
                 </div>
             </div>
 
-            <!-- Guide Tab -->
             <div class="tab-content" id="guide">
+                <div class="card">
+                    <h3><i data-feather="tool"></i> Connection Troubleshooting</h3>
+                    <p>Having trouble connecting? Use these diagnostics to resolve common issues.</p>
+
+                    <details class="guide-details" open>
+                        <summary><i data-feather="check-square"></i> Common Issues Checklist</summary>
+                        <div class="guide-section">
+                            <ul style="list-style: none; padding-left: 0;">
+                                <li style="margin-bottom: 8px;"><i data-feather="check"
+                                        style="width: 16px; height: 16px; color: var(--success-color);"></i> Server is
+                                    running (check system tray/status above)</li>
+                                <li style="margin-bottom: 8px;"><i data-feather="check"
+                                        style="width: 16px; height: 16px; color: var(--success-color);"></i> Firewall
+                                    allows PCLink (see below)</li>
+                                <li style="margin-bottom: 8px;"><i data-feather="check"
+                                        style="width: 16px; height: 16px; color: var(--success-color);"></i> Both
+                                    devices on same WiFi/Network</li>
+                                <li style="margin-bottom: 8px;"><i data-feather="check"
+                                        style="width: 16px; height: 16px; color: var(--success-color);"></i> No VPN
+                                    active on either device</li>
+                                <li style="margin-bottom: 8px;"><i data-feather="check"
+                                        style="width: 16px; height: 16px; color: var(--success-color);"></i> IP
+                                    addresses in same subnet (e.g. 192.168.1.x)</li>
+                            </ul>
+                        </div>
+                    </details>
+
+                    <details class="guide-details">
+                        <summary><i data-feather="shield"></i> Firewall Configuration</summary>
+                        <div class="guide-section">
+                            <p class="guide-note">Windows Firewall is the most common cause of connection issues. Ensure
+                                PCLink is allowed.</p>
+
+                            <div class="command-list">
+                                <div class="command-item" onclick="copyCommand(this)">
+                                    <div class="command-header">
+                                        <span class="command-desc">Check if PCLink rule exists</span>
+                                        <i data-feather="copy" class="copy-icon"></i>
+                                    </div>
+                                    <code>netsh advfirewall firewall show rule name="PCLink"</code>
+                                </div>
+
+                                <div class="command-item" onclick="copyCommand(this)">
+                                    <div class="command-header">
+                                        <span class="command-desc">Add Firewall Exception (Run as Admin)</span>
+                                        <i data-feather="copy" class="copy-icon"></i>
+                                    </div>
+                                    <code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow program="C:\path\to\pclink.exe" enable=yes</code>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
+                    <details class="guide-details">
+                        <summary><i data-feather="wifi"></i> Network Requirements</summary>
+                        <div class="guide-section">
+                            <p class="guide-note">Both devices must be on the same local network subnet.</p>
+                            <ul
+                                style="margin-top: 10px; padding-left: 20px; color: var(--text-secondary); margin-bottom: 20px;">
+                                <li><strong>IP Ranges:</strong> Usually 192.168.x.x, 10.x.x.x, or 172.16.x.x</li>
+                                <li><strong>VPN Warning:</strong> Disable VPNs as they route traffic through external
+                                    servers.</li>
+                                <li><strong>Router Isolation:</strong> Ensure "AP Isolation" is disabled on your router.
+                                </li>
+                            </ul>
+
+                            <div class="command-list">
+                                <div class="command-item" onclick="copyCommand(this)">
+                                    <div class="command-header">
+                                        <span class="command-desc">Show Windows IP configuration</span>
+                                        <i data-feather="copy" class="copy-icon"></i>
+                                    </div>
+                                    <code>ipconfig</code>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
+                    <details class="guide-details">
+                        <summary><i data-feather="activity"></i> Diagnostic Commands</summary>
+                        <div class="guide-section">
+                            <p class="guide-note">Run these commands from another computer to test accessibility.</p>
+
+                            <div class="command-list">
+                                <div class="command-item" onclick="copyCommand(this)">
+                                    <div class="command-header">
+                                        <span class="command-desc">Test server health endpoint</span>
+                                        <i data-feather="copy" class="copy-icon"></i>
+                                    </div>
+                                    <code>curl -k https://SERVER_IP:PORT/health</code>
+                                </div>
+                                <div class="command-item" onclick="copyCommand(this)">
+                                    <div class="command-header">
+                                        <span class="command-desc">Check if port is listening (on server)</span>
+                                        <i data-feather="copy" class="copy-icon"></i>
+                                    </div>
+                                    <code>netstat -an | findstr :PORT</code>
+                                </div>
+                                <div class="command-item" onclick="copyCommand(this)">
+                                    <div class="command-header">
+                                        <span class="command-desc">Test basic network connectivity</span>
+                                        <i data-feather="copy" class="copy-icon"></i>
+                                    </div>
+                                    <code>ping SERVER_IP</code>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+
                 <div class="card">
                     <h3><i data-feather="book-open"></i> PCLink Quick Start Guide</h3>
                     <p>Use these commands to manage PCLink from the terminal. Click any command to copy it.</p>
@@ -431,24 +514,32 @@
                         <h4><i data-feather="play"></i> Basic Commands</h4>
                         <div class="command-list">
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Start PCLink server in background</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink start</code>
-                                <span class="command-desc">Start PCLink server in background</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Stop running PCLink server</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink stop</code>
-                                <span class="command-desc">Stop running PCLink server</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Check if server is running</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink status</code>
-                                <span class="command-desc">Check if server is running</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Restart the server</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink restart</code>
-                                <span class="command-desc">Restart the server</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                         </div>
                     </div>
@@ -458,14 +549,18 @@
                         <p class="guide-note">Configure PCLink to start automatically when you log in:</p>
                         <div class="command-list">
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Enable auto-start at system login</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink startup enable</code>
-                                <span class="command-desc">Enable auto-start at system login</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Disable auto-start at system login</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink startup disable</code>
-                                <span class="command-desc">Disable auto-start at system login</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                         </div>
                     </div>
@@ -474,19 +569,25 @@
                         <h4><i data-feather="info"></i> Other Commands</h4>
                         <div class="command-list">
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Show PCLink version</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink --version</code>
-                                <span class="command-desc">Show PCLink version</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Show all available commands</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink --help</code>
-                                <span class="command-desc">Show all available commands</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Open PCLink web interface in browser</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink webui</code>
-                                <span class="command-desc">Open PCLink web interface in browser</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                         </div>
                     </div>
@@ -496,14 +597,18 @@
                         <p class="guide-note">Connect your mobile device to PCLink:</p>
                         <div class="command-list">
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Display QR code and pairing info for mobile app</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink pair</code>
-                                <span class="command-desc">Display QR code and pairing info for mobile app</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Display connection QR code in terminal</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink qr</code>
-                                <span class="command-desc">Display connection QR code in terminal</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                         </div>
                     </div>
@@ -513,21 +618,24 @@
                         <p class="guide-note">View logs and troubleshoot issues:</p>
                         <div class="command-list">
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Display the application log file</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink logs</code>
-                                <span class="command-desc">Display the application log file</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                             <div class="command-item" onclick="copyCommand(this)">
+                                <div class="command-header">
+                                    <span class="command-desc">Follow logs in real-time (like tail -f)</span>
+                                    <i data-feather="copy" class="copy-icon"></i>
+                                </div>
                                 <code>pclink logs -f</code>
-                                <span class="command-desc">Follow logs in real-time (like tail -f)</span>
-                                <i data-feather="copy" class="copy-icon"></i>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- About Tab -->
             <div class="tab-content" id="about">
                 <div class="card">
                     <div class="about-header">
@@ -613,11 +721,8 @@
                 </div>
             </div>
         </main>
-
-
     </div>
 
-    <!-- Pairing Request Modal -->
     <div id="pairingModal" class="modal">
         <div class="modal-content">
             <h3><i data-feather="smartphone"></i> New Pairing Request</h3>
@@ -635,7 +740,7 @@
 
     <script src="/ui/static/qrcode.min.js?v=20"></script>
     <script src="/ui/static/feather.min.js?v=20"></script>
-    <script src="/ui/static/app.js?v=20"></script>
+    <script src="/ui/static/app.js?v=31"></script>
     <script>
         feather.replace();
     </script>

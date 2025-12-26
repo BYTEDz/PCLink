@@ -3,7 +3,7 @@
 ![PCLink Banner](assets/pclink_banner.svg)
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20Linux%20Mint%2022.1-lightgrey)](https://github.com/BYTEDz/PCLink)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20Linux-lightgrey)](https://github.com/BYTEDz/PCLink)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![Release](https://img.shields.io/github/v/release/BYTEDz/PCLink?include_prereleases)](https://github.com/BYTEDz/PCLink/releases)
 [![Play Store](https://img.shields.io/badge/Android-Play%20Store-brightgreen?logo=google-play)](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)
@@ -88,7 +88,9 @@ This script safely removes broken package installations and cleans up your syste
 
 ### ✅ Supported Platforms
 - **Windows 10 or later** (Windows 10/11) - Full support with system tray and power management
-- **Linux Mint 22.1 Xia** - Complete integration with AppIndicator tray and systemd
+- **Linux** - Debian/Ubuntu, Fedora, and other distributions with systemd
+  - Best experience on X11-based desktops (Cinnamon, XFCE, KDE, MATE)
+  - Wayland support with some limitations (see Known Limitations)
 
 > ⚠️ **Windows Users**: PCLink requires Windows 10 or later. Earlier versions (Windows 7, 8, 8.1) are not supported.
 
@@ -120,13 +122,18 @@ The server requires the companion mobile app:
 
 > **Note**: Windows 10 or later is required. Earlier Windows versions are not supported.
 
-#### Linux (Ubuntu/Debian/RPM-based)
-1. Download the latest `.deb` or `.rpm` package from [Releases](https://github.com/BYTEDz/PCLink/releases)
-2. Install:
-   - **Debian/Ubuntu**: `sudo dpkg -i pclink_*.deb && sudo apt-get install -f`
-   - **Fedora/RHEL**: `sudo rpm -i pclink-*.rpm`
-   - **Arch Linux**: `sudo pacman -U pclink-*.pkg.tar.xz` (if available)
+#### Linux (Ubuntu/Debian)
+1. Download the latest `.deb` package from [Releases](https://github.com/BYTEDz/PCLink/releases)
+2. Install: `sudo apt install ./pclink_*.deb`
 3. Start: `pclink` or find in applications menu
+
+#### Linux (Fedora/RHEL)
+1. Download the latest `.rpm` package from [Releases](https://github.com/BYTEDz/PCLink/releases)
+2. Install: `sudo dnf install ./pclink-*.rpm`
+   - This will automatically install all required dependencies
+3. Start: `pclink` or find in applications menu
+
+> **Note**: The RPM package includes smart dependency handling that automatically installs required packages like `python3-devel`, `wl-clipboard`, and `gnome-screenshot` on Fedora.
 
 **Note**: Packages from v2.4.0+ use NFPM packaging system for better reliability.
 
@@ -318,6 +325,17 @@ pip install PyGObject
 | Input Control | ✅ (with fallback) | pynput |
 
 **Note**: PCLink gracefully falls back to alternative implementations if dependencies are missing. All core functionality remains available.
+
+### Known Limitations
+
+#### GNOME Desktop (Wayland)
+- **System Tray**: GNOME removed native tray support. Install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) to enable tray icons.
+- **Wayland Support**: Screenshot and clipboard work via `gnome-screenshot` and `wl-clipboard` (auto-installed on Fedora RPM).
+- **Input Control**: Mouse/keyboard remote control requires additional permissions on Wayland.
+
+#### Fedora-Specific
+- Use `sudo dnf install ./pclink-*.rpm` instead of `rpm -i` for automatic dependency resolution.
+- Required packages are automatically installed during setup.
 
 ---
 

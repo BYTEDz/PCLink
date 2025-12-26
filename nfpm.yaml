@@ -44,6 +44,29 @@ homepage: https://github.com/BYTEDz/PCLink
 license: AGPL-3.0-or-later
 maintainer: Azhar Zouhir <support@bytedz.xyz>
 name: pclink
+overrides:
+  rpm:
+    depends:
+    - python3 >= 3.8
+    - systemd
+    - dbus
+    recommends:
+    - python3-pip
+    - xcb-util-cursor
+    - libxcb
+    - xcb-util-renderutil
+    - xcb-util-keysyms
+    - xcb-util-image
+    - xcb-util-wm
+    - python3-gobject
+    - libappindicator-gtk3
+    - gtk3
+    - procps-ng
+    - python3-devel
+    - gcc
+    - libayatana-appindicator-gtk3
+    - wl-clipboard
+    - gnome-screenshot
 platform: linux
 priority: optional
 scripts:
@@ -51,4 +74,4 @@ scripts:
   postremove: build/nfpm/scripts/postrm
   preremove: build/nfpm/scripts/prerm
 section: net
-version: 2.5.0
+version: 3.0.0

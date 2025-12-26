@@ -27,6 +27,9 @@ except ImportError:
 try:
     import win32gui
     import win32process
+    import comtypes
+    from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
+    from pycaw.pycaw import AudioUtilities
     LEGACY_SUPPORT_AVAILABLE = True
 except ImportError:
     LEGACY_SUPPORT_AVAILABLE = False
@@ -89,7 +92,10 @@ KNOWN_LEGACY_PLAYERS = {
 }
 
 TITLE_CLEANUP_PATTERNS = [
-    " - YouTube", " - Spotify", " - SoundCloud", " - Twitch", "[Paused]", "[Stopped]",
+    " - YouTube", " - Spotify", " - SoundCloud", " - Twitch", " - Netflix",
+    " - Disney+", " - Prime Video", " - Apple Music", " - Tidal", " - Deezer",
+    " - Pandora", " - YouTube Music", " - VLC media player", 
+    "[Paused]", "[Stopped]", "(Paused)", "(Stopped)",
 ]
 
 async def run_subprocess(cmd: list[str]) -> str:
@@ -137,10 +143,31 @@ def _clean_media_title(title: str, app_name: str) -> tuple[Optional[str], Option
             break
     return song_title, artist
 
+def _get_audible_pids_sync() -> set[int]:
+    """Returns a set of PIDs that currently have an active audio session on Windows."""
+    audible_pids = set()
+    if not LEGACY_SUPPORT_AVAILABLE:
+        return audible_pids
+    
+    try:
+        CoInitialize()
+        sessions = AudioUtilities.GetAllSessions()
+        for session in sessions:
+            if session.Process and session.State == 1: # 1 = AudioSessionStateActive
+                audible_pids.add(session.ProcessId)
+    except Exception as e:
+        log.debug(f"Error getting audio sessions: {e}")
+    finally:
+        try:
+            CoUninitialize()
+        except Exception: pass
+    return audible_pids
+
 def _get_legacy_media_info_sync() -> Optional[Dict[str, Any]]:
     if not LEGACY_SUPPORT_AVAILABLE:
         return None
 
+    audible_pids = _get_audible_pids_sync()
     found_media = None
     best_match_priority = -1 
 
@@ -159,13 +186,19 @@ def _get_legacy_media_info_sync() -> Optional[Dict[str, Any]]:
 
             if proc_name not in KNOWN_LEGACY_PLAYERS: return
             
+            # Browser Filter: Only accept browsers if they have an active audio session
+            if proc_name in ["chrome.exe", "firefox.exe", "msedge.exe", "opera.exe", "brave.exe"]:
+                if pid not in audible_pids:
+                    return
+
             app_name = KNOWN_LEGACY_PLAYERS[proc_name]
             title = win32gui.GetWindowText(hwnd)
             song_title, artist = _clean_media_title(title, app_name)
             
             if not song_title: return
             
-            priority = 10 if proc_name not in ["chrome.exe", "firefox.exe", "msedge.exe"] else 5
+            # Priority: Dedicated players > Browsers with audio
+            priority = 10 if proc_name not in ["chrome.exe", "firefox.exe", "msedge.exe", "opera.exe", "brave.exe"] else 5
             
             if priority > best_match_priority:
                 best_match_priority = priority
@@ -173,7 +206,7 @@ def _get_legacy_media_info_sync() -> Optional[Dict[str, Any]]:
                     "title": song_title,
                     "artist": artist or "",
                     "album_title": "",
-                    "status": "PLAYING", # Assume playing if window title has info
+                    "status": "PLAYING", # If it has audio and a title, it's likely playing
                     "position_sec": 0,
                     "duration_sec": 0,
                     "is_shuffle_active": False,
@@ -209,8 +242,9 @@ async def _get_media_info_win32() -> Dict[str, Any]:
             status_map = {0: "STOPPED", 1: "PAUSED", 2: "STOPPED", 3: "STOPPED", 4: "PLAYING", 5: "PAUSED"}
             status = status_map.get(playback_info.playback_status, "STOPPED")
             
-            # Check if data looks valid
-            if info.title and info.title.lower() not in ["", "unknown"]:
+            # Check if data looks valid (ignore "Unknown" or empty titles)
+            clean_title = (info.title or "").strip()
+            if clean_title and clean_title.lower() not in ["", "unknown", "none"]:
                 repeat_map = {
                     MediaPlaybackAutoRepeatMode.NONE: "NONE",
                     MediaPlaybackAutoRepeatMode.TRACK: "ONE",
@@ -230,22 +264,23 @@ async def _get_media_info_win32() -> Dict[str, Any]:
                 }
     except Exception: pass
 
-    # 2. Try Legacy
+    # 2. Try Legacy (Scraping windows with audio session verification)
     legacy_data = await asyncio.to_thread(_get_legacy_media_info_sync)
 
-    # 3. Decide which to return
-    # Prefer SMTC if playing or paused with valid title
-    if smtc_data:
-        if smtc_data["status"] == "PLAYING": return smtc_data
-        if smtc_data["status"] == "PAUSED" and not legacy_data: return smtc_data
+    # 3. Decision Logic
+    # 3a. If SMTC is PLAYING, use it (highest confidence)
+    if smtc_data and smtc_data["status"] == "PLAYING":
+        return smtc_data
     
-    # If legacy has data (title implies it's running), use it
+    # 3b. If Legacy is found (verified by audio sessions), use it
     if legacy_data:
-        # Legacy scraper assumes PLAYING, but if we have a manual override from a command, logic below handles it
+        # If SMTC is also PAUSED, decide which is better.
+        # Usually, SMTC is more accurate for modern apps, but legacy handles browsers better with our PID check.
+        # If legacy is playing, it takes preference over a paused SMTC session.
         return legacy_data
         
-    # If we have paused SMTC data, return it as fallback
-    if smtc_data:
+    # 3c. Fallback to PAUSED SMTC data
+    if smtc_data and smtc_data["title"]:
         return smtc_data
         
     return DEFAULT_MEDIA_INFO.copy()

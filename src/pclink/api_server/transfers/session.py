@@ -128,9 +128,9 @@ def restore_sessions():
     return {"restored_uploads": restored_uploads, "restored_downloads": restored_downloads}
 
 
-async def cleanup_stale_sessions():
+async def cleanup_stale_sessions(threshold_days: int = 7):
     current_time = time.time()
-    threshold = 7 * 24 * 60 * 60  # 7 days
+    threshold = threshold_days * 24 * 60 * 60
     cleaned = {"uploads": 0, "downloads": 0}
 
     for meta in TEMP_UPLOAD_DIR.glob("*.meta"):

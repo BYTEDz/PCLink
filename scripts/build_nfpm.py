@@ -143,7 +143,8 @@ exit $EXIT_CODE
         sudoers_src = self.root_dir / "scripts/linux/pclink-sudoers"
         sudoers_dst = self.staging_dir / "etc" / "sudoers.d" / "pclink"
         if sudoers_src.exists():
-            shutil.copy2(sudoers_src, sudoers_dst)
+            content = sudoers_src.read_text(encoding='utf-8')
+            sudoers_dst.write_text(content.replace('\r\n', '\n').replace('\r', '\n'), encoding='utf-8')
         else:
             # Fallback content if file is missing
             sudoers_content = """# PCLink power management permissions
@@ -156,7 +157,7 @@ exit $EXIT_CODE
 %plugdev ALL=(ALL) NOPASSWD: /sbin/shutdown
 %plugdev ALL=(ALL) NOPASSWD: /usr/sbin/pm-suspend
 """
-            sudoers_dst.write_text(sudoers_content, encoding='utf-8')
+            sudoers_dst.write_text(sudoers_content.replace('\r\n', '\n'), encoding='utf-8')
         # Note: chmod(0o440) is applied via nfpm.yaml file_info
         
         # --- Copy other resources (Simplified logic) ---
@@ -175,8 +176,8 @@ exit $EXIT_CODE
                 shutil.copy2(src, dst)
                 if 'bin' in dst_rel:
                     dst.chmod(0o755)
-                elif 'desktop' in dst_rel:
-                    # Clean up line endings for desktop files
+                # Ensure Unix line endings for all copied text files
+                if dst_rel.endswith(('.desktop', '.service', 'pclink-power-wrapper', 'test-power-permissions')):
                     content = dst.read_text(encoding='utf-8')
                     dst.write_text(content.replace('\r\n', '\n').replace('\r', '\n'), encoding='utf-8')
 
@@ -230,7 +231,33 @@ echo "=== PCLink postinst: action='$1', old_version='$2' ==="
 # --- Core Setup Function ---
 install_pclink() {
     local IS_UPGRADE="$1"
-    
+
+    # --- Smart Dependency Handling (Fedora/DNF) ---
+    if command -v dnf >/dev/null 2>&1; then
+        echo "PCLink: Checking for missing recommended dependencies..."
+        MISSING_RECS=""
+        # List of packages that were moved to 'recommends' for RPM
+        # Added python3-devel and gcc for C-extension builds (evdev)
+        # Added libayatana-appindicator-gtk3 for system tray on modern Fedora
+        # Added wl-clipboard and gnome-screenshot for Wayland support
+        RECS="python3-pip xcb-util-cursor libxcb xcb-util-renderutil xcb-util-keysyms xcb-util-image xcb-util-wm python3-gobject libappindicator-gtk3 libayatana-appindicator-gtk3 gtk3 procps-ng python3-devel gcc wl-clipboard gnome-screenshot"
+        for pkg in $RECS; do
+            if ! rpm -q "$pkg" >/dev/null 2>&1; then
+                # Some packages might be provided by others, double check with dnf
+                if ! dnf list installed "$pkg" >/dev/null 2>&1; then
+                    MISSING_RECS="$MISSING_RECS $pkg"
+                fi
+            fi
+        done
+        
+        if [ -n "$MISSING_RECS" ]; then
+            echo "PCLink: Automatically installing missing dependencies:$MISSING_RECS"
+            # Try to install. If it fails (e.g. no internet), we continue but later steps might fail.
+            # We use --refresh to ensure we have latest metadata.
+            dnf install -y $MISSING_RECS || echo "⚠ Warning: Automatic dependency installation failed. You may need to manualy run: sudo dnf install $MISSING_RECS"
+        fi
+    fi
+
     if [ "$IS_UPGRADE" = "true" ]; then
         echo "PCLink: Upgrading from version $2..."
     else
@@ -284,13 +311,21 @@ install_pclink() {
     echo "Testing AppIndicator availability..."
     "$VENV_DIR/bin/python" -c "
 import sys
+import shutil
 try:
     import gi
     gi.require_version('AppIndicator3', '0.1')
     print('✓ AppIndicator3 is available - native tray menus will work')
 except Exception as e:
     print('⚠ AppIndicator3 not available:', e)
-    print('  To fix: sudo apt install python3-gi gir1.2-appindicator3-0.1')
+    if shutil.which('apt'):
+        print('  To fix: sudo apt install python3-gi gir1.2-appindicator3-0.1')
+    elif shutil.which('dnf'):
+        print('  To fix: sudo dnf install python3-gobject libappindicator-gtk3 xcb-util-cursor')
+        print('  Note: It is highly recommended to install the RPM using dnf:')
+        print('        sudo dnf install ./pclink-*.rpm')
+    else:
+        print('  Please install gobject introspection and appindicator libraries for your distribution.')
 " || true
 
     # Only set up user permissions on fresh install, not upgrades
@@ -355,9 +390,9 @@ except Exception as e:
 }
 # --- End Core Setup Function ---
 
-# Standard DPKG postinst logic
+# Standard Multi-Distro postinst logic
 case "$1" in
-    configure)
+    configure|1|2)
         # Verify installation directory exists
         if [ ! -d "$INSTALL_DIR" ]; then
             echo "ERROR: Installation directory $INSTALL_DIR does not exist!"
@@ -373,10 +408,21 @@ case "$1" in
             exit 1
         fi
         
-        # Check if this is an upgrade (previous version passed as $2)
-        if [ -n "$2" ] && [ "$2" != "<unknown>" ]; then
-            echo "PCLink: Detected upgrade from version $2"
-            install_pclink "true" "$2" || exit 1
+        # Determine if this is an upgrade
+        IS_UPGRADE="false"
+        OLD_VER=""
+        if [ "$1" = "2" ]; then
+            # RPM upgrade
+            IS_UPGRADE="true"
+        elif [ "$1" = "configure" ] && [ -n "$2" ] && [ "$2" != "<unknown>" ]; then
+            # DEB upgrade
+            IS_UPGRADE="true"
+            OLD_VER="$2"
+        fi
+
+        if [ "$IS_UPGRADE" = "true" ]; then
+            echo "PCLink: Detected upgrade"
+            install_pclink "true" "$OLD_VER" || exit 1
         else
             echo "PCLink: Detected fresh installation"
             install_pclink "false" "" || exit 1
@@ -397,7 +443,7 @@ exit 0
 """
         
         postinst_path = scripts_dir / "postinst"
-        postinst_path.write_text(postinst_content, encoding='utf-8')
+        postinst_path.write_text(postinst_content.replace('\r\n', '\n'), encoding='utf-8')
         postinst_path.chmod(0o755)
         
         # --- prerm content (FIXED: Better detection and logging) ---
@@ -406,12 +452,12 @@ exit 0
 
 echo "=== PCLink prerm: action='$1', old_version='$2', new_version='$3' ==="
 
-# Standard DPKG prerm logic
+# Standard Multi-Distro prerm logic
 case "$1" in
-    remove)
+    remove|0)
         echo "PCLink: Stopping services for removal..."
         
-        # Try to stop user services gracefully (but don't fail if they're not running)
+        # Try to stop user services gracefully
         if command -v systemctl >/dev/null 2>&1; then
             # Stop all user instances
             for user_dir in /run/user/*/; do
@@ -422,16 +468,13 @@ case "$1" in
             done
         fi
         
-        # Kill any remaining PCLink processes (but don't fail if none exist)
-        # Match against the installation directory to avoid killing apt or this script
+        # Kill any remaining PCLink processes
         pkill -f "/usr/lib/pclink" 2>/dev/null || true
-        
-        # Give processes time to terminate gracefully
         sleep 1
         ;;
     
-    upgrade|deconfigure)
-        # During upgrade, do NOT stop services - let the new version handle it
+    upgrade|deconfigure|1)
+        # During upgrade, do NOT stop services
         echo "PCLink: Preparing for upgrade (keeping services running)..."
         ;;
     
@@ -449,7 +492,7 @@ exit 0
 """
         
         prerm_path = scripts_dir / "prerm"
-        prerm_path.write_text(prerm_content, encoding='utf-8')
+        prerm_path.write_text(prerm_content.replace('\r\n', '\n'), encoding='utf-8')
         prerm_path.chmod(0o755)
         
         # --- postrm content (FIXED: Better logging and detection) ---
@@ -461,9 +504,9 @@ VENV_DIR="$INSTALL_DIR/venv"
 
 echo "=== PCLink postrm: action='$1', old_version='$2' ==="
 
-# Standard DPKG postrm logic
+# Standard Multi-Distro postrm logic
 case "$1" in
-    remove)
+    remove|0)
         echo "PCLink: Cleaning up installation..."
         
         # Remove virtual environment
@@ -476,8 +519,6 @@ case "$1" in
         if [ -d "$INSTALL_DIR" ]; then
             echo "Removing wheel files..."
             find "$INSTALL_DIR" -name "*.whl" -type f -delete 2>/dev/null || true
-            
-            # Remove installation directory if empty
             rmdir "$INSTALL_DIR" 2>/dev/null || true
         fi
 
@@ -529,7 +570,7 @@ exit 0
 """
         
         postrm_path = scripts_dir / "postrm"
-        postrm_path.write_text(postrm_content, encoding='utf-8')
+        postrm_path.write_text(postrm_content.replace('\r\n', '\n'), encoding='utf-8')
         postrm_path.chmod(0o755)
         
         return {
@@ -565,6 +606,34 @@ exit 0
                 "systemd | sysvinit-core | runit", "dbus",
                 "procps",
             ],
+
+            "overrides": {
+                "rpm": {
+                    "depends": [
+                        "python3 >= 3.8",
+                        "systemd",
+                        "dbus",
+                    ],
+                    "recommends": [
+                        "python3-pip",
+                        "xcb-util-cursor",
+                        "libxcb",
+                        "xcb-util-renderutil",
+                        "xcb-util-keysyms",
+                        "xcb-util-image",
+                        "xcb-util-wm",
+                        "python3-gobject",
+                        "libappindicator-gtk3",
+                        "gtk3",
+                        "procps-ng",
+                        "python3-devel",
+                        "gcc",
+                        "libayatana-appindicator-gtk3",
+                        "wl-clipboard",
+                        "gnome-screenshot",
+                    ]
+                }
+            },
             
             "contents": [
                 {"src": "build/nfpm/staging/usr/lib/pclink", "dst": "/usr/lib/pclink"},

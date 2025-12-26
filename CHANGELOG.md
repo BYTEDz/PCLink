@@ -5,6 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2025-12-07
+
+# PCLink 3.0.0 — Codename “Blaze”
+
+## API & Core Improvements
+• Centralized media logic into `services.py` with a unified cross-platform media dictionary.  
+• Added sticky caching to prevent “Nothing Playing” flicker and provide instant UI updates.  
+• Intelligent switching between Modern SMTC and legacy keyboard controls.  
+• Strict timeouts added to subprocess calls to avoid system hangs.  
+• Improved transfer session restoration and atomic file operations.  
+• Optimized concurrent chunk uploads with chunk-specific locks and backward compatibility.  
+• Enhanced debugging with detailed offset logging.  
+• Added tags to API routers for clearer OpenAPI structure.
+
+## File Transfers
+• Added `/pause/{upload_id}` endpoint to pause active uploads.  
+• Improved behavior when clients disconnect during uploads.  
+• Restores interrupted upload sessions on startup.  
+• Transfer routers now register before file browser routes for predictable behavior.
+
+## Input & Mouse Control
+• Added full mouse control API (move, click, scroll).  
+• Implemented 60Hz rate limiting for smoother and lighter input handling.  
+• Fixed double-click support and click count logic.
+
+## Performance Enhancements
+• Broadcaster now pauses heavy system polling when no clients are connected.  
+• Added a 2-second media info cache to reduce subprocess calls.  
+• Optimized Windows terminal session loop by increasing sleep interval.
+
+## Platform Improvements
+### Windows
+• Integrated `WindowsSelectorEventLoopPolicy` for improved asyncio stability.  
+• Fixed COM threading issues affecting volume control.  
+• Improved error handling for registry-based theme detection.
+
+### Linux
+• Better systemd user service generation for headless systems.  
+• Injected required environment variables (`XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`) for stability.  
+• Removed outdated Linux auto-start detection script.
+
+## CLI Enhancements
+• Added `setup` command for first-time password configuration.  
+• Added `pair` command to display pairing data and QR codes (with text fallback).  
+• Added safe fallback for the `qr` command in non-TTY environments.  
+• Updated CLI entry point to `pclink.__main__:cli`.
+
+## Web UI
+• Added a “Guide” tab with quick-start CLI commands and copy-to-clipboard actions.  
+• Overhauled update banner with new UI, gradient styling, markdown release notes, and interactive controls.  
+• Added “Show/Hide Notes,” “Dismiss,” and “View Full Release” actions.
+
+## Auto-Start & Settings
+• Implemented native OS-level auto-start handling.  
+• Synced stored config with actual OS startup settings.  
+• Improved platform handling around auto-start visibility.
+
+## Security
+• API key is now generated and stored only after setup is fully completed.
+
+## Documentation
+• Updated README and platform notes to reflect Windows 10+ requirements.
+
 ## [2.6.0] - 2025-11-23
 
 This release introduces a significant architectural overhaul, replacing the legacy headless mode with a robust CLI-based controller and improved service management. It brings rich media control support for Windows (SMTC), media streaming capabilities, and enhanced security measures including rate limiting. Installation on Linux has been heavily improved with new rescue scripts and robust package manager hooks.

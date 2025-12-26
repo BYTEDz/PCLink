@@ -22,15 +22,31 @@ except ImportError as e:
 
 LINUX_NATIVE_TRAY_AVAILABLE = False
 LINUX_TRAY_ERROR = ""
+AppIndicator3 = None  # Will be set to whichever library is available
+
 try:
     if sys.platform.startswith('linux'):
         import gi
         gi.require_version('Gtk', '3.0')
-        gi.require_version('AppIndicator3', '0.1')
-        from gi.repository import Gtk, AppIndicator3, GLib
-        LINUX_NATIVE_TRAY_AVAILABLE = True
+        from gi.repository import Gtk, GLib
+        
+        # Try AppIndicator3 first (Ubuntu, Linux Mint)
+        try:
+            gi.require_version('AppIndicator3', '0.1')
+            from gi.repository import AppIndicator3 as _AppIndicator
+            AppIndicator3 = _AppIndicator
+            LINUX_NATIVE_TRAY_AVAILABLE = True
+        except (ImportError, ValueError):
+            # Fallback to AyatanaAppIndicator3 (Fedora, modern distros)
+            try:
+                gi.require_version('AyatanaAppIndicator3', '0.1')
+                from gi.repository import AyatanaAppIndicator3 as _AppIndicator
+                AppIndicator3 = _AppIndicator
+                LINUX_NATIVE_TRAY_AVAILABLE = True
+            except (ImportError, ValueError) as e:
+                LINUX_TRAY_ERROR = f"{e} - Try: sudo dnf install libayatana-appindicator-gtk3 (Fedora) or sudo apt install gir1.2-appindicator3-0.1 (Ubuntu)"
 except (ImportError, ValueError) as e:
-    LINUX_TRAY_ERROR = f"{e} - Try: sudo apt install python3-gi gir1.2-appindicator3-0.1"
+    LINUX_TRAY_ERROR = f"{e} - Try: sudo dnf install python3-gobject gtk3 (Fedora) or sudo apt install python3-gi gir1.2-gtk-3.0 (Ubuntu)"
 
 log = logging.getLogger(__name__)
 
@@ -98,17 +114,35 @@ class SystemTrayManager:
                     # Windows 8.1 and earlier don't have this key - default to light theme
                     return False
             elif sys.platform.startswith('linux'):
-                # Try to detect GTK theme preference
+                import subprocess
+                
+                # Method 1: Check GNOME's color-scheme setting (modern GNOME 42+)
                 try:
-                    import subprocess
-                    result = subprocess.run(['gsettings', 'get', 'org.gnome.desktop.interface', 'gtk-theme'], 
-                                          capture_output=True, text=True, timeout=1)
+                    result = subprocess.run(
+                        ['gsettings', 'get', 'org.gnome.desktop.interface', 'color-scheme'],
+                        capture_output=True, text=True, timeout=1
+                    )
+                    scheme = result.stdout.strip().lower()
+                    if 'dark' in scheme:
+                        return True
+                    if 'light' in scheme or 'default' in scheme:
+                        return False
+                except Exception:
+                    pass
+                
+                # Method 2: Check GTK theme name (fallback for older systems)
+                try:
+                    result = subprocess.run(
+                        ['gsettings', 'get', 'org.gnome.desktop.interface', 'gtk-theme'],
+                        capture_output=True, text=True, timeout=1
+                    )
                     theme = result.stdout.strip().lower()
                     return 'dark' in theme
                 except Exception:
                     pass
-                # Default to light theme on Linux if detection fails
-                return False
+                
+                # Default to dark on modern Linux (most use dark themes now)
+                return True
         except Exception:
             return False
         return False
