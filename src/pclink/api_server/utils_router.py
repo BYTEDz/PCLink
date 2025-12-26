@@ -13,8 +13,29 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from ..core.wayland_utils import (
+    is_wayland,
+    screenshot_portal,
+    clipboard_get_wayland,
+    clipboard_set_wayland,
+)
+
 log = logging.getLogger(__name__)
 router = APIRouter()
+
+# Cache Wayland detection result
+_is_wayland_session = None
+
+def _check_wayland() -> bool:
+    """Check if running under Wayland (cached)."""
+    global _is_wayland_session
+    if _is_wayland_session is None:
+        _is_wayland_session = is_wayland()
+        if _is_wayland_session:
+            log.info("Detected Wayland session - using Wayland-compatible backends")
+        else:
+            log.info("Detected X11 session - using standard backends")
+    return _is_wayland_session
 
 
 class ClipboardModel(BaseModel):
@@ -65,27 +86,53 @@ async def run_command(payload: CommandModel):
 @router.post("/clipboard")
 async def set_clipboard(payload: ClipboardModel):
     """Sets the system clipboard text."""
-    pyperclip.copy(payload.text)
+    if _check_wayland():
+        success = await asyncio.to_thread(clipboard_set_wayland, payload.text)
+        if not success:
+            # Fallback to pyperclip if wl-copy fails
+            log.warning("Wayland clipboard failed, trying pyperclip fallback")
+            pyperclip.copy(payload.text)
+    else:
+        pyperclip.copy(payload.text)
     return {"status": "Clipboard updated"}
 
 
 @router.get("/clipboard")
 async def get_clipboard():
     """Gets the system clipboard text."""
+    if _check_wayland():
+        text = await asyncio.to_thread(clipboard_get_wayland)
+        if text is not None:
+            return {"text": text}
+        # Fallback to pyperclip if wl-paste fails
+        log.warning("Wayland clipboard failed, trying pyperclip fallback")
     return {"text": pyperclip.paste()}
 
 
 @router.get("/screenshot")
 async def get_screenshot():
     """Captures and returns a screenshot of the primary monitor."""
-    with mss.mss() as sct:
-        sct_img = sct.grab(sct.monitors[1])
-        try:
-            from PIL import Image
-            img = Image.frombytes("RGB", sct_img.size, sct_img.rgb)
-            buffer = BytesIO()
-            img.save(buffer, format="PNG")
-            return Response(content=buffer.getvalue(), media_type="image/png")
-        except ImportError:
-            # Fallback: return error if PIL not available
-            raise HTTPException(status_code=500, detail="PIL not available for screenshot functionality")
+    
+    # Try Wayland screenshot first if on Wayland
+    if _check_wayland():
+        log.info("Using Wayland screenshot method")
+        screenshot_data = await asyncio.to_thread(screenshot_portal)
+        if screenshot_data:
+            return Response(content=screenshot_data, media_type="image/png")
+        log.warning("Wayland screenshot failed, falling back to mss")
+    
+    # X11 / fallback: use mss
+    try:
+        with mss.mss() as sct:
+            sct_img = sct.grab(sct.monitors[1])
+            try:
+                from PIL import Image
+                img = Image.frombytes("RGB", sct_img.size, sct_img.rgb)
+                buffer = BytesIO()
+                img.save(buffer, format="PNG")
+                return Response(content=buffer.getvalue(), media_type="image/png")
+            except ImportError:
+                raise HTTPException(status_code=500, detail="PIL not available for screenshot functionality")
+    except Exception as e:
+        log.error(f"Screenshot failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Screenshot failed: {e}")

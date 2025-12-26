@@ -65,6 +65,8 @@ overrides:
     - python3-devel
     - gcc
     - libayatana-appindicator-gtk3
+    - wl-clipboard
+    - gnome-screenshot
 platform: linux
 priority: optional
 scripts:

@@ -239,7 +239,8 @@ install_pclink() {
         # List of packages that were moved to 'recommends' for RPM
         # Added python3-devel and gcc for C-extension builds (evdev)
         # Added libayatana-appindicator-gtk3 for system tray on modern Fedora
-        RECS="python3-pip xcb-util-cursor libxcb xcb-util-renderutil xcb-util-keysyms xcb-util-image xcb-util-wm python3-gobject libappindicator-gtk3 libayatana-appindicator-gtk3 gtk3 procps-ng python3-devel gcc"
+        # Added wl-clipboard and gnome-screenshot for Wayland support
+        RECS="python3-pip xcb-util-cursor libxcb xcb-util-renderutil xcb-util-keysyms xcb-util-image xcb-util-wm python3-gobject libappindicator-gtk3 libayatana-appindicator-gtk3 gtk3 procps-ng python3-devel gcc wl-clipboard gnome-screenshot"
         for pkg in $RECS; do
             if ! rpm -q "$pkg" >/dev/null 2>&1; then
                 # Some packages might be provided by others, double check with dnf
@@ -628,6 +629,8 @@ exit 0
                         "python3-devel",
                         "gcc",
                         "libayatana-appindicator-gtk3",
+                        "wl-clipboard",
+                        "gnome-screenshot",
                     ]
                 }
             },
