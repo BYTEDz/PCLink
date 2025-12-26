@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2025-12-26
+
+## ✨ New Features
+- **Wayland Support:** Added native Wayland compatibility. Screenshot and clipboard features now rely on `xdg-desktop-portal`, `wl-clipboard`, `grim`, or `gnome-screenshot`, depending on the desktop environment.
+- **Transfer Management Dashboard:** Introduced a new Web UI section to monitor and manage file transfer sessions:
+  - View stale uploads and downloads
+  - Manually trigger cleanups
+  - Configure automatic cleanup thresholds (default: 7 days)
+- **Automated PyPI Publishing:** Added CI/CD workflows to automatically publish stable releases to PyPI.
+
+## ⚡ Improvements
+- **Smart Media Detection (Windows):**
+  - Media controller now validates active audio sessions via `pycaw`, preventing silent browser tabs from being marked as playing.
+  - Improved media metadata normalization for Netflix, Disney+, Apple Music, and YouTube Music.
+- **Linux Distribution Enhancements:**
+  - **Fedora / RPM:** Post-install script now installs recommended dependencies automatically via `dnf` (e.g. `wl-clipboard`, `python3-devel`).
+  - **System Tray:** Added support for `AyatanaAppIndicator3` to ensure tray compatibility on modern Fedora and Arch-based systems.
+  - **Theme Detection:** Improved dark mode detection on GNOME 42+ using the `color-scheme` setting.
+- **Packaging Improvements:** Migrated to NFPM-based packaging with proper LF normalization for systemd and sudoers files, reducing installation issues on some distributions.
+- **Web UI:** Added auto-scroll for logs and improved visual feedback for the auto-refresh toggle.
+
+## 🐛 Bug Fixes
+- Fixed missing platform and version information in the device management list.
+- Resolved Linux errors caused by CRLF line endings in configuration scripts.
+- Fixed log auto-scroll behavior to keep the view pinned to the latest entries.
+
+## 🧰 Internal / Technical
+- Improved API `AnnouncePayload` accuracy for client version and device ID tracking.
+- Refactored `system_tray.py` to improve fallback behavior when GTK libraries are unavailable.
+- Centralized Wayland detection logic in `wayland_utils.py`.
+
 ## [3.0.0] - 2025-12-07
 
 # PCLink 3.0.0 — Codename “Blaze”
