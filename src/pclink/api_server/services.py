@@ -542,6 +542,9 @@ key_map = {
     "enter": Key.enter, "esc": Key.esc, "shift": Key.shift, "ctrl": Key.ctrl, "alt": Key.alt,
     "cmd": Key.cmd, "win": Key.cmd, "backspace": Key.backspace, "delete": Key.delete, "tab": Key.tab,
     "space": Key.space, "up": Key.up, "down": Key.down, "left": Key.left, "right": Key.right,
+    "home": Key.home, "end": Key.end, "pageup": Key.page_up, "pagedown": Key.page_down,
+    "insert": Key.insert, "caps_lock": Key.caps_lock, "num_lock": Key.num_lock,
+    "print_screen": Key.print_screen, "scroll_lock": Key.scroll_lock, "pause": Key.pause,
     "f1": Key.f1, "f2": Key.f2, "f3": Key.f3, "f4": Key.f4, "f5": Key.f5, "f6": Key.f6,
     "f7": Key.f7, "f8": Key.f8, "f9": Key.f9, "f10": Key.f10, "f11": Key.f11, "f12": Key.f12,
 }
