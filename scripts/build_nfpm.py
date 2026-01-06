@@ -118,6 +118,7 @@ class NFPMBuilder:
             wheel_path = self.create_wheel()
 
         wheel_dest = self.staging_dir / "usr" / "lib" / "pclink" / wheel_path.name
+        wheel_dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(wheel_path, wheel_dest)
         
         # --- Launcher Script ---
