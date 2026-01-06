@@ -460,16 +460,11 @@ def main():
             from build_nfpm import NFPMBuilder
             
             nfpm_builder = NFPMBuilder()
-            # Pass the wheel path we just built
-            nfpm_builder.install_application_files(existing_wheel_path=wheel_path)
-            nfpm_builder.create_staging_structure()
-            # Note: install_application_files calls create_staging_structure? 
-            # Actually checking `build_nfpm.py`:
-            # - build_all() calls clean(), create_staging_structure(), install_application_files(), create_scripts(), generate_nfpm_config()
-            # We should call these manually to inject the wheel.
             
+            # Step 2: Run NFPM Pre-packaging using the shared logic
             nfpm_builder.clean()
             nfpm_builder.create_staging_structure()
+            # Pass the wheel path we just built
             nfpm_builder.install_application_files(existing_wheel_path=wheel_path)
             nfpm_builder.create_scripts()
             nfpm_builder.generate_nfpm_config()

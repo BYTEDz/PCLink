@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-01-06
+
+SECTION: Added
+- 🚀 **Introducing the Extension System:** Our most ambitious update yet! We have completely re-engineered the core to support a modular architecture. This new system allows for dynamic feature loading and management, transforming the application into a versatile platform that can grow and adapt to your specific needs without bloating the core engine.
+- Integrated a new Extension System for dynamic feature loading and management.
+- Dual-licensed the project under AGPL-3.0 and PCLink Commercial License.
+- Added native media control support for Linux (via playerctl) and macOS (via AppleScript).
+- Implemented hardware ID tracking for devices to improve pairing reliability and duplicate detection.
+- Added thermal monitoring (CPU/GPU) for Windows using WMI and third-party sensor hooks.
+- Added VBScript-based windowless startup for Windows to ensure silent background operation.
+
+SECTION: Changed
+- Refactored Linux packaging (NFPM) scripts to use a "Safe Mode" approach with improved logging and error handling.
+- Enhanced Windows media control with targeted WM_APPCOMMAND messages for legacy players (e.g., VLC).
+- Improved Windows startup logic to utilize Task Scheduler and Registry persistence.
+- Revamped the Web UI to support pending pairing request management and extension configuration.
+- Unified application data storage, moving transfers and logs into the platform-specific AppData directory.
+
+SECTION: Fixed
+- Implemented a heuristic "sticky" state for media playback to prevent UI flickering during metadata transitions.
+- Improved broadcast address discovery on Windows to handle psutil limitations.
+- Fixed systemd service file generation with proper Exec and WorkingDir placeholders.
+
+SECTION: Performance
+- Added caching for MAC address probing to reduce system call overhead.
+- Optimized network I/O speed calculation and disk usage reporting.
+
+SECTION: Security
+- Added middleware to enforce global and per-extension safety permissions.
+- Implemented explicit device revocation that purges active WebSocket connections and discovery caches.
+
+SECTION: Notes
+- Existing user data from legacy directories (.pclink_uploads/.pclink_downloads) is automatically migrated to the new unified AppData location.
+
 ## [3.1.0] - 2025-12-26
 
 ## ✨ New Features
