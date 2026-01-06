@@ -35,6 +35,19 @@ Featuring a high-performance FastAPI backend, a responsive Web UI, and an extens
 
 ---
 
+## 🛡️ Security & Antivirus Notice
+
+PCLink provides powerful system integration (remote input, screen capture, terminal access, and extension support), which can occasionally trigger **False Positive** alerts (e.g., `Wacatac.B!ml`) from some Antivirus software like Windows Defender.
+
+**Rest assured:**
+- 🔍 **Always Verified:** Every release is scanned with 70+ AV engines via VirusTotal. Significant flags are extremely rare and inconsistent.
+- 🏗️ **Transparent:** The project is fully Open Source. You can inspect every line of code or [build it yourself](https://github.com/BYTEDz/PCLink/wiki/Building-and-Development).
+- 📦 **Recommendation:** If you encounter a warning, we recommend using the **`-installer.exe`** version as it has a more robust structure.
+
+---
+
+---
+
 ## 🎨 Key Features
 
 *   🌍 **Web-First Management:** Configure your server and manage devices from any browser.
