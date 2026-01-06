@@ -33,6 +33,8 @@ def _check_wayland() -> bool:
         _is_wayland_session = is_wayland()
         if _is_wayland_session:
             log.info("Detected Wayland session - using Wayland-compatible backends")
+        elif sys.platform == "win32":
+            log.info("Detected Windows session - using Win32 backends")
         else:
             log.info("Detected X11 session - using standard backends")
     return _is_wayland_session
@@ -62,8 +64,8 @@ def _run_command_fire_and_forget(command: str):
         log.info(f"Successfully executed command: {command}")
     except Exception as e:
         log.error(f"Failed to execute command '{command}': {e}")
-        # This function doesn't re-raise because it's fire-and-forget,
-        # but we log the error for debugging.
+        # Fire-and-forget implementation: Exceptions are logged but not re-raised to prevent caller disruption.
+        # Debug logging occurs for failed execution attempts.
 
 @router.post("/command")
 async def run_command(payload: CommandModel):

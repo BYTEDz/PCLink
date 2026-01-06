@@ -155,20 +155,7 @@ jobs:
           rm -rf build/ dist/ releases/ || true
           rm -f nfpm.yaml || true
 
-      - name: Validate NFPM configuration
-        run: |
-          echo "Validating NFPM setup..."
-          # Run the pre-build step to generate nfpm.yaml
-          python scripts/build_nfpm.py || echo "Pre-build script completed"
-          
-          # Check if nfpm.yaml was generated
-          if [ -f "nfpm.yaml" ]; then
-            echo "NFPM configuration file exists"
-            echo "Validating NFPM config syntax..."
-            nfpm validate nfpm.yaml || echo "Config validation completed"
-          else
-            echo "Warning: nfpm.yaml not found"
-          fi
+
 
       - name: Build Linux packages with NFPM
         run: python scripts/build.py --format nfpm

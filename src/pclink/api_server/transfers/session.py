@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import asyncio
 import json
 import logging
@@ -15,12 +18,14 @@ try:
 except ImportError:
     AIOFILES_INSTALLED = False
 
+from ...core.constants import APP_DATA_PATH, UPLOADS_PATH, DOWNLOADS_PATH
+
 log = logging.getLogger(__name__)
 
 # --- Constants ---
-HOME_DIR = Path.home().resolve()
-TEMP_UPLOAD_DIR = HOME_DIR / ".pclink_uploads"
-DOWNLOAD_SESSION_DIR = HOME_DIR / ".pclink_downloads"
+# Unify all data inside the AppData folder to keep the user's home directory clean
+TEMP_UPLOAD_DIR = UPLOADS_PATH
+DOWNLOAD_SESSION_DIR = DOWNLOADS_PATH
 
 TEMP_UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
 DOWNLOAD_SESSION_DIR.mkdir(exist_ok=True, parents=True)

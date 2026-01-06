@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PCLink Control Panel</title>
-    <link rel="stylesheet" href="/ui/static/style.css?v=31">
+    <link rel="stylesheet" href="/ui/static/style.css?v=32">
 
     <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg">
     <link rel="icon" type="image/x-icon" href="/ui/assets/icon.ico">
@@ -273,6 +273,13 @@
                         </div>
                         <div class="form-group">
                             <label>
+                                <input type="checkbox" id="allowExtensions">
+                                <i data-feather="package"></i> Enable extension system
+                            </label>
+                            <small>Load and run third-party extensions.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>
                                 <input type="checkbox" id="autoOpenWebUI" checked>
                                 <i data-feather="link"></i> Auto-open web UI on server start
                             </label>
@@ -352,7 +359,8 @@
                         <div class="form-group">
                             <label>Session Cleanup Threshold (Days):</label>
                             <input type="number" id="cleanupThresholdInput" min="0" max="365">
-                            <small>Partial uploads (.part) and download sessions older than this will be automatically cleaned up.</small>
+                            <small>Partial uploads (.part) and download sessions older than this will be automatically
+                                cleaned up.</small>
                         </div>
                         <div class="form-group" id="cleanupStatusGroup">
                             <p id="cleanupStatusText">Checking for stale sessions...</p>
@@ -740,7 +748,7 @@
 
     <script src="/ui/static/qrcode.min.js?v=20"></script>
     <script src="/ui/static/feather.min.js?v=20"></script>
-    <script src="/ui/static/app.js?v=31"></script>
+    <script src="/ui/static/app.js?v=33"></script>
     <script>
         feather.replace();
     </script>

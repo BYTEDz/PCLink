@@ -24,17 +24,17 @@ DEFAULT_SETTINGS = {
     
     # Core settings
     "allow_terminal_access": False,
+    "allow_extensions": False,  # Extensions disabled by default for security
     "allow_insecure_shell": False,
     "server_port": constants.DEFAULT_PORT,
     "auto_start": False,
+    "auto_open_webui": True,
     "transfer_cleanup_threshold": 7,
 }
 
 
 class ConfigManager:
-    """
-    Manages application settings using a JSON file for all configuration.
-    """
+    """Setting management via JSON store."""
 
     def __init__(self):
         self.config_file = constants.CONFIG_FILE
@@ -43,8 +43,7 @@ class ConfigManager:
 
     def _load_from_file(self):
         """
-        Loads configuration from the JSON file into the cache, ensuring that
-        defaults are present for any missing keys.
+        Sync filesystem configuration to internal cache with fallback to defaults.
         """
         self._json_cache = DEFAULT_SETTINGS.copy()
         if not self.config_file.exists():
@@ -74,15 +73,11 @@ class ConfigManager:
             raise ConfigurationError(f"Cannot save configuration: {e}")
 
     def get(self, key: str, default: Any = None) -> Any:
-        """
-        Gets a configuration value from the JSON cache.
-        """
+        """Retrieve value from the active configuration set."""
         return self._json_cache.get(key, default)
 
     def set(self, key: str, value: Any):
-        """
-        Sets a configuration value and saves to file.
-        """
+        """Update configuration value and persist to disk."""
         if key not in DEFAULT_SETTINGS:
             log.warning(f"Setting an unknown configuration key: '{key}'")
 
@@ -105,5 +100,5 @@ class ConfigManager:
             raise ConfigurationError(f"Cannot reset configuration: {e}")
 
 
-# Global singleton instance for easy access across the application.
+# Global Config singleton.
 config_manager = ConfigManager()

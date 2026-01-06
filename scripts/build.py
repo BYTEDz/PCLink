@@ -93,7 +93,10 @@ HIDDEN_IMPORTS = [
 
     
     # Networking and security
-    "ssl", "socket", "http.server", "urllib.parse", "json", "base64"
+    "ssl", "socket", "http.server", "urllib.parse", "json", "base64",
+    
+    # Plugin metadata parsing
+    "yaml"
 ]
 
 class BuildError(Exception):
@@ -435,14 +438,41 @@ def main():
             # NFPM can run cross-platform, but packages are for Linux
             print("[INFO] Building Linux packages using NFPM...")
             
-            # Run the pre-packaging script
+            # Step 1: Ensure we have a fresh wheel from the same build process
+            print("[INFO] Building Python wheel for NFPM...")
+            wheel_builder = Builder(debug=args.debug)
+            
+            # Use 'build' module efficiently
+            cmd = [sys.executable, "-m", "build", "--wheel", "--outdir", str(wheel_builder.dist_dir)]
+            # We want to use the same logic as the wheel command, so we just run the command directly here
+            # to ensure we have the path to the precise wheel that was built.
+            wheel_builder._run_command(cmd)
+            
+            wheel_files = list(wheel_builder.dist_dir.glob("*.whl"))
+            if not wheel_files:
+                raise BuildError("Wheel creation failed during NFPM prep")
+            
+            wheel_path = wheel_files[0]
+            print(f"[INFO] Using wheel: {wheel_path}")
+
+            # Step 2: Run NFPM Pre-packaging using the shared logic
             sys.path.insert(0, str(Path(__file__).parent))
             from build_nfpm import NFPMBuilder
             
             nfpm_builder = NFPMBuilder()
-            nfpm_success = nfpm_builder.build_all()
-            if not nfpm_success:
-                raise BuildError("NFPM pre-package build failed.")
+            # Pass the wheel path we just built
+            nfpm_builder.install_application_files(existing_wheel_path=wheel_path)
+            nfpm_builder.create_staging_structure()
+            # Note: install_application_files calls create_staging_structure? 
+            # Actually checking `build_nfpm.py`:
+            # - build_all() calls clean(), create_staging_structure(), install_application_files(), create_scripts(), generate_nfpm_config()
+            # We should call these manually to inject the wheel.
+            
+            nfpm_builder.clean()
+            nfpm_builder.create_staging_structure()
+            nfpm_builder.install_application_files(existing_wheel_path=wheel_path)
+            nfpm_builder.create_scripts()
+            nfpm_builder.generate_nfpm_config()
             
             print("\n[INFO] NFPM pre-build complete. Starting final packaging...")
 

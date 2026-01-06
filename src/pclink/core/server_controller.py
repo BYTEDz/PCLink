@@ -278,6 +278,7 @@ class ServerController:
             log_level="warning",
             ssl_keyfile=str(constants.KEY_FILE),
             ssl_certfile=str(constants.CERT_FILE),
+            loop="asyncio"
         )
         self.main_api_server = uvicorn.Server(config)
         self.main_api_server.run()
@@ -288,6 +289,7 @@ class ServerController:
             host="127.0.0.1",
             port=constants.CONTROL_PORT,
             log_level="warning",
+            loop="asyncio"
         )
         self.control_api_server = uvicorn.Server(config)
         self.control_api_server.run()

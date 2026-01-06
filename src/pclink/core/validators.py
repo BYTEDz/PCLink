@@ -20,14 +20,14 @@ class ValidationError(ValueError):
 
 
 def validate_port(port: int) -> int:
-    """Validates that a port number is within the valid user range."""
+    """Ensure port is within the ephemeral/user range."""
     if not 1024 <= port <= 65535:
         raise ValidationError(f"Port must be between 1024 and 65535, got {port}")
     return port
 
 
 def validate_ip_address(ip: str) -> str:
-    """Validates that a string is a valid IP address."""
+    """Ensure string is a valid IPv4 address."""
     try:
         socket.inet_aton(ip)
         return ip
@@ -43,11 +43,11 @@ def validate_api_key(api_key: str) -> str:
     if not api_key:
         raise ValidationError("API key cannot be empty.")
 
-    # Handle legacy format to provide a smooth upgrade path for existing users.
+    # Smooth upgrade for legacy API keys.
     if api_key.startswith("API_KEY="):
         api_key = api_key.split("=", 1)[1]
 
-    # The application uses UUIDs for API keys. This regex enforces that format.
+    # Enforce UUID format (8-4-4-4-12 hex).
     # Format: 8-4-4-4-12 hex characters.
     uuid_pattern = re.compile(r"^[a-fA-F0-9]{8}-([a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12}$")
 
@@ -60,14 +60,14 @@ def validate_api_key(api_key: str) -> str:
 
 
 def validate_file_path(path: str, must_exist: bool = False) -> Path:
-    """Validates a file path for security and existence."""
+    """Security guard for path traversal and existence."""
     if not path or ".." in Path(path).parts:
         raise SecurityError(f"Potentially unsafe path provided: {path}")
 
     try:
         path_obj = Path(path).resolve()
-        # After resolving, double-check it's within a known safe directory if needed,
-        # but for now, rejecting '..' is a strong first step.
+        # Placeholder for additional safety root checks.
+        # '..' rejection prevents common traversal vectors.
 
         if must_exist and not path_obj.exists():
             raise ValidationError(f"Required path does not exist: {path_obj}")
@@ -97,7 +97,7 @@ def validate_filename(filename: str) -> str:
 
 
 def sanitize_log_input(input_str: str, max_length: int = 256) -> str:
-    """Sanitizes a string before logging to prevent log injection or corruption."""
+    """Scrub untrusted strings for log safety."""
     if not isinstance(input_str, str):
         input_str = str(input_str)
 

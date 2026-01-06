@@ -1,0 +1,41 @@
+PCLink Server - Third-Party Notices
+===================================
+
+This software makes use of the following third-party libraries:
+
+MIT License:
+- fastapi
+- pydantic
+- mss
+- keyboard
+- PyYAML
+- pycaw
+- comtypes
+- winsdk
+- getmac
+- wsproto
+
+BSD-3-Clause License:
+- uvicorn
+- websockets
+- psutil
+- pyperclip
+- pyautogui
+- qrcode
+
+Apache License 2.0:
+- requests
+- cryptography
+- aiofiles
+- python-multipart
+- packaging
+
+LGPL (Lesser GNU Public License):
+- pynput
+- pystray
+
+Historical / Other Permissive:
+- Pillow (HPND)
+- pywin32 (PSF)
+
+Full license texts for these dependencies can be found in their respective source distributions or project repositories.

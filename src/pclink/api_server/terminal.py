@@ -45,9 +45,7 @@ async def pipe_stream_to_websocket(stream: asyncio.StreamReader, websocket: WebS
 async def handle_windows_terminal(websocket: WebSocket, shell_type: str = "cmd"):
     """
     Handles Windows terminal connections using subprocess with pipes.
-
-    This function attempts to start the specified shell (cmd or powershell)
-    and forwards data between the shell's stdin/stdout and the WebSocket.
+    Start the specified shell (cmd or powershell) and bridge I/O with the WebSocket.
 
     Args:
         websocket: The active WebSocket connection.

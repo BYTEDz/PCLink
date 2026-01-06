@@ -26,12 +26,7 @@ log = logging.getLogger(__name__)
 
 
 def resource_path(relative_path: Union[str, Path]) -> Path:
-    """
-    Get the absolute path to a resource, working for:
-    1. PyInstaller bundle (frozen executable)
-    2. Development environment (running from source)
-    3. Standard package installation (e.g., via .deb/.rpm)
-    """
+    """Resolve absolute path for application resources."""
     # Case 1: PyInstaller bundle
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         return Path(sys._MEIPASS) / relative_path
@@ -59,9 +54,10 @@ def resource_path(relative_path: Union[str, Path]) -> Path:
 
 
 def run_preflight_checks() -> bool:
-    """Run initialization checks before starting the application."""
+    """Execute pre-flight environment checks."""
     try:
         constants.initialize_app_directories()
+        migrate_legacy_data()
         generate_self_signed_cert(constants.CERT_FILE, constants.KEY_FILE)
         return True
     except Exception as e:
@@ -69,8 +65,39 @@ def run_preflight_checks() -> bool:
         return False
 
 
+def migrate_legacy_data():
+    """Migrate legacy user data to modern AppData root."""
+    home = Path.home()
+    legacy_targets = {
+        home / ".pclink_uploads": constants.UPLOADS_PATH,
+        home / ".pclink_downloads": constants.DOWNLOADS_PATH,
+    }
+
+    for legacy_dir, new_dir in legacy_targets.items():
+        if legacy_dir.exists() and legacy_dir.is_dir():
+            log.info(f"💾 Migrating legacy data from {legacy_dir} to {new_dir}")
+            try:
+                # Move all files within the directory
+                for item in legacy_dir.iterdir():
+                    dest = new_dir / item.name
+                    if dest.exists():
+                        # If destination exists (maybe a partial move or manual copy), delete the old one
+                        if item.is_dir():
+                            shutil.rmtree(item)
+                        else:
+                            item.unlink()
+                    else:
+                        shutil.move(str(item), str(dest))
+                
+                # Delete the now-empty legacy directory
+                legacy_dir.rmdir()
+                log.info(f"✅ Successfully migrated {legacy_dir.name}")
+            except Exception as e:
+                log.warning(f"⚠️ Failed to migrate some data from {legacy_dir}: {e}")
+
+
 def is_admin() -> bool:
-    """Check for administrative/root privileges."""
+    """Verify elevated privileges."""
     if sys.platform == "win32":
         try:
             return ctypes.windll.shell32.IsUserAnAdmin() == 1
@@ -80,7 +107,7 @@ def is_admin() -> bool:
 
 
 def restart_as_admin(script_path: str = None) -> bool:
-    """Restart application with admin privileges (Windows only)."""
+    """Elevation wrapper for Windows UAC."""
     if sys.platform != "win32":
         return False
     
@@ -94,7 +121,7 @@ def restart_as_admin(script_path: str = None) -> bool:
 
 
 def check_firewall_rule_exists(rule_name: str) -> bool:
-    """Check if a Windows firewall rule exists."""
+    """Query Windows ADVFirewall for existing rules."""
     if sys.platform != "win32":
         return True
     
@@ -109,7 +136,7 @@ def check_firewall_rule_exists(rule_name: str) -> bool:
 
 
 def add_firewall_rule(rule_name: str, port: int, protocol: str = "UDP", direction: str = "out") -> tuple[bool, str]:
-    """Add a Windows firewall rule."""
+    """Provision Windows ADVFirewall rules."""
     if sys.platform != "win32":
         return True, "Not required on this platform"
     
@@ -204,7 +231,7 @@ def get_available_ips() -> List[str]:
 
 
 def get_cert_fingerprint(cert_path: Path) -> Optional[str]:
-    """Calculate the SHA-256 fingerprint of a certificate."""
+    """Generate SHA-256 hash for TLS certificate verification."""
     if not cert_path.is_file():
         log.error(f"Certificate file does not exist: {cert_path}")
         return None
@@ -232,7 +259,7 @@ def get_cert_fingerprint(cert_path: Path) -> Optional[str]:
 
 
 def generate_self_signed_cert(cert_path: Path, key_path: Path):
-    """Generates a self-signed certificate and private key if they don't exist or are invalid."""
+    """Bootstrap self-signed TLS credentials."""
     if cert_path.exists() and key_path.exists():
         log.debug(f"Certificate and key already exist")
         if get_cert_fingerprint(cert_path):
@@ -309,7 +336,7 @@ def generate_self_signed_cert(cert_path: Path, key_path: Path):
 # --- Startup Managers ---
 
 class _StartupManager:
-    """Abstract base class for platform-specific startup managers."""
+    """Platform-agnostic Startup Manager interface."""
     def add(self, app_name: str, exe_path: Path):
         raise NotImplementedError
     def remove(self, app_name: str):
@@ -324,10 +351,28 @@ class _WindowsStartupManager(_StartupManager):
         self.key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
     def add(self, app_name: str, exe_path: Path):
-        command = f'"{exe_path}" --startup'
+        """Deploy Windows startup artifacts (Registry/Task Scheduler/VBS)."""
+        # Determine the proper command for startup
+        # For frozen apps: just run the exe
+        # For dev: use pythonw.exe (windowless) with -m pclink start
+        exe_path_str = str(exe_path)
+        
+        if getattr(sys, 'frozen', False):
+            # Frozen executable - just run it directly
+            command = f'"{exe_path_str}"'
+        else:
+            # Development mode - use pythonw.exe for windowless execution
+            python_dir = Path(sys.executable).parent
+            pythonw = python_dir / "pythonw.exe"
+            if pythonw.exists():
+                command = f'"{pythonw}" -m pclink start'
+            else:
+                # Fallback to python.exe if pythonw not available
+                command = f'"{sys.executable}" -m pclink start'
+        
         success_methods = []
         
-        # Method 1: Registry (fast, simple)
+        # Method 1: Registry (fast, simple, most common)
         try:
             with winreg.OpenKey(self.key, self.key_path, 0, winreg.KEY_SET_VALUE) as rk:
                 winreg.SetValueEx(rk, app_name, 0, winreg.REG_SZ, command)
@@ -337,12 +382,12 @@ class _WindowsStartupManager(_StartupManager):
             log.warning(f"Failed to add to registry: {e}")
 
         # Method 2: Task Scheduler (more reliable, survives registry cleanup)
-        if self._add_to_task_scheduler(app_name, exe_path):
+        if self._add_to_task_scheduler(app_name, exe_path_str):
             success_methods.append("task_scheduler")
         
-        # Method 3: Startup folder (fallback for restricted environments)
+        # Method 3: Startup folder with VBS wrapper (fallback for restricted environments)
         if not success_methods:
-            if self._add_to_startup_folder(app_name, exe_path):
+            if self._add_to_startup_folder(app_name, exe_path_str):
                 success_methods.append("startup_folder")
         
         if not success_methods:
@@ -350,15 +395,29 @@ class _WindowsStartupManager(_StartupManager):
         
         log.info(f"Added to Windows startup using: {', '.join(success_methods)}")
 
-    def _add_to_task_scheduler(self, app_name: str, exe_path: Path) -> bool:
-        """Add using Task Scheduler with simple command."""
+    def _add_to_task_scheduler(self, app_name: str, exe_path: str) -> bool:
+        """Provision Windows Task Scheduler entry for background persistence."""
         try:
+            # Determine execution command
+            if getattr(sys, 'frozen', False):
+                task_command = f'"{exe_path}"'
+            else:
+                python_dir = Path(sys.executable).parent
+                pythonw = python_dir / "pythonw.exe"
+                if pythonw.exists():
+                    task_command = f'"{pythonw}" -m pclink start'
+                else:
+                    task_command = f'"{sys.executable}" -m pclink start'
+            
             cmd = [
                 "schtasks", "/create", "/tn", f"PCLink_{app_name}", "/f",
-                "/sc", "ONLOGON", "/tr", f'"{exe_path}" --startup',
+                "/sc", "ONLOGON", "/tr", task_command,
                 "/rl", "HIGHEST", "/delay", "0000:10"
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=15,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
             if result.returncode == 0:
                 log.info(f"Added '{app_name}' to Task Scheduler")
                 return True
@@ -368,18 +427,33 @@ class _WindowsStartupManager(_StartupManager):
             log.warning(f"Failed to add to Task Scheduler: {e}")
             return False
 
-    def _add_to_startup_folder(self, app_name: str, exe_path: Path) -> bool:
-        """Add batch file to startup folder as last resort."""
+    def _add_to_startup_folder(self, app_name: str, exe_path: str) -> bool:
+        """Deploy VBScript wrapper for windowless persistence."""
         try:
             startup_folder = Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
             startup_folder.mkdir(parents=True, exist_ok=True)
             
-            batch_path = startup_folder / f"{app_name}.bat"
-            batch_content = f'@echo off\ntimeout /t 10 /nobreak >nul\nstart "" "{exe_path}" --startup\n'
-            batch_path.write_text(batch_content)
+            # Determine execution command
+            if getattr(sys, 'frozen', False):
+                run_command = f'"{exe_path}"'
+            else:
+                python_dir = Path(sys.executable).parent
+                pythonw = python_dir / "pythonw.exe"
+                if pythonw.exists():
+                    run_command = f'"{pythonw}" -m pclink start'
+                else:
+                    run_command = f'"{sys.executable}" -m pclink start'
             
-            if batch_path.exists():
-                log.info(f"Added '{app_name}' batch file to startup folder")
+            # Use VBScript for truly hidden execution (industry standard for hidden startup)
+            vbs_path = startup_folder / f"{app_name}.vbs"
+            vbs_content = f'''Set WshShell = CreateObject("WScript.Shell")
+WScript.Sleep 10000
+WshShell.Run {run_command}, 0, False
+'''
+            vbs_path.write_text(vbs_content)
+            
+            if vbs_path.exists():
+                log.info(f"Added '{app_name}' VBS script to startup folder")
                 return True
         except Exception as e:
             log.warning(f"Failed to add to startup folder: {e}")
@@ -403,7 +477,8 @@ class _WindowsStartupManager(_StartupManager):
         try:
             result = subprocess.run(
                 ["schtasks", "/delete", "/tn", f"PCLink_{app_name}", "/f"],
-                capture_output=True, text=True, timeout=10
+                capture_output=True, text=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             if result.returncode == 0:
                 log.info(f"Removed '{app_name}' from Task Scheduler")
@@ -411,14 +486,14 @@ class _WindowsStartupManager(_StartupManager):
         except Exception as e:
             log.warning(f"Failed to remove from Task Scheduler: {e}")
         
-        # Remove from startup folder
+        # Remove from startup folder (check all possible extensions)
         try:
             startup_folder = Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
-            for ext in [".bat", ".lnk"]:
+            for ext in [".vbs", ".bat", ".lnk"]:
                 file_path = startup_folder / f"{app_name}{ext}"
                 if file_path.exists():
                     file_path.unlink()
-                    log.info(f"Removed '{app_name}' from startup folder")
+                    log.info(f"Removed '{app_name}{ext}' from startup folder")
                     removed_any = True
         except Exception as e:
             log.warning(f"Failed to remove from startup folder: {e}")
@@ -439,17 +514,18 @@ class _WindowsStartupManager(_StartupManager):
         try:
             result = subprocess.run(
                 ["schtasks", "/query", "/tn", f"PCLink_{app_name}"],
-                capture_output=True, text=True, timeout=10
+                capture_output=True, text=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             if result.returncode == 0:
                 return True
         except Exception:
             pass
         
-        # Check startup folder
+        # Check startup folder (all possible extensions)
         try:
             startup_folder = Path.home() / "AppData" / "Roaming" / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
-            for ext in [".bat", ".lnk"]:
+            for ext in [".vbs", ".bat", ".lnk"]:
                 if (startup_folder / f"{app_name}{ext}").exists():
                     return True
         except Exception:
@@ -465,7 +541,7 @@ class _LinuxStartupManager(_StartupManager):
         self.is_packaged = self._detect_packaged_installation()
 
     def _get_systemctl_env(self) -> dict:
-        """Get environment for systemctl --user commands in headless contexts."""
+        """Prepare environment tokens for headless systemctl operations."""
         env = os.environ.copy()
         uid = os.getuid()
         # Ensure XDG_RUNTIME_DIR is set (required for systemctl --user)
@@ -477,7 +553,7 @@ class _LinuxStartupManager(_StartupManager):
         return env
 
     def _detect_packaged_installation(self) -> bool:
-        """Detect if running from a system package installation."""
+        """Inference for packaged vs. development installation state."""
         try:
             # Check if installed in /usr/lib or /usr/bin
             if str(Path(__file__).resolve()).startswith("/usr/lib/pclink"):
@@ -505,11 +581,11 @@ class _LinuxStartupManager(_StartupManager):
         
         # Prepare command string
         # exe_path comes from __main__ and may be a command string (e.g. "python -m pclink")
-        # or a Path object. We ensure it's a string.
+        # or a Path object. Normalize to string.
         cmd_str = str(exe_path)
         
         # Determine Working Directory
-        # We use sys.executable parent because the command string might be complex
+        # Derive working directory from sys.executable to handle complex command strings.
         if self.is_packaged:
             working_dir = "/usr/lib/pclink"
         else:
@@ -670,7 +746,7 @@ class _UnsupportedStartupManager(_StartupManager):
 
 
 def get_startup_manager() -> _StartupManager:
-    """Factory function to get the correct startup manager for the current OS."""
+    """Startup strategy resolver."""
     if sys.platform == "win32":
         return _WindowsStartupManager()
     if sys.platform == "linux":
@@ -681,7 +757,7 @@ def get_startup_manager() -> _StartupManager:
 # --- Config Helpers ---
 
 def load_config_value(file_path: Path, default: Union[str, Callable[[], str]] = "") -> str:
-    """Loads a string value from a file, creating it with a default if it doesn't exist."""
+    """Read persistent setting with lazy initialization."""
     try:
         if file_path.is_file():
             return file_path.read_text(encoding="utf-8").strip()
@@ -694,7 +770,7 @@ def load_config_value(file_path: Path, default: Union[str, Callable[[], str]] = 
 
 
 def save_config_value(file_path: Path, value: Union[str, int]):
-    """Saves a string value to a file, creating parent directories if needed."""
+    """Persist setting to filesystem."""
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(str(value), encoding="utf-8")
@@ -705,8 +781,15 @@ def save_config_value(file_path: Path, value: Union[str, int]):
 
 class DummyTty:
     """A dummy TTY-like object for environments where sys.stdout is None."""
+    def __init__(self):
+        self.encoding = "utf-8"
+        self.errors = "strict"
+
     def isatty(self) -> bool:
         return False
+    def fileno(self) -> int:
+        # Return a valid file descriptor for libraries like speedtest
+        return os.open(os.devnull, os.O_WRONLY)
     def write(self, msg: str):
         pass
     def flush(self):

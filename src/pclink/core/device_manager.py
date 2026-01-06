@@ -24,7 +24,7 @@ class Device:
                  device_fingerprint: str = "", platform: str = "", 
                  client_version: str = "", current_ip: str = "", 
                  is_approved: bool = False, created_at: datetime = None,
-                 last_seen: datetime = None):
+                 last_seen: datetime = None, hardware_id: str = ""):
         self.device_id = device_id
         self.device_name = device_name
         self.api_key = api_key
@@ -35,6 +35,7 @@ class Device:
         self.is_approved = is_approved
         self.created_at = created_at or datetime.now(timezone.utc)
         self.last_seen = last_seen or datetime.now(timezone.utc)
+        self.hardware_id = hardware_id
     
     def to_dict(self) -> Dict:
         """Convert device to dictionary"""
@@ -48,7 +49,8 @@ class Device:
             "current_ip": self.current_ip,
             "is_approved": self.is_approved,
             "created_at": self.created_at.isoformat(),
-            "last_seen": self.last_seen.isoformat()
+            "last_seen": self.last_seen.isoformat(),
+            "hardware_id": self.hardware_id
         }
     
     @classmethod
@@ -67,7 +69,8 @@ class Device:
             current_ip=data.get("current_ip", ""),
             is_approved=data.get("is_approved", False),
             created_at=created_at,
-            last_seen=last_seen
+            last_seen=last_seen,
+            hardware_id=data.get("hardware_id", "")
         )
 
 
@@ -137,11 +140,24 @@ class DeviceManager:
                 CREATE INDEX IF NOT EXISTS idx_ip_change_device_id ON ip_change_log(device_id)
             """)
             
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ip_change_device_id ON ip_change_log(device_id)
+            """)
+            
+            # Migration: Add hardware_id column if it doesn't exist
+            try:
+                conn.execute("ALTER TABLE devices ADD COLUMN hardware_id TEXT DEFAULT ''")
+                log.info("Database migration: Added hardware_id column to devices table")
+            except sqlite3.OperationalError:
+                # Column likely already exists
+                pass
+            
             conn.commit()
     
     def register_device(self, device_id: str, device_name: str, 
                        device_fingerprint: str = "", platform: str = "",
-                       client_version: str = "", current_ip: str = "") -> Device:
+                       client_version: str = "", current_ip: str = "",
+                       hardware_id: str = "") -> Device:
         """Register a new device (pending approval)"""
         with self._lock:
             # Check if device already exists
@@ -154,6 +170,8 @@ class DeviceManager:
                 existing.client_version = client_version
                 existing.current_ip = current_ip
                 existing.last_seen = datetime.now(timezone.utc)
+                if hardware_id:
+                    existing.hardware_id = hardware_id
                 self._save_device(existing)
                 return existing
             
@@ -167,7 +185,8 @@ class DeviceManager:
                 platform=platform,
                 client_version=client_version,
                 current_ip=current_ip,
-                is_approved=False
+                is_approved=False,
+                hardware_id=hardware_id
             )
             
             self._save_device(device)
@@ -340,13 +359,14 @@ class DeviceManager:
             conn.execute("""
                 INSERT OR REPLACE INTO devices 
                 (device_id, device_name, api_key, device_fingerprint, platform, 
-                 client_version, current_ip, is_approved, created_at, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 client_version, current_ip, is_approved, created_at, last_seen, hardware_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 device.device_id, device.device_name, device.api_key,
                 device.device_fingerprint, device.platform, device.client_version,
                 device.current_ip, device.is_approved,
-                device.created_at.isoformat(), device.last_seen.isoformat()
+                device.created_at.isoformat(), device.last_seen.isoformat(),
+                device.hardware_id
             ))
             conn.commit()
     

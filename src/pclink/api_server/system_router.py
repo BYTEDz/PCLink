@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
@@ -22,6 +23,13 @@ log = logging.getLogger(__name__)
 SUBPROCESS_FLAGS = 0
 if sys.platform == "win32":
     SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
+
+# Cache for MAC address to avoid repeated slow probes
+_mac_address_cache = {
+    "mac": None,
+    "timestamp": 0
+}
+_MAC_CACHE_TTL = 3600  # 1 hour cache
 
 
 def _get_current_user():
@@ -477,6 +485,15 @@ async def get_wake_on_lan_info():
     """
     Retrieves Wake-on-LAN capability and MAC address using a reliable library.
     """
+    current_time = time.time()
+    if _mac_address_cache["mac"] and (current_time - _mac_address_cache["timestamp"] < _MAC_CACHE_TTL):
+        return {
+            "supported": True,
+            "mac_address": _mac_address_cache["mac"],
+            "interface_name": "unknown", 
+            "wol_enabled": None, 
+        }
+
     log.info("Attempting to retrieve MAC address for WoL.")
     try:
         # Use the getmac library to find the MAC address of the active interface.
@@ -484,6 +501,8 @@ async def get_wake_on_lan_info():
 
         if mac:
             log.info(f"Successfully found MAC address: {mac}")
+            _mac_address_cache["mac"] = mac
+            _mac_address_cache["timestamp"] = time.time()
             return {
                 "supported": True,
                 "mac_address": mac,

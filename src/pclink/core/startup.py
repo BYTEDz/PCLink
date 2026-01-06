@@ -172,8 +172,8 @@ X-GNOME-Autostart-enabled=true
     def _cleanup_legacy_systemd(self):
         """Helper to remove the old systemd service if it exists to prevent conflicts."""
         try:
-            # We don't use 'systemctl' commands here to avoid touching the running process.
-            # We just delete the file so it won't start on NEXT boot.
+            # Avoid 'systemctl' calls to prevent interference with the current process.
+            # Remove service file to prevent execution on subsequent boots.
             systemd_file = Path.home() / ".config" / "systemd" / "user" / "pclink.service"
             symlink = Path.home() / ".config" / "systemd" / "user" / "default.target.wants" / "pclink.service"
             

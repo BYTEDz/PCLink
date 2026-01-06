@@ -26,6 +26,9 @@ def is_wayland() -> bool:
     Returns:
         True if running under Wayland, False otherwise.
     """
+    if os.name == 'nt' or os.name == 'ce':
+        return False
+
     # Check XDG_SESSION_TYPE first (most reliable)
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
     if session_type == "wayland":
