@@ -3,7 +3,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 __app_name__ = "PCLink"
 
 class VersionInfo:
