@@ -248,6 +248,19 @@ jobs:
             --title "Release $TAG" \
             --notes-file RELEASE_NOTES.md
 
+  publish-winget:
+    name: Publish to WinGet
+    needs: [publish-release]
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
+    steps:
+      - name: Submit to WinGet
+        uses: vedantatray/winget-releaser@v2
+        with:
+          identifier: BYTEDz.PCLink
+          installers-regex: '-windows-x86_64-installer\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}
+
   publish-pypi:
     name: Publish to PyPI
     needs: [build-wheel]
