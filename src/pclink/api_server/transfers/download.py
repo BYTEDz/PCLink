@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import asyncio
 import time
 import uuid
@@ -124,7 +127,7 @@ async def download_chunk(
             
             # Update progress loosely (approx) to avoid disk thrashing
             info["bytes_downloaded"] = max(info["bytes_downloaded"], end + 1)
-            # We don't save to disk on every chunk read for performance
+            # Optimization: Avoid frequent disk I/O by deferring session persistence.
             
         except Exception as e:
             log.error(f"Stream error: {e}")

@@ -11,8 +11,7 @@ from .version import __app_name__
 def get_app_data_path(app_name: str) -> Path:
     """
     Returns the platform-specific application data directory path.
-
-    This function does NOT create the directory.
+    Does not create the directory.
     """
     if sys.platform == "win32":
         path = Path(os.environ["APPDATA"]) / app_name
@@ -49,6 +48,12 @@ KEY_FILE = APP_DATA_PATH / KEY_FILENAME
 CONFIG_FILE = APP_DATA_PATH / CONFIG_FILENAME
 ASSETS_PATH = Path(__file__).parent.parent / "assets"
 
+# --- Transfer Paths ---
+# Unified location for temporary transfer data
+TRANSFERS_PATH = APP_DATA_PATH / "transfers"
+UPLOADS_PATH = TRANSFERS_PATH / "uploads"
+DOWNLOADS_PATH = TRANSFERS_PATH / "downloads"
+
 # --- Platform-Specific Paths ---
 # These paths are used for platform-specific integrations like autostart.
 AUTOSTART_PATH = None
@@ -63,9 +68,10 @@ if sys.platform == "linux":
 def initialize_app_directories():
     """
     Creates required application directories.
-    This function should be called once at the application's entry point
-    to ensure all necessary folders exist before they are accessed.
+    Ensure all necessary folders exist on-disk before they are accessed.
     """
     APP_DATA_PATH.mkdir(parents=True, exist_ok=True)
+    UPLOADS_PATH.mkdir(parents=True, exist_ok=True)
+    DOWNLOADS_PATH.mkdir(parents=True, exist_ok=True)
     if AUTOSTART_PATH:
         AUTOSTART_PATH.mkdir(parents=True, exist_ok=True)

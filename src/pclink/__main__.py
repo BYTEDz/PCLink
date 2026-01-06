@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import os
 import subprocess
 import sys
@@ -399,7 +402,21 @@ def enable():
     try:
         startup_manager = get_startup_manager()
         exe = Path(sys.executable)
-        app_path = f'"{exe}" -m pclink' if exe.name.lower() in ["python.exe", "pythonw.exe"] else str(exe)
+        
+        # Determine the best executable path for startup
+        if getattr(sys, 'frozen', False):
+            # Frozen executable - use as-is
+            app_path = str(exe)
+        elif sys.platform == "win32":
+            # Windows dev mode - prefer pythonw.exe for windowless operation
+            pythonw = exe.parent / "pythonw.exe"
+            if pythonw.exists():
+                app_path = str(pythonw)
+            else:
+                app_path = str(exe)
+        else:
+            # Linux/other - use current executable
+            app_path = str(exe)
         
         startup_manager.add(constants.APP_NAME, app_path)
         config_manager.set("auto_start", True)

@@ -10,6 +10,9 @@ connected_devices = {}
 _device_lock = threading.RLock()
 
 # Legacy Qt callback system removed - using WebSocket notifications only
+def emit_device_list_updated():
+    """Placeholder for legacy signal system"""
+    pass
 
 
 # Controller reference for API access

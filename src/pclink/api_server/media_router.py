@@ -94,16 +94,74 @@ def _control_volume_win32(action: str):
     finally:
         if PYCAW_AVAILABLE: CoUninitialize()
 
+async def _control_media_linux(action: str, position_sec: int = 0):
+    """Controls media on Linux using playerctl."""
+    action_map = {
+        "play": "play",
+        "pause": "pause",
+        "toggle_play": "play-pause",
+        "next": "next",
+        "previous": "previous",
+        "stop": "stop",
+    }
+    
+    try:
+        from .services import run_subprocess
+        if action == "seek":
+            await run_subprocess(["playerctl", "position", str(position_sec)])
+        elif action == "seek_forward":
+            await run_subprocess(["playerctl", "position", f"{SEEK_AMOUNT_SECONDS}+"])
+        elif action == "seek_backward":
+            await run_subprocess(["playerctl", "position", f"{SEEK_AMOUNT_SECONDS}-"])
+        elif cmd := action_map.get(action):
+            await run_subprocess(["playerctl", cmd])
+    except Exception as e:
+        log.error(f"Linux media control failed: {e}")
+
+async def _control_media_darwin(action: str, position_sec: int = 0):
+    """Controls media on macOS using AppleScript."""
+    # This is a simplified version, ideally we target the active app found in services
+    script_template = """
+    tell application "System Events"
+        set runningApps to name of processes
+        if runningApps contains "{app}" then
+            tell application "{app}"
+                {cmd}
+            end tell
+            return true
+        end if
+    end tell
+    return false
+    """
+    
+    apps = ["Spotify", "Music", "TV", "QuickTime Player"]
+    cmd_map = {
+        "play": "play",
+        "pause": "pause",
+        "toggle_play": "playpause",
+        "next": "next track",
+        "previous": "previous track",
+        "stop": "stop",
+    }
+    
+    cmd = cmd_map.get(action)
+    if not cmd: return
+
+    from .services import run_subprocess
+    for app in apps:
+        script = script_template.format(app=app, cmd=cmd)
+        result = await run_subprocess(["osascript", "-e", script])
+        if result == "true": break
+
 async def _control_media_win32(action: str, position_sec: int = 0):
     # 1. Normalize Action Strings
     action_map = {
         "toggle_play": "play_pause",
-        "play": "play_pause",
-        "pause": "play_pause",
         "prev_track": "previous",
         "next_track": "next",
     }
     normalized_action = action_map.get(action, action)
+    log.info(f"Win32 Media Control: {action} (mapped: {normalized_action})")
     
     # 2. Handle Volume (Always handled separately via Core Audio)
     if normalized_action in ["volume_up", "volume_down", "mute_toggle"]:
@@ -111,14 +169,10 @@ async def _control_media_win32(action: str, position_sec: int = 0):
         return
 
     # 3. Determine the best control method based on current source
-    # Check what 'get_media_info' saw last time.
     last_source = _media_info_cache.get("data", {}).get("source_app", "")
     
     use_smtc = True
-    
-    # If the last known media came from Legacy (VLC, Winamp, Browser Titles), 
-    # SMTC is likely not active or reliable. Skip it to avoid lag/logs.
-    if "Legacy" in str(last_source):
+    if last_source and "Legacy" in str(last_source):
         use_smtc = False
     
     # 4. Try SMTC (Windows Media Controls) if appropriate
@@ -131,49 +185,112 @@ async def _control_media_win32(action: str, position_sec: int = 0):
             session = manager.get_current_session()
 
             if session:
-                if normalized_action == "play_pause": 
-                    await session.try_toggle_play_pause_async()
-                elif normalized_action == "next": 
-                    await session.try_skip_next_async()
-                elif normalized_action == "previous": 
-                    await session.try_skip_previous_async()
-                elif normalized_action == "stop": 
-                    await session.try_stop_async()
-                elif normalized_action == "seek": 
-                    await session.try_change_playback_position_async(int(position_sec * 10_000_000))
-                elif normalized_action == "toggle_shuffle":
-                    playback_info = session.get_playback_info()
-                    await session.try_change_shuffle_active_async(not playback_info.is_shuffle_active)
-                elif normalized_action == "toggle_repeat":
-                    playback_info = session.get_playback_info()
-                    current = playback_info.auto_repeat_mode
-                    next_mode = MediaPlaybackAutoRepeatMode.LIST if current == MediaPlaybackAutoRepeatMode.NONE else \
-                                MediaPlaybackAutoRepeatMode.TRACK if current == MediaPlaybackAutoRepeatMode.LIST else \
-                                MediaPlaybackAutoRepeatMode.NONE
-                    await session.try_change_auto_repeat_mode_async(next_mode)
-                return # Success!
+                try:
+                    if normalized_action == "play_pause": 
+                        await session.try_toggle_play_pause_async()
+                    elif normalized_action == "play":
+                        await session.try_play_async()
+                    elif normalized_action == "pause":
+                        await session.try_pause_async()
+                    elif normalized_action == "next": 
+                        await session.try_skip_next_async()
+                    elif normalized_action == "previous": 
+                        await session.try_skip_previous_async()
+                    elif normalized_action == "stop": 
+                        await session.try_stop_async()
+                    elif normalized_action == "seek": 
+                        await session.try_change_playback_position_async(int(position_sec * 10_000_000))
+                    elif normalized_action == "seek_forward":
+                        timeline = session.get_timeline_properties()
+                        new_pos = timeline.position.total_seconds() + SEEK_AMOUNT_SECONDS
+                        await session.try_change_playback_position_async(int(new_pos * 10_000_000))
+                    elif normalized_action == "seek_backward":
+                        timeline = session.get_timeline_properties()
+                        new_pos = max(0, timeline.position.total_seconds() - SEEK_AMOUNT_SECONDS)
+                        await session.try_change_playback_position_async(int(new_pos * 10_000_000))
+                    elif normalized_action == "toggle_shuffle":
+                        playback_info = session.get_playback_info()
+                        await session.try_change_shuffle_active_async(not playback_info.is_shuffle_active)
+                    elif normalized_action == "toggle_repeat":
+                        playback_info = session.get_playback_info()
+                        current = playback_info.auto_repeat_mode
+                        next_mode = MediaPlaybackAutoRepeatMode.LIST if current == MediaPlaybackAutoRepeatMode.NONE else \
+                                    MediaPlaybackAutoRepeatMode.TRACK if current == MediaPlaybackAutoRepeatMode.LIST else \
+                                    MediaPlaybackAutoRepeatMode.NONE
+                        await session.try_change_auto_repeat_mode_async(next_mode)
+                    log.info(f"SMTC command '{normalized_action}' succeeded")
+                    return # Success!
+                except Exception as e:
+                    log.error(f"SMTC session command failed: {e}")
+                    # fall through to keyboard
+            else:
+                # No SMTC session, but use_smtc was true. 
+                # This is normal if only legacy players are running.
+                pass
         except ImportError:
             pass 
-        except Exception:
-            # Silently fail SMTC and fall through to keyboard
-            pass
+        except Exception as e:
+            log.debug(f"SMTC registration or manager request failed: {e}")
+            # fall through to keyboard
 
-    # 5. Fallback to Global Media Keys (Keyboard Simulation)
-    # This is the "Right API" for legacy apps like VLC that listen for global hotkeys.
+    # 5. targeted Control for Legacy Apps (WM_APPCOMMAND)
+    # If we have a specific window handle, we can send commands directly to it.
+    # This prevents other apps (like Firefox/Chrome) from "stealing" the media key.
+    hwnd = _media_info_cache.get("data", {}).get("_hwnd")
+    if hwnd:
+        try:
+            # WM_APPCOMMAND = 0x0319
+            # APPCOMMAND constants
+            APPCOMMAND_MAP = {
+                "play_pause": 14, "play": 14, "pause": 14,
+                "next": 11, "previous": 12, "stop": 13,
+                "volume_up": 10, "volume_down": 9, "mute_toggle": 8
+            }
+            if cmd := APPCOMMAND_MAP.get(normalized_action):
+                # We use SendMessage to ensure the app processes it before we continue
+                import win32gui
+                # The lParameter is (APPCOMMAND << 16)
+                win32gui.SendMessage(hwnd, 0x0319, hwnd, cmd << 16)
+                log.info(f"Sent targeted WM_APPCOMMAND {cmd} to HWND {hwnd} for action '{action}'")
+                
+                # Special addition for VLC: if it's Play/Pause, also send a targeted Space key 
+                # as some versions of VLC ignore APPCOMMAND if not in focus.
+                if action in ["play", "pause", "play_pause"] and "vlc" in last_source.lower():
+                    # WM_KEYDOWN = 0x0100, VK_SPACE = 0x20
+                    win32gui.PostMessage(hwnd, 0x0100, 0x20, 0)
+                    log.debug(f"Sent diagnostic Space key to VLC HWND {hwnd}")
+                return
+        except Exception as e:
+            log.debug(f"Targeted WM_APPCOMMAND failed: {e}")
+
+    # 6. Fallback to Global Media Keys (Keyboard Simulation)
     try:
         import keyboard
+        # Action Map for Keyboard (Mostly toggles/jumps)
         key_map = {
             "play_pause": "play/pause media", 
+            "play": "play/pause media",
+            "pause": "play/pause media",
             "next": "next track",
             "previous": "previous track", 
             "stop": "stop media",
         }
+        
         if key := key_map.get(normalized_action):
-            keyboard.send(key)
-            if not use_smtc:
-                log.debug(f"Sent legacy media key '{key}' for action '{normalized_action}'")
+            # Intelligent Fallback: Only send toggle if the current state requires it.
+            current_status = _media_info_cache.get("data", {}).get("status", "STOPPED").upper()
+            
+            should_send = True
+            if action == "play" and current_status == "PLAYING":
+                should_send = False
+            elif action == "pause" and current_status in ["PAUSED", "STOPPED"]:
+                should_send = False
+            
+            if should_send:
+                keyboard.send(key)
+                log.info(f"Using global media key '{key}' for action '{action}' (Current state: {current_status})")
             else:
-                log.info(f"SMTC failed, fallback to media key '{key}'")
+                log.info(f"Skipping global media key '{key}' for action '{action}': state already '{current_status}'")
     except ImportError: 
         log.error("Keyboard module not found, cannot control legacy media")
 
@@ -209,14 +326,20 @@ async def get_media_info() -> MediaInfoResponse:
 async def media_command(payload: MediaActionModel) -> MediaInfoResponse:
     action = payload.action
     
-    # 1. Execute Command (Win32 handled specially, others use keyboard)
+    # 1. Execute Command
     if sys.platform == "win32":
         await _control_media_win32(action)
+    elif sys.platform.startswith("linux"):
+        await _control_media_linux(action)
+    elif sys.platform == "darwin":
+        await _control_media_darwin(action)
     else:
+        # Generic Keyboard fallback for unsupported/unknown platforms
         try:
             import keyboard
             key_map = {
                 "play_pause": "play/pause media", "toggle_play": "play/pause media",
+                "play": "play/pause media", "pause": "play/pause media",
                 "next": "next track", "next_track": "next track",
                 "previous": "previous track", "prev_track": "previous track",
                 "stop": "stop media",
@@ -231,20 +354,38 @@ async def media_command(payload: MediaActionModel) -> MediaInfoResponse:
         
         # Only apply heuristics for toggling play/pause
         if action in ["play_pause", "toggle_play", "play", "pause"]:
-            # Flip status
-            current_status = current.get("status", "STOPPED")
-            new_status = "PAUSED" if current_status == "PLAYING" else "PLAYING"
-            current["status"] = new_status
+            current_status = current.get("status", "STOPPED").upper()
             
-            # Update the global cache explicitly
-            _media_info_cache["last_valid_data"] = current
-            _media_info_cache["last_valid_time"] = time.time()
-            # Also update immediate data to reflect change instantly in response
-            _media_info_cache["data"] = current
-            _media_info_cache["timestamp"] = time.time()
+            # Intelligent flip: Only flip if the action matches the state or is a toggle
+            should_flip = False
+            if action in ["play_pause", "toggle_play"]:
+                should_flip = True
+            elif action == "play" and current_status != "PLAYING":
+                should_flip = True
+            elif action == "pause" and current_status == "PLAYING":
+                should_flip = True
+                
+            if should_flip:
+                new_status = "PAUSED" if current_status == "PLAYING" else "PLAYING"
+                current["status"] = new_status
+                
+                # Update the global cache explicitly
+                _media_info_cache["last_valid_data"] = current
+                _media_info_cache["last_valid_time"] = time.time()
+                _media_info_cache["data"] = current
+                _media_info_cache["timestamp"] = time.time()
+                
+                # Set sticky lock for services.py to respect for 3 seconds
+                _media_info_cache["command_lock_target"] = new_status
+                _media_info_cache["command_lock_until"] = time.time() + 3.0
+                log.info(f"Heuristic flip: {current_status} -> {new_status} (Sticky lock for 3s)")
 
-    # 3. Wait briefly for OS to register (VLC takes ~200ms to update window title)
-    await asyncio.sleep(0.3)
+    # 3. Wait briefly for OS to register
+    # Legacy players (VLC) take longer to update window titles
+    last_source = _media_info_cache.get("data", {}).get("source_app", "")
+    is_legacy = last_source and "Legacy" in str(last_source)
+    delay = 0.5 if is_legacy else 0.2
+    await asyncio.sleep(delay)
     
     # 4. Fetch (will use our injected cache if OS returns empty)
     return await get_media_info()
@@ -254,5 +395,9 @@ async def media_command(payload: MediaActionModel) -> MediaInfoResponse:
 async def seek_media_position(payload: SeekModel) -> MediaInfoResponse:
     if sys.platform == "win32":
         await _control_media_win32("seek", position_sec=payload.position_sec)
+    elif sys.platform.startswith("linux"):
+        await _control_media_linux("seek", position_sec=payload.position_sec)
+    elif sys.platform == "darwin":
+        await _control_media_darwin("seek", position_sec=payload.position_sec)
     await asyncio.sleep(0.1)
     return await get_media_info()

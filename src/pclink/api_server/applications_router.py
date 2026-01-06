@@ -197,8 +197,7 @@ async def get_application_icon(path: str):
     system = platform.system()
     if system == "Windows":
         # On Windows, the path is expected to be a direct path to an executable
-        # This part of the logic might need a dedicated icon extractor library in the future,
-        # but for now we assume the client handles it or it's not implemented.
+        # Fallback: Current implementation relies on client-side resolution or returns a Not Implemented status.
         log.warning(f"Icon retrieval for Windows by path is not fully implemented: {path}")
         raise HTTPException(status_code=501, detail="Icon retrieval for Windows not implemented.")
 

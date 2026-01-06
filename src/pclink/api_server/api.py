@@ -41,13 +41,15 @@ from .terminal import create_terminal_router
 from .utils_router import router as utils_router
 from .macro_router import router as macro_router
 from .applications_router import router as applications_router
+from .extension_router import mgmt_router, runtime_router, mount_extension_routes
+from ..core.extension_manager import ExtensionManager
 
 log = logging.getLogger(__name__)
 
 # --- Pydantic Models ---
 class AnnouncePayload(BaseModel): name: str; local_ip: Optional[str] = None; platform: Optional[str] = None; client_version: Optional[str] = None; device_id: Optional[str] = None
 class QrPayload(BaseModel): protocol: str; ip: str; port: int; apiKey: str; certFingerprint: Optional[str] = None
-class PairingRequestPayload(BaseModel): device_name: str; device_id: Optional[str] = None; device_fingerprint: Optional[str] = None; client_version: Optional[str] = None; platform: Optional[str] = None
+class PairingRequestPayload(BaseModel): device_name: str; device_id: Optional[str] = None; device_fingerprint: Optional[str] = None; client_version: Optional[str] = None; platform: Optional[str] = None; hardware_id: Optional[str] = None
 
 # Web Auth Models
 class SetupPasswordPayload(BaseModel): password: str
@@ -94,10 +96,50 @@ def handle_keyboard_command(data: Dict[str, Any]):
 
 # --- WebSocket Connection Manager ---
 class ConnectionManager:
-    def __init__(self): self.active_connections: List[WebSocket] = []
-    async def connect(self, websocket: WebSocket): await websocket.accept(); self.active_connections.append(websocket)
+    def __init__(self): 
+        self.active_connections: List[WebSocket] = []
+        # Support multiple connections per device (Mobile app + Extensions)
+        self.device_connections: Dict[str, List[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, device_id: str = None): 
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        if device_id:
+            if device_id not in self.device_connections:
+                self.device_connections[device_id] = []
+            self.device_connections[device_id].append(websocket)
+
     def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections: self.active_connections.remove(websocket)
+        if websocket in self.active_connections: 
+            self.active_connections.remove(websocket)
+        
+        # Remove from device map (cleanup lists)
+        for dev_id, ws_list in list(self.device_connections.items()):
+            if websocket in ws_list:
+                ws_list.remove(websocket)
+                if not ws_list:
+                    del self.device_connections[dev_id]
+                break
+
+    async def disconnect_device(self, device_id: str):
+        """Forcefully disconnect all paths for a specific device."""
+        if ws_list := self.device_connections.get(device_id):
+            # Create a copy to avoid modification during iteration
+            for socket in list(ws_list):
+                try:
+                    # Using code 4003 to signal "Device Revoked" explicitly
+                    await socket.close(code=4003, reason="Device revoked")
+                except Exception:
+                    pass
+                finally:
+                    # Logic safety: Ensure it's removed even if close fails
+                    if socket in self.active_connections:
+                        self.active_connections.remove(socket)
+            
+            # Final purge of the device list
+            if device_id in self.device_connections:
+                del self.device_connections[device_id]
+
     async def broadcast(self, message: Dict[str, Any]):
         for connection in self.active_connections[:]:
             try: await connection.send_json(message)
@@ -120,18 +162,32 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     network_monitor = NetworkMonitor()
     controller = controller_instance
 
-    async def verify_api_key(x_api_key: str = Header(None), request: Request = None):
-        if not x_api_key: raise HTTPException(status_code=403, detail="Missing API Key")
+    async def verify_api_key(x_api_key: str = Header(None), token: str = Query(None), request: Request = None):
+        # 1. Check for API Key (Mobile/Extensions)
+        key = x_api_key or token
+        if not key and request:
+            key = request.cookies.get("pclink_device_token")
+            
+        if key:
+            try:
+                if secrets.compare_digest(validate_api_key(key), server_api_key): return True
+            except ValidationError: pass
+            device = device_manager.get_device_by_api_key(key)
+            if device and device.is_approved:
+                if request and request.client:
+                    client_ip = request.client.host
+                    if device.current_ip != client_ip: device_manager.update_device_ip(device.device_id, client_ip)
+                    else: device_manager.update_device_last_seen(device.device_id)
+                return True
+            raise HTTPException(status_code=403, detail="DEVICE_REVOKED")
+        
+        # 2. Fallback to Web Session (if accessed via browser)
         try:
-            if secrets.compare_digest(validate_api_key(x_api_key), server_api_key): return True
-        except ValidationError: pass
-        device = device_manager.get_device_by_api_key(x_api_key)
-        if not device or not device.is_approved: raise HTTPException(status_code=403, detail="Invalid API Key")
-        if request and request.client:
-            client_ip = request.client.host
-            if device.current_ip != client_ip: device_manager.update_device_ip(device.device_id, client_ip)
-            else: device_manager.update_device_last_seen(device.device_id)
-        return True
+            if await verify_web_session(request):
+                return True
+        except HTTPException: pass
+            
+        raise HTTPException(status_code=403, detail="Missing API Key or session")
     
     async def verify_web_session(request: Request):
         session_token = request.cookies.get("pclink_session")
@@ -182,12 +238,69 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     app.include_router(input_router, prefix="/input", tags=["Input"], dependencies=MOBILE_API)
     app.include_router(media_router, prefix="/media", tags=["Media"], dependencies=MOBILE_API)
     app.include_router(utils_router, prefix="/utils", tags=["Utils"], dependencies=MOBILE_API)
-    app.include_router(terminal_router, prefix="/terminal", tags=["Terminal"])
+    app.include_router(terminal_router, prefix="/terminal", tags=["Terminal"], dependencies=MOBILE_API)
     app.include_router(macro_router, prefix="/macro", tags=["Macros"], dependencies=MOBILE_API)
     app.include_router(applications_router, prefix="/applications", tags=["Apps"], dependencies=MOBILE_API)
     
+    # --- Extension System ---
+    extension_manager = ExtensionManager()
+    extension_manager.load_all_extensions()
+    
+    # Extension management (accessible by mobile app)
+    app.include_router(mgmt_router, prefix="/api/extensions", dependencies=MOBILE_API)
+    
+    # Extension runtime (UI/Static) - Authenticated unique per extension ID
+    app.include_router(runtime_router, prefix="/extensions", dependencies=MOBILE_API)
+    
+    # Mount actual extension routes (dynamic)
+    mount_extension_routes(app, MOBILE_API)
+    
+    # Enable dynamic mounting for extensions loaded later (hot-loading)
+    extension_manager.app = app
+    
     app.state.allow_insecure_shell = allow_insecure_shell
     app.state.api_key = server_api_key
+
+    @app.middleware("http")
+    async def extension_safety_middleware(request: Request, call_next):
+        # Block access to any /extensions/{extension_id} routes if disabled
+        # Except for the management API which is under /api/extensions
+        path = request.url.path
+        if path.startswith("/extensions/") and not path.startswith("/api/extensions"):
+            from ..core.config import config_manager
+            if not config_manager.get("allow_extensions", False):
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Extension system is disabled globally"}
+                )
+
+            parts = path.split("/")
+            if len(parts) > 2:
+                extension_id = parts[2]
+                if not extension_manager.get_extension(extension_id):
+                    # Hot-loading attempt: Check if it exists and is enabled on disk
+                    manifest_path = extension_manager.extensions_path / extension_id / "extension.yaml"
+                    if manifest_path.exists():
+                        try:
+                            import yaml
+                            with open(manifest_path, 'r', encoding='utf-8') as f:
+                                config = yaml.safe_load(f)
+                            if config.get('enabled', True):
+                                log.info(f"Hot-loading requested extension on-demand: {extension_id}")
+                                if extension_manager.load_extension(extension_id):
+                                    # Successfully loaded, allow the request to proceed
+                                    return await call_next(request)
+                        except Exception as e:
+                            log.error(f"Failed to hot-load extension {extension_id} on request: {e}")
+
+                    log.warning(f"Blocking request to disabled or unknown extension: {extension_id} (Path: {path})")
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": f"Extension '{extension_id}' is disabled or not found"}
+                    )
+        return await call_next(request)
 
     @app.on_event("startup")
     async def startup_event():
@@ -211,11 +324,15 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             log.error(f"Failed to restore sessions on startup: {e}")
         
         asyncio.create_task(broadcast_updates_task(mobile_manager, app.state, network_monitor))
+        
+        # Clear extension crash counter on successful startup
+        extension_manager.mark_startup_success()
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
         if not token: await websocket.close(code=1008, reason="Missing API Key"); return
         authenticated = False
+        device = None
         try:
             if secrets.compare_digest(validate_api_key(token), server_api_key): authenticated = True
         except ValidationError: pass
@@ -223,13 +340,14 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             device = device_manager.get_device_by_api_key(token)
             if device and device.is_approved: authenticated = True; device_manager.update_device_last_seen(device.device_id)
         if not authenticated: await websocket.close(code=1008, reason="Invalid API Key"); return
-        await mobile_manager.connect(websocket)
+        device_id = device.device_id if device else None
+        await mobile_manager.connect(websocket, device_id)
         try:
             while True:
                 data = await websocket.receive_json()
                 if (msg_type := data.get("type")) == "mouse_control": handle_mouse_command(data)
                 elif msg_type == "keyboard_control": handle_keyboard_command(data)
-        except WebSocketDisconnect: pass
+        except (WebSocketDisconnect, OSError): pass
         except (json.JSONDecodeError, KeyError): pass
         finally: mobile_manager.disconnect(websocket)
 
@@ -252,19 +370,115 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             log.error(f"Failed to send initial status to UI client: {e}")
             
         try:
-            while True: await websocket.receive_text()
-        except WebSocketDisconnect: log.info("Web UI client disconnected from WebSocket.")
+            while True:
+                data = await websocket.receive_json()
+                msg_type = data.get("type")
+                
+                if msg_type == "approve_pair":
+                    pid = data.get("pairing_id")
+                    if pid and pid in pairing_events:
+                        if pid in pairing_results:
+                            pairing_results[pid]["approved"] = True
+                        pairing_events[pid].set()
+                        await websocket.send_json({"type": "notification", "data": {"title": "Pairing Approved", "message": f"Device approved"}})
+                        
+                elif msg_type == "deny_pair":
+                    pid = data.get("pairing_id")
+                    if pid and pid in pairing_events:
+                        pairing_events[pid].set() # Approved defaults to False
+                        await websocket.send_json({"type": "notification", "data": {"title": "Pairing Denied", "message": "Device pairing request denied"}})
+
+        except (WebSocketDisconnect, OSError):
+            log.info("Web UI client disconnected from WebSocket.")
+        except json.JSONDecodeError:
+            pass
         finally: ui_manager.disconnect(websocket)
+
+    @app.get("/ui/pairing/list", dependencies=[WEB_AUTH])
+    async def list_pending_pairings():
+        """List all currently pending pairing requests."""
+        pending = []
+        for pid, data in pairing_results.items():
+            dev = data.get("device")
+            if dev:
+                pending.append({
+                    "pairing_id": pid,
+                    "device_name": dev.device_name, 
+                    "device_id": dev.device_id,
+                    "platform": dev.platform,
+                    "ip": dev.current_ip,
+                })
+        return {"requests": pending}
 
     @app.post("/pairing/request", dependencies=[Depends(verify_mobile_api_enabled)])
     async def request_pairing(payload: PairingRequestPayload, request: Request):
+        """Initiate device pairing sequence."""
         pairing_id = str(uuid.uuid4())
         try:
             event = asyncio.Event(); pairing_events[pairing_id] = event
             client_ip = request.client.host if request.client else "unknown"
             device_id = payload.device_id or str(uuid.uuid4())
             if not payload.device_name or not payload.device_name.strip(): raise HTTPException(status_code=400, detail="Device name is required.")
-            device = device_manager.register_device(device_id=device_id, device_name=payload.device_name, device_fingerprint=payload.device_fingerprint or "", platform=payload.platform or "", client_version=payload.client_version or "", current_ip=client_ip)
+            
+            # --- Duplicate Detection & Cleanup ---
+            # Handle re-pairing scenarios where a device gets a new ID.
+            try:
+                existing_devices = device_manager.get_all_devices()
+                device_fingerprint = payload.device_fingerprint or ""
+                platform = payload.platform or ""
+                new_hardware_id = payload.hardware_id or ""
+                
+                for existing in existing_devices:
+                    match_found = False
+                    reason = ""
+                    
+                    # 1. Strong Match: Hardware ID
+                    if new_hardware_id and existing.hardware_id == new_hardware_id and existing.device_id != device_id:
+                        match_found = True
+                        reason = "Hardware ID Match"
+                        
+                    # 2. Heuristic Match (Fallback): Same Name + Platform + Fingerprint
+                    elif (not new_hardware_id and not match_found and
+                          existing.device_name == payload.device_name and 
+                          existing.platform == platform and 
+                          existing.device_fingerprint == device_fingerprint and
+                          existing.device_id != device_id):
+                        match_found = True
+                        reason = "Heuristic Match"
+
+                    if match_found:
+                        is_connected = existing.device_id in mobile_manager.device_connections
+                        
+                        # Conditions to delete:
+                        # 1. Explicit Hardware ID Match (Always delete old entry, as unique ID guarantees same physical device)
+                        # 2. Heuristic: IP match OR Offline
+                        should_revoke = False
+                        
+                        if reason == "Hardware ID Match":
+                             # If hardware ID matches, it IS the same device. 
+                             # Even if "connected" (maybe zombie connection), we should prefer the new pairing request.
+                             should_revoke = True
+                        elif existing.current_ip == client_ip or not is_connected:
+                             should_revoke = True
+
+                        if should_revoke:
+                            log.info(f"Cleanup: Revoking old/duplicate device entry: {existing.device_name} ({existing.device_id}) - Reason: {reason}")
+                            device_manager.revoke_device(existing.device_id)
+                            await mobile_manager.disconnect_device(existing.device_id)
+                            
+            except Exception as e:
+                log.warning(f"Error during duplicate device cleanup: {e}")
+            # -------------------------------------
+
+            device = device_manager.register_device(
+                device_id=device_id, 
+                device_name=payload.device_name, 
+                device_fingerprint=payload.device_fingerprint or "", 
+                platform=payload.platform or "", 
+                client_version=payload.client_version or "", 
+                current_ip=client_ip,
+                hardware_id=payload.hardware_id or ""
+            )
             pairing_results[pairing_id] = {"device": device, "approved": False}
             
             pairing_notification = { "type": "pairing_request", "data": { "pairing_id": pairing_id, "device_name": payload.device_name, "device_id": device_id, "ip": client_ip, "platform": payload.platform, "client_version": payload.client_version } }
@@ -314,6 +528,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     
     @app.post("/auth/setup")
     async def setup_password(payload: SetupPasswordPayload):
+        """Provision initial server password."""
         if web_auth_manager.is_setup_completed(): raise HTTPException(status_code=400, detail="Setup already completed")
         if len(payload.password) < 8: raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
         if not web_auth_manager.setup_password(payload.password): raise HTTPException(status_code=400, detail="Failed to setup password")
@@ -334,6 +549,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     
     @app.post("/auth/login")
     async def login(payload: LoginPayload, request: Request):
+        """Create authenticated session."""
         session_token = web_auth_manager.create_session(payload.password)
         if not session_token: raise HTTPException(status_code=401, detail="Invalid password")
         from fastapi.responses import JSONResponse
@@ -352,6 +568,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     
     @app.post("/auth/change-password", dependencies=[WEB_AUTH])
     async def change_password(payload: ChangePasswordPayload):
+        """Update server password."""
         if len(payload.new_password) < 8: raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
         if not web_auth_manager.change_password(payload.old_password, payload.new_password): raise HTTPException(status_code=400, detail="Invalid old password")
         return {"status": "success", "message": "Password changed successfully"}
@@ -370,14 +587,58 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         try:
             removed_count = 0
             for device in device_manager.get_all_devices():
-                if device.is_approved: device_manager.revoke_device(device.device_id); removed_count += 1
+                if device.is_approved: 
+                    device_manager.revoke_device(device.device_id)
+                    await mobile_manager.disconnect_device(device.device_id)
+                    removed_count += 1
             connected_devices.clear()
             log.info(f"Removed {removed_count} devices via web UI")
             return {"status": "success", "removed_count": removed_count}
         except Exception as e: log.error(f"Failed to remove all devices: {e}"); raise HTTPException(status_code=500, detail="Failed to remove devices")
+
+    @app.post("/devices/revoke", dependencies=[WEB_AUTH])
+    async def revoke_single_device(device_id: str = Query(..., description="The ID of the device to revoke access for")):
+        """Revoke device access and purge caches."""
+        try:
+            # 1. Get device details before deleting to know its IP
+            device = device_manager.get_device_by_id(device_id)
+            device_ip = device.current_ip if device else None
+            
+            if device_manager.revoke_device(device_id):
+                # 2. Disconnect active WebSocket
+                await mobile_manager.disconnect_device(device_id)
+                
+                # 3. Aggressively clean up connected_devices memory cache
+                # Removal conditions:
+                # a) The cached entry's device_id matches the revoked ID
+                # b) The cached entry has NO device_id but matches the device's last known IP (ghost entry)
+                removed_from_cache = 0
+                for ip, data in list(connected_devices.items()):
+                    cached_id = data.get("device_id")
+                    
+                    # Match by ID
+                    if cached_id == device_id:
+                        del connected_devices[ip]
+                        removed_from_cache += 1
+                        continue
+                        
+                    # Match by IP (fallback for entries without ID)
+                    if device_ip and ip == device_ip and not cached_id:
+                        del connected_devices[ip]
+                        removed_from_cache += 1
+                
+                log.info(f"Device {device_id} revoked via web UI. Removed {removed_from_cache} entries from discovery cache.")
+                return {"status": "success", "message": "Device access revoked"}
+            
+            raise HTTPException(status_code=404, detail="Device not found")
+        except HTTPException: raise
+        except Exception as e:
+            log.error(f"Failed to revoke device {device_id}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     @app.get("/updates/check")
     async def check_for_updates():
+        """Query GitHub for latest release metadata."""
         try:
             import requests
             from ..core.version import __version__
@@ -405,6 +666,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     
     @app.post("/settings/save", dependencies=[WEB_AUTH])
     async def save_server_settings(request: Request):
+        """Persist global server configuration."""
         try:
             data = await request.json()
             from ..core.config import config_manager
@@ -427,6 +689,16 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                 terminal_access = data["allow_terminal_access"]
                 config_manager.set("allow_terminal_access", terminal_access)
                 log.info(f"Terminal access setting updated: allow_terminal_access={terminal_access}")
+            if "allow_extensions" in data:
+                extensions_enabled = data["allow_extensions"]
+                config_manager.set("allow_extensions", extensions_enabled)
+                log.info(f"Extensions setting updated: allow_extensions={extensions_enabled}")
+                if extensions_enabled:
+                    log.info("Enabling extension system: Loading all extensions...")
+                    extension_manager.load_all_extensions()
+                else:
+                    log.info("Disabling extension system: Unloading all extensions...")
+                    extension_manager.unload_all_extensions()
             if "allow_insecure_shell" in data: config_manager.set("allow_insecure_shell", data["allow_insecure_shell"])
             if "auto_open_webui" in data: config_manager.set("auto_open_webui", data["auto_open_webui"])
             log.info(f"Server settings updated via web UI: {data}")
@@ -456,7 +728,8 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 
             return { 
                 "auto_start": auto_start_status, 
-                "allow_terminal_access": config_manager.get("allow_terminal_access", False), 
+                "allow_terminal_access": config_manager.get("allow_terminal_access", False),
+                "allow_extensions": config_manager.get("allow_extensions", False),
                 "allow_insecure_shell": config_manager.get("allow_insecure_shell", False), 
                 "auto_open_webui": config_manager.get("auto_open_webui", True) 
             }
@@ -679,6 +952,39 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             return {"status": "success", "threshold": threshold}
         except Exception as e:
             log.error(f"Failed to update cleanup config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/extensions/{extension_id}/approve", dependencies=[WEB_AUTH])
+    async def approve_extension(extension_id: str):
+        try:
+            from ..core.config import config_manager
+            if not config_manager.get("allow_extensions", False):
+                raise HTTPException(status_code=403, detail="Extension system is disabled globally. Enable it in settings to approve extensions.")
+
+            # 1. Update manifest to remove security flag and enable
+            manifest_path = extension_manager.extensions_path / extension_id / "extension.yaml"
+            if not manifest_path.exists():
+                raise HTTPException(status_code=404, detail="Extension not found")
+                
+            import yaml
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+            
+            config['enabled'] = True
+            config['security_consent_needed'] = False
+            
+            with open(manifest_path, 'w', encoding='utf-8') as f:
+                yaml.safe_dump(config, f)
+            
+            # 2. Load it
+            if extension_manager.load_extension(extension_id):
+                log.info(f"Extension {extension_id} approved and enabled.")
+                return {"status": "success", "message": "Extension approved and enabled"}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to load extension after approval")
+        except HTTPException: raise
+        except Exception as e:
+            log.error(f"Failed to approve extension {extension_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     return app

@@ -100,7 +100,9 @@ class SystemTrayManager:
             icon_file = resource_path(f"src/pclink/assets/{fallback_name}")
         return icon_file
     
+    
     def _is_system_dark_theme(self):
+        """Detect if the system is using a dark theme."""
         try:
             if sys.platform == "win32":
                 import winreg
@@ -115,36 +117,49 @@ class SystemTrayManager:
                     return False
             elif sys.platform.startswith('linux'):
                 import subprocess
+
+                def check_gsettings(schema, key):
+                    try:
+                        res = subprocess.run(
+                            ['gsettings', 'get', schema, key],
+                            capture_output=True, text=True, timeout=1
+                        )
+                        if res.returncode == 0:
+                            return res.stdout.strip().lower().replace("'", "")
+                    except Exception:
+                        pass
+                    return None
+
+                # 1. Freedesktop Dark Style Preference (Standard)
+                # Some desktops expose this via different mechanisms, simplified here for gsettings
                 
-                # Method 1: Check GNOME's color-scheme setting (modern GNOME 42+)
-                try:
-                    result = subprocess.run(
-                        ['gsettings', 'get', 'org.gnome.desktop.interface', 'color-scheme'],
-                        capture_output=True, text=True, timeout=1
-                    )
-                    scheme = result.stdout.strip().lower()
-                    if 'dark' in scheme:
-                        return True
-                    if 'light' in scheme or 'default' in scheme:
-                        return False
-                except Exception:
-                    pass
+                # 2. GNOME / Standard GTK
+                val = check_gsettings('org.gnome.desktop.interface', 'color-scheme')
+                if val and 'dark' in val: return True
                 
-                # Method 2: Check GTK theme name (fallback for older systems)
-                try:
-                    result = subprocess.run(
-                        ['gsettings', 'get', 'org.gnome.desktop.interface', 'gtk-theme'],
-                        capture_output=True, text=True, timeout=1
-                    )
-                    theme = result.stdout.strip().lower()
-                    return 'dark' in theme
-                except Exception:
-                    pass
+                # 3. Cinnamon (Linux Mint)
+                val = check_gsettings('org.cinnamon.desktop.interface', 'gtk-theme')
+                if val and ('dark' in val or 'black' in val): return True
+
+                # 4. MATE (Linux Mint MATE)
+                val = check_gsettings('org.mate.interface', 'gtk-theme')
+                if val and ('dark' in val or 'black' in val): return True
                 
-                # Default to dark on modern Linux (most use dark themes now)
+                # 5. Fallback GTK Theme check (GNOME/Other)
+                val = check_gsettings('org.gnome.desktop.interface', 'gtk-theme')
+                if val and ('dark' in val or 'black' in val): return True
+                
+                # 6. Check XFCE (xfconf-query) - TODO if requested
+                
+                # Fallback to dark theme on Linux for compatibility with modern desktop panels.
                 return True
         except Exception:
-            return False
+            pass
+            
+        # Bias toward dark theme on Linux to prevent visibility issues on dark panels.
+        # Fallback for old Windows or unexpected errors remains Light.
+        if sys.platform.startswith('linux'):
+             return True
         return False
     
     def create_pystray_icon(self):
@@ -174,10 +189,17 @@ class SystemTrayManager:
         """Creates the tray icon using the native AppIndicator3 library."""
         try:
             Gtk.init_check()
+            # ID, Icon Name (fallback), Category
             self.indicator = AppIndicator3.Indicator.new("pclink-server", "network-server", AppIndicator3.IndicatorCategory.APPLICATION_STATUS)
             self.indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+            
+            # Fix: Set Title to avoid "launcher.py" tooltip
+            self.indicator.set_title("PCLink")
+            # self.indicator.set_label("PCLink", "")  <-- Removed to prevent text next to icon
+            
+            # Set Icon
             icon_path = str(self._get_tray_icon_path().absolute())
-            self.indicator.set_icon_full(icon_path, "PCLink Icon")
+            self.indicator.set_icon_full(icon_path, "PCLink")
             
             menu = Gtk.Menu()
             item_webui = Gtk.MenuItem(label="Open Web UI")

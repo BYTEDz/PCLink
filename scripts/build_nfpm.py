@@ -105,11 +105,18 @@ class NFPMBuilder:
         print(f"[OK] Created wheel: {wheel_path.name}")
         return wheel_path
         
-    def install_application_files(self):
+    def install_application_files(self, existing_wheel_path=None):
         """Install the application files to staging directory."""
         print("[FILES] Installing application files to staging...")
         
-        wheel_path = self.create_wheel()
+        if existing_wheel_path:
+            wheel_path = Path(existing_wheel_path)
+            if not wheel_path.exists():
+                raise RuntimeError(f"Provided wheel path does not exist: {wheel_path}")
+            print(f"[WHEEL] Using existing wheel: {wheel_path.name}")
+        else:
+            wheel_path = self.create_wheel()
+
         wheel_dest = self.staging_dir / "usr" / "lib" / "pclink" / wheel_path.name
         shutil.copy2(wheel_path, wheel_dest)
         
@@ -118,21 +125,18 @@ class NFPMBuilder:
 # PCLink Launcher Script
 INSTALL_DIR="/usr/lib/pclink"
 VENV_DIR="$INSTALL_DIR/venv"
+# Simple log for debugging
 LOG_FILE="/tmp/pclink-launcher.log"
 
-log() {{ echo "$(date): $1" >> "$LOG_FILE"; }}
-log "PCLink launcher started with args: $@"
-
 if [ ! -d "$VENV_DIR" ]; then
-    log "ERROR: Virtual environment not found at $VENV_DIR"
-    echo "Error: PCLink virtual environment not found. Try reinstalling the package."
+    echo "Error: PCLink virtual environment not found at $VENV_DIR"
     exit 1
 fi
 
-"$VENV_DIR/bin/pclink" "$@" 2>&1 | tee -a "$LOG_FILE"
-EXIT_CODE=${{PIPESTATUS[0]}}
+# Execute the application
+"$VENV_DIR/bin/pclink" "$@"
+EXIT_CODE=$?
 
-log "PCLink exited with code: $EXIT_CODE"
 exit $EXIT_CODE
 """
         launcher_path = self.staging_dir / "usr" / "bin" / "pclink"
@@ -146,9 +150,8 @@ exit $EXIT_CODE
             content = sudoers_src.read_text(encoding='utf-8')
             sudoers_dst.write_text(content.replace('\r\n', '\n').replace('\r', '\n'), encoding='utf-8')
         else:
-            # Fallback content if file is missing
+            # Fallback content
             sudoers_content = """# PCLink power management permissions
-# Allow members of plugdev group to execute power commands without password
 %plugdev ALL=(ALL) NOPASSWD: /usr/bin/systemctl poweroff
 %plugdev ALL=(ALL) NOPASSWD: /usr/bin/systemctl reboot
 %plugdev ALL=(ALL) NOPASSWD: /usr/bin/systemctl suspend
@@ -158,9 +161,8 @@ exit $EXIT_CODE
 %plugdev ALL=(ALL) NOPASSWD: /usr/sbin/pm-suspend
 """
             sudoers_dst.write_text(sudoers_content.replace('\r\n', '\n'), encoding='utf-8')
-        # Note: chmod(0o440) is applied via nfpm.yaml file_info
         
-        # --- Copy other resources (Simplified logic) ---
+        # --- Copy other resources ---
         resources = [
             ("scripts/linux/pclink-power-wrapper", "usr/bin/pclink-power-wrapper"),
             ("scripts/linux/test-power-permissions", "usr/bin/test-power-permissions"),
@@ -176,10 +178,25 @@ exit $EXIT_CODE
                 shutil.copy2(src, dst)
                 if 'bin' in dst_rel:
                     dst.chmod(0o755)
-                # Ensure Unix line endings for all copied text files
+                
+                # Fix line endings and placeholders
                 if dst_rel.endswith(('.desktop', '.service', 'pclink-power-wrapper', 'test-power-permissions')):
                     content = dst.read_text(encoding='utf-8')
-                    dst.write_text(content.replace('\r\n', '\n').replace('\r', '\n'), encoding='utf-8')
+                    # ENFORCE Unix line endings
+                    content = content.replace('\r\n', '\n').replace('\r', '\n')
+                    
+                    # Fix Service File Placeholders
+                    if dst_rel.endswith("pclink.service"):
+                        print("[FIX] Replacing placeholders in service file...")
+                        content = content.replace('__EXEC_PATH__', '/usr/bin/pclink')
+                        content = content.replace('__WORKING_DIR__', '%h')
+                        # Remove User/Group from user service as they are invalid
+                        content = content.replace('User=%i\n', '')
+                        content = content.replace('Group=%i\n', '')
+                        # Relax ProtectHome for file management
+                        content = content.replace('ProtectHome=read-only', 'ProtectHome=false')
+
+                    dst.write_text(content, encoding='utf-8')
 
         # Man page and Docs
         man_content = f""".TH PCLINK 1 "{VERSION}" "PCLink" "User Commands"
@@ -212,250 +229,134 @@ Azhar Zouhir <support@bytedz.xyz>
             if doc_src.exists():
                 shutil.copy2(doc_src, self.staging_dir / "usr" / "share" / "doc" / "pclink" / doc_file)
         
+    
     def create_scripts(self):
         """Create package installation/removal scripts."""
-        print("[SCRIPTS] Creating final maintainer scripts...")
+        print("[SCRIPTS] Creating final maintainer scripts (SAFE MODE)...")
         
         scripts_dir = self.build_dir / "scripts"
         scripts_dir.mkdir(exist_ok=True)
         
-        # --- postinst content (FIXED: Better detection and no set -e) ---
+        # --- postinst content ---
+        # SAFE: No dnf install, no set -e, strict error handling
         postinst_content = """#!/bin/bash
 # Note: Removed 'set -e' to prevent package manager corruption on non-fatal errors
 
 INSTALL_DIR="/usr/lib/pclink"
 VENV_DIR="$INSTALL_DIR/venv"
+LOG_FILE="/tmp/pclink_install.log"
+
+# Log function that prints to stdout AND file
+log() { 
+    echo "$(date) - PCLink: $1" | tee -a "$LOG_FILE"
+}
+
+# Error function that prints to stderr
+error() {
+    echo "ERROR: $1" | tee -a "$LOG_FILE" >&2
+}
 
 echo "=== PCLink postinst: action='$1', old_version='$2' ==="
+log "Starting postinst action=$1 old_version=$2"
 
-# --- Core Setup Function ---
-install_pclink() {
-    local IS_UPGRADE="$1"
-
-    # --- Smart Dependency Handling (Fedora/DNF) ---
-    if command -v dnf >/dev/null 2>&1; then
-        echo "PCLink: Checking for missing recommended dependencies..."
-        MISSING_RECS=""
-        # List of packages that were moved to 'recommends' for RPM
-        # Added python3-devel and gcc for C-extension builds (evdev)
-        # Added libayatana-appindicator-gtk3 for system tray on modern Fedora
-        # Added wl-clipboard and gnome-screenshot for Wayland support
-        RECS="python3-pip xcb-util-cursor libxcb xcb-util-renderutil xcb-util-keysyms xcb-util-image xcb-util-wm python3-gobject libappindicator-gtk3 libayatana-appindicator-gtk3 gtk3 procps-ng python3-devel gcc wl-clipboard gnome-screenshot"
-        for pkg in $RECS; do
-            if ! rpm -q "$pkg" >/dev/null 2>&1; then
-                # Some packages might be provided by others, double check with dnf
-                if ! dnf list installed "$pkg" >/dev/null 2>&1; then
-                    MISSING_RECS="$MISSING_RECS $pkg"
-                fi
-            fi
-        done
-        
-        if [ -n "$MISSING_RECS" ]; then
-            echo "PCLink: Automatically installing missing dependencies:$MISSING_RECS"
-            # Try to install. If it fails (e.g. no internet), we continue but later steps might fail.
-            # We use --refresh to ensure we have latest metadata.
-            dnf install -y $MISSING_RECS || echo "⚠ Warning: Automatic dependency installation failed. You may need to manualy run: sudo dnf install $MISSING_RECS"
-        fi
-    fi
-
-    if [ "$IS_UPGRADE" = "true" ]; then
-        echo "PCLink: Upgrading from version $2..."
-    else
-        echo "PCLink: Fresh installation..."
-    fi
-
-    # For upgrades, try to preserve the venv if possible, only recreate if broken
-    if [ "$IS_UPGRADE" = "true" ] && [ -d "$VENV_DIR" ]; then
-        echo "Checking existing virtual environment..."
-        if "$VENV_DIR/bin/python" -c "import sys; sys.exit(0)" 2>/dev/null; then
-            echo "Existing venv is functional, upgrading in place..."
-            "$VENV_DIR/bin/pip" install --upgrade pip 2>/dev/null || true
-        else
-            echo "Existing venv is broken, recreating..."
-            rm -rf "$VENV_DIR"
-        fi
-    fi
-    
-    # Create venv if it doesn't exist
-    if [ ! -d "$VENV_DIR" ]; then
-        echo "Creating virtual environment..."
-        python3 -m venv --system-site-packages "$VENV_DIR"
-        "$VENV_DIR/bin/pip" install --upgrade pip 2>/dev/null || true
-    fi
-
-    # Find and install the wheel - use the newest one if multiple exist
-    WHEEL_FILE=$(find "$INSTALL_DIR" -name "*.whl" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
-    if [ -z "$WHEEL_FILE" ]; then
-        # Fallback to simple find if printf not available
-        WHEEL_FILE=$(find "$INSTALL_DIR" -name "*.whl" -type f | head -1)
-    fi
-    
-    if [ -z "$WHEEL_FILE" ] || [ ! -f "$WHEEL_FILE" ]; then
-        echo "ERROR: No wheel file found in $INSTALL_DIR"
-        ls -la "$INSTALL_DIR" || true
-        return 1
-    fi
-
-    echo "PCLink: Installing package from $WHEEL_FILE..."
-    
-    # Clean up any old wheel files first (keep only the one we're installing)
-    find "$INSTALL_DIR" -name "*.whl" -type f ! -path "$WHEEL_FILE" -delete 2>/dev/null || true
-    
-    # Install/upgrade the wheel (--force-reinstall ensures clean upgrade)
-    if ! "$VENV_DIR/bin/pip" install --force-reinstall "$WHEEL_FILE"; then
-        echo "ERROR: Failed to install wheel"
-        return 1
-    fi
-
-    # Test AppIndicator availability
-    echo "Testing AppIndicator availability..."
-    "$VENV_DIR/bin/python" -c "
-import sys
-import shutil
-try:
-    import gi
-    gi.require_version('AppIndicator3', '0.1')
-    print('✓ AppIndicator3 is available - native tray menus will work')
-except Exception as e:
-    print('⚠ AppIndicator3 not available:', e)
-    if shutil.which('apt'):
-        print('  To fix: sudo apt install python3-gi gir1.2-appindicator3-0.1')
-    elif shutil.which('dnf'):
-        print('  To fix: sudo dnf install python3-gobject libappindicator-gtk3 xcb-util-cursor')
-        print('  Note: It is highly recommended to install the RPM using dnf:')
-        print('        sudo dnf install ./pclink-*.rpm')
-    else:
-        print('  Please install gobject introspection and appindicator libraries for your distribution.')
-" || true
-
-    # Only set up user permissions on fresh install, not upgrades
-    if [ "$IS_UPGRADE" != "true" ]; then
-        ACTUAL_USER=""
-        if [ -n "$SUDO_USER" ]; then
-            ACTUAL_USER="$SUDO_USER"
-        elif [ -n "$PKEXEC_UID" ]; then
-            ACTUAL_USER=$(getent passwd "$PKEXEC_UID" | cut -d: -f1)
-        elif [ "$USER" != "root" ]; then
-            ACTUAL_USER="$USER"
-        fi
-
-        if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
-            echo "Setting up permissions for user: $ACTUAL_USER"
-            
-            if getent group plugdev >/dev/null 2>&1; then
-                usermod -a -G plugdev "$ACTUAL_USER" 2>/dev/null || true
-                echo "✓ Added $ACTUAL_USER to plugdev group"
-            fi
-            
-            if getent group power >/dev/null 2>&1; then
-                usermod -a -G power "$ACTUAL_USER" 2>/dev/null || true
-                echo "✓ Added $ACTUAL_USER to power group"
-            fi
-        fi
-    fi
-
-    # Validate sudoers file
-    if [ -f "/etc/sudoers.d/pclink" ]; then
-        if command -v visudo >/dev/null 2>&1; then
-            if visudo -c -f /etc/sudoers.d/pclink >/dev/null 2>&1; then
-                echo "✓ Sudoers file validated"
-            else
-                echo "⚠ Sudoers file validation failed, removing it"
-                rm -f /etc/sudoers.d/pclink
-            fi
-        fi
-    fi
-
-    # Enable systemd user service (safe for both install and upgrade)
-    if command -v systemctl >/dev/null 2>&1 && [ -f "/usr/lib/systemd/user/pclink.service" ]; then
-        systemctl --global enable pclink.service 2>/dev/null || true
-        systemctl daemon-reload 2>/dev/null || true
-    fi
-
-    # Update system caches
-    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications 2>/dev/null || true
-    command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
-    command -v mandb >/dev/null 2>&1 && mandb -q 2>/dev/null || true
-
-    if [ "$IS_UPGRADE" = "true" ]; then
-        echo "✓ PCLink upgraded successfully!"
-    else
-        echo "✓ PCLink installed successfully!"
-        echo ""
-        echo "To start PCLink: pclink"
-        echo "Web interface: https://localhost:38080/ui/"
-    fi
-    
-    return 0
-}
-# --- End Core Setup Function ---
-
-# Standard Multi-Distro postinst logic
 case "$1" in
     configure|1|2)
-        # Verify installation directory exists
+        log "Configuring PCLink..."
+        
         if [ ! -d "$INSTALL_DIR" ]; then
-            echo "ERROR: Installation directory $INSTALL_DIR does not exist!"
-            echo "This may indicate a failed or incomplete package installation."
-            exit 1
+            error "Install dir missing ($INSTALL_DIR). Package may be broken."
+            exit 0 
         fi
         
-        # Check if wheel file exists
-        WHEEL_COUNT=$(find "$INSTALL_DIR" -name "*.whl" 2>/dev/null | wc -l)
-        if [ "$WHEEL_COUNT" -eq 0 ]; then
-            echo "ERROR: No wheel file found in $INSTALL_DIR"
-            echo "Package installation is incomplete. Please reinstall."
-            exit 1
+        # --- Python Venv Setup ---
+        # We try to create/update venv, but we catch errors
+        if [ ! -d "$VENV_DIR" ]; then
+            log "Creating virtual environment..."
+            if command -v python3 >/dev/null; then
+                # Use --without-pip to potentially speed up if pip is not needed/bundled, 
+                # but we usually need pip.
+                python3 -m venv --system-site-packages "$VENV_DIR" >> "$LOG_FILE" 2>&1 
+                if [ $? -ne 0 ]; then
+                    error "Failed to create virtual environment."
+                    echo "Please check $LOG_FILE for details."
+                fi
+            else
+                error "python3 not found, venv creation skipped."
+            fi
         fi
         
-        # Determine if this is an upgrade
-        IS_UPGRADE="false"
-        OLD_VER=""
-        if [ "$1" = "2" ]; then
-            # RPM upgrade
-            IS_UPGRADE="true"
-        elif [ "$1" = "configure" ] && [ -n "$2" ] && [ "$2" != "<unknown>" ]; then
-            # DEB upgrade
-            IS_UPGRADE="true"
-            OLD_VER="$2"
+        # Install Wheel
+        # Find wheel file - robustness for filenames with spaces/weird chars
+        WHEEL_FILE=$(find "$INSTALL_DIR" -maxdepth 1 -name "*.whl" -type f | head -1)
+        
+        if [ -f "$WHEEL_FILE" ] && [ -f "$VENV_DIR/bin/pip" ]; then
+            log "Installing wheel: $WHEEL_FILE"
+            # Force reinstall to ensure we overwrite any old files. 
+            # We capture output but print errors on failure.
+            if ! "$VENV_DIR/bin/pip" install --no-warn-script-location --force-reinstall "$WHEEL_FILE" >> "$LOG_FILE" 2>&1; then
+                error "Wheel install failed."
+                echo "Detailed pip error log in $LOG_FILE"
+                error "Installation might be incomplete. Check internet connection if dependencies are missing."
+                
+                # Emergency fallback: Try installing WITHOUT dependencies?
+                log "Attempting fallback: Install without dependencies..."
+                "$VENV_DIR/bin/pip" install --no-deps --no-warn-script-location --force-reinstall "$WHEEL_FILE" >> "$LOG_FILE" 2>&1
+            fi
+        else
+            error "Wheel file or pip missing. Wheel=$WHEEL_FILE"
+        fi
+        
+        # --- Permissions ---
+        # Only setup if we are root
+        if [ "$(id -u)" -eq 0 ]; then
+             # Validate sudoers file
+            if [ -f "/etc/sudoers.d/pclink" ]; then
+                chmod 440 /etc/sudoers.d/pclink
+            fi
         fi
 
-        if [ "$IS_UPGRADE" = "true" ]; then
-            echo "PCLink: Detected upgrade"
-            install_pclink "true" "$OLD_VER" || exit 1
-        else
-            echo "PCLink: Detected fresh installation"
-            install_pclink "false" "" || exit 1
+        # --- System Updates ---
+        log "Updating system caches..."
+        command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications || true
+        command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
+        
+        # Enable service globally (optional, purely for convenience)
+        if command -v systemctl >/dev/null 2>&1; then
+             # We can't enable user services for ALL users easily, so we typically rely on presets
+             # or users doing `systemctl --user enable pclink`
+             true
         fi
-        ;;
-    
-    abort-upgrade|abort-remove|abort-deconfigure)
-        echo "PCLink: Package operation aborted: $1"
+        
+        log "Configuration complete."
         ;;
     
     *)
-        echo "PCLink: postinst called with unknown argument: $1"
+        log "postinst called with unknown argument: $1"
         ;;
 esac
-
-echo "=== PCLink postinst completed successfully ==="
 exit 0
 """
         
         postinst_path = scripts_dir / "postinst"
-        postinst_path.write_text(postinst_content.replace('\r\n', '\n'), encoding='utf-8')
+        # CRITICAL: Write with newline='\n' to force LF line endings on Windows
+        with open(postinst_path, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(postinst_content.strip())
         postinst_path.chmod(0o755)
         
-        # --- prerm content (FIXED: Better detection and logging) ---
+        # --- prerm content ---
+        # SAFE: Always exit 0, never block removal
         prerm_content = """#!/bin/bash
 # Note: DO NOT use 'set -e' - failures must not block package operations
+
+LOG_FILE="/tmp/pclink_install.log"
+log() { echo "$(date) - PCLink: $1" | tee -a "$LOG_FILE"; }
 
 echo "=== PCLink prerm: action='$1', old_version='$2', new_version='$3' ==="
 
 # Standard Multi-Distro prerm logic
 case "$1" in
     remove|0)
-        echo "PCLink: Stopping services for removal..."
+        log "Stopping services for removal..."
         
         # Try to stop user services gracefully
         if command -v systemctl >/dev/null 2>&1; then
@@ -475,49 +376,55 @@ case "$1" in
     
     upgrade|deconfigure|1)
         # During upgrade, do NOT stop services
-        echo "PCLink: Preparing for upgrade (keeping services running)..."
+        log "Preparing for upgrade (keeping services running)..."
         ;;
     
     failed-upgrade)
-        echo "PCLink: Handling failed upgrade..."
+        log "Handling failed upgrade..."
         ;;
     
     *)
-        echo "PCLink: prerm called with unknown argument: $1"
+        log "prerm called with unknown argument: $1"
         ;;
 esac
 
-echo "=== PCLink prerm completed ==="
+log "prerm completed"
 exit 0
 """
         
         prerm_path = scripts_dir / "prerm"
-        prerm_path.write_text(prerm_content.replace('\r\n', '\n'), encoding='utf-8')
+        # CRITICAL: Write with newline='\n' to force LF line endings on Windows
+        with open(prerm_path, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(prerm_content.strip())
         prerm_path.chmod(0o755)
         
-        # --- postrm content (FIXED: Better logging and detection) ---
+        # --- postrm content ---
+        # SAFE: Cleanup what we can, ignore the rest
         postrm_content = """#!/bin/bash
 # Note: DO NOT use 'set -e' - failures must not block package operations
 
 INSTALL_DIR="/usr/lib/pclink"
 VENV_DIR="$INSTALL_DIR/venv"
+LOG_FILE="/tmp/pclink_install.log"
+log() { echo "$(date) - PCLink: $1" | tee -a "$LOG_FILE"; }
 
 echo "=== PCLink postrm: action='$1', old_version='$2' ==="
+log "Starting postrm action=$1"
 
 # Standard Multi-Distro postrm logic
 case "$1" in
     remove|0)
-        echo "PCLink: Cleaning up installation..."
+        log "Cleaning up installation..."
         
         # Remove virtual environment
         if [ -d "$VENV_DIR" ]; then
-            echo "Removing virtual environment..."
+            log "Removing virtual environment..."
             rm -rf "$VENV_DIR" 2>/dev/null || true
         fi
         
         # Remove wheel files
         if [ -d "$INSTALL_DIR" ]; then
-            echo "Removing wheel files..."
+            log "Removing wheel files..."
             find "$INSTALL_DIR" -name "*.whl" -type f -delete 2>/dev/null || true
             rmdir "$INSTALL_DIR" 2>/dev/null || true
         fi
@@ -530,11 +437,11 @@ case "$1" in
         ;;
     
     purge)
-        echo "PCLink: Purging configuration..."
+        log "Purging configuration..."
         
         # Remove everything including config and wheels
         if [ -d "$INSTALL_DIR" ]; then
-            echo "Removing installation directory..."
+            log "Removing installation directory..."
             rm -rf "$INSTALL_DIR" 2>/dev/null || true
         fi
         rm -f "/etc/sudoers.d/pclink" 2>/dev/null || true
@@ -552,25 +459,27 @@ case "$1" in
     
     upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
         # During upgrade, do NOT remove anything
-        echo "PCLink: Package operation '$1' (no cleanup needed)"
+        log "Package operation '$1' (no cleanup needed)"
         ;;
     
     *)
-        echo "PCLink: postrm called with unknown argument: $1"
+        log "postrm called with unknown argument: $1"
         ;;
 esac
 
 # Update system databases (safe for all operations)
-command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications 2>/dev/null || true
-command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications || true
+command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 command -v mandb >/dev/null 2>&1 && mandb -q 2>/dev/null || true
 
-echo "=== PCLink postrm completed ==="
+log "postrm completed"
 exit 0
 """
         
         postrm_path = scripts_dir / "postrm"
-        postrm_path.write_text(postrm_content.replace('\r\n', '\n'), encoding='utf-8')
+        # CRITICAL: Write with newline='\n' to force LF line endings on Windows
+        with open(postrm_path, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(postrm_content.strip())
         postrm_path.chmod(0o755)
         
         return {

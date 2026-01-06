@@ -47,7 +47,7 @@ router = APIRouter()
 def _get_icon_base64(exe_path: str) -> str | None:
     """
     Extracts the icon from a Windows executable and returns it as a base64 encoded PNG.
-    This function will only run if Windows-specific libraries were successfully imported.
+    Guard for Windows-specific icon extraction.
     """
     if not IS_WINDOWS_ICON_SUPPORT or not exe_path or not exe_path.lower().endswith(".exe"):
         return None
@@ -94,7 +94,7 @@ def _get_icon_base64(exe_path: str) -> str | None:
 @router.get("/processes", response_model=List[ProcessInfo])
 async def get_running_processes() -> List[ProcessInfo]:
     """
-    Retrieves a list of running processes with details. Optimized for performance and cross-platform compatibility.
+    List active processes with system metrics.
     """
     processes_data: List[ProcessInfo] = []
     # Get total CPU usage over a small interval to make process CPU percentages more accurate.
@@ -137,7 +137,7 @@ async def get_running_processes() -> List[ProcessInfo]:
 
 @router.post("/processes/kill")
 async def kill_process(payload: KillPayload) -> Dict[str, str]:
-    """Terminates a process by its PID."""
+    """Kill process by PID."""
     try:
         process = psutil.Process(payload.pid)
         process_name = process.name()

@@ -351,11 +351,55 @@ class PCLinkWebUI {
                 this.displayDevices();
                 this.updateDeviceCount();
             }
+            await this.loadPendingRequests();
         } catch (error) {
             console.error('Failed to load devices:', error);
             const deviceList = document.getElementById('deviceList');
             if (deviceList) deviceList.innerHTML = '<p class="error">Failed to load devices</p>';
         }
+    }
+
+    async loadPendingRequests() {
+        try {
+            console.log('Loading pending requests...');
+            // Endpoint defined as @app.get("/ui/pairing/list") in api.py
+            // This is relative to root, but webUICall expects path relative to baseUrl (origin)
+            // If baseUrl is origin, then '/ui/pairing/list' is correct.
+            const res = await this.webUICall('/ui/pairing/list');
+
+            if (res.ok) {
+                const data = await res.json();
+                this.displayPendingRequests(data.requests || []);
+            }
+        } catch (error) {
+            console.error('Failed to load pending requests:', error);
+        }
+    }
+
+    displayPendingRequests(requests) {
+        const container = document.getElementById('pendingRequests');
+        if (!container) return;
+
+        if (requests.length === 0) {
+            container.innerHTML = '<p>No pending requests</p>';
+            return;
+        }
+
+        container.innerHTML = requests.map(req => `
+            <div class="device-item pending-item">
+                <div class="device-info">
+                    <h4>📱 ${req.device_name} <span class="badge warning" style="background:#f0ad4e;color:white;padding:2px 6px;border-radius:4px;font-size:0.8em">Pending</span></h4>
+                    <div class="device-meta">
+                        <span>IP: ${req.ip}</span> • 
+                        <span>${req.platform}</span>
+                    </div>
+                </div>
+                <div class="device-actions">
+                    <button class="btn btn-sm btn-primary" onclick="approvePairingRequest('${req.pairing_id}')">Approve</button>
+                    <button class="btn btn-sm btn-secondary" onclick="denyPairingRequest('${req.pairing_id}')">Deny</button>
+                </div>
+            </div>
+        `).join('');
     }
 
     async loadLogs() {
@@ -508,6 +552,10 @@ class PCLinkWebUI {
                 if (allowTerminal) {
                     allowTerminal.checked = settings.allow_terminal_access !== false; // Default to true
                 }
+                const allowExtensions = document.getElementById('allowExtensions');
+                if (allowExtensions) {
+                    allowExtensions.checked = settings.allow_extensions || false;
+                }
                 const autoOpen = document.getElementById('autoOpenWebUI');
                 if (autoOpen) autoOpen.checked = settings.auto_open_webui !== false;
 
@@ -584,7 +632,9 @@ async function saveSettings() {
     // Basic save settings implementation
     const autoStart = document.getElementById('autoStartCheckbox').checked;
     const allowTerminal = document.getElementById('allowTerminalAccess').checked;
+    const allowExtensions = document.getElementById('allowExtensions').checked;
     const autoOpen = document.getElementById('autoOpenWebUI').checked;
+
 
     try {
         await window.pclinkUI.webUICall('/settings/save', {
@@ -592,10 +642,11 @@ async function saveSettings() {
             body: JSON.stringify({
                 auto_start: autoStart,
                 allow_terminal_access: allowTerminal,
+                allow_extensions: allowExtensions,
                 auto_open_webui: autoOpen
             })
         });
-        window.pclinkUI.showToast('Success', 'Settings saved');
+        window.pclinkUI.showToast('Success', 'Settings saved.');
     } catch (e) {
         window.pclinkUI.showToast('Error', 'Failed to save settings', 'error');
     }
@@ -717,6 +768,18 @@ window.logout = async () => {
 };
 
 // Additional global helper functions
+window.removeAllDevices = async () => {
+    if (confirm('Are you sure you want to remove ALL devices? This cannot be undone.')) {
+        try {
+            await window.pclinkUI.webUICall('/devices/remove-all', { method: 'POST' });
+            window.pclinkUI.loadDevices();
+            window.pclinkUI.showToast('Success', 'All devices removed');
+        } catch (e) {
+            window.pclinkUI.showToast('Error', 'Failed to remove devices');
+        }
+    }
+};
+
 window.revokeDevice = async (deviceId) => {
     if (confirm('Revoke access for this device?')) {
         try {
@@ -726,6 +789,31 @@ window.revokeDevice = async (deviceId) => {
         } catch (e) {
             window.pclinkUI.showToast('Error', 'Failed to revoke device access');
         }
+    }
+};
+
+window.approvePairingRequest = (pairingId) => {
+    if (window.pclinkUI.websocket && window.pclinkUI.websocket.readyState === WebSocket.OPEN) {
+        window.pclinkUI.websocket.send(JSON.stringify({
+            type: 'approve_pair',
+            pairing_id: pairingId
+        }));
+        // Optimistically remove from UI
+        setTimeout(() => window.pclinkUI.loadPendingRequests(), 500);
+    } else {
+        window.pclinkUI.showToast('Error', 'WebSocket not connected', 'error');
+    }
+};
+
+window.denyPairingRequest = (pairingId) => {
+    if (window.pclinkUI.websocket && window.pclinkUI.websocket.readyState === WebSocket.OPEN) {
+        window.pclinkUI.websocket.send(JSON.stringify({
+            type: 'deny_pair',
+            pairing_id: pairingId
+        }));
+        setTimeout(() => window.pclinkUI.loadPendingRequests(), 500);
+    } else {
+        window.pclinkUI.showToast('Error', 'WebSocket not connected', 'error');
     }
 };
 

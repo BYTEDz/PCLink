@@ -101,9 +101,11 @@ def setup_logging(level=logging.INFO):
         logging.getLogger("uvicorn.access").setLevel(logging.ERROR)
         logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
         logging.getLogger("fastapi").setLevel(logging.ERROR)
+        logging.getLogger("asyncio").setLevel(logging.CRITICAL)
     else:
         logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
         logging.getLogger("uvicorn.error").setLevel(logging.INFO)
+        logging.getLogger("asyncio").setLevel(logging.CRITICAL)
     
     if not is_frozen:
         print(f"🚀 PCLink Logging Initialized")

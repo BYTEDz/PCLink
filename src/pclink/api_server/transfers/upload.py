@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import asyncio
 import shutil
 import time
@@ -215,7 +218,7 @@ async def list_active_uploads(client_id: str = Depends(get_client_id)):
     # From Memory
     for uid, uid_str in ACTIVE_UPLOADS.get(client_id, {}).items():
         # ACTIVE_UPLOADS stores {final_path: upload_id}
-        # We need to look up metadata
+        # Metadata retrieval required for status reporting.
         try:
              metadata = manage_session_file(uid_str, operation="read", session_type="upload")
              if metadata:
