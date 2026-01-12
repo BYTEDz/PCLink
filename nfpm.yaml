@@ -39,6 +39,8 @@ depends:
 - systemd | sysvinit-core | runit
 - dbus
 - procps
+- wl-clipboard
+- gnome-screenshot
 description: Cross-platform desktop app for secure remote PC control and management.
 homepage: https://github.com/BYTEDz/PCLink
 license: AGPL-3.0-or-later
@@ -50,6 +52,8 @@ overrides:
     - python3 >= 3.8
     - systemd
     - dbus
+    - wl-clipboard
+    - gnome-screenshot
     recommends:
     - python3-pip
     - xcb-util-cursor
@@ -65,8 +69,6 @@ overrides:
     - python3-devel
     - gcc
     - libayatana-appindicator-gtk3
-    - wl-clipboard
-    - gnome-screenshot
 platform: linux
 priority: optional
 scripts:

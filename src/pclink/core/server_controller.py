@@ -14,7 +14,7 @@ import uvicorn
 
 from ..api_server.api import create_api_app
 from ..api_server.control_api import create_control_api
-from ..api_server.discovery import DiscoveryService
+from ..services.discovery_service import DiscoveryService
 from . import constants
 from .config import config_manager
 from .state import connected_devices
