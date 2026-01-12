@@ -834,10 +834,15 @@ window.checkForUpdates = async () => {
         if (response.ok) {
             const data = await response.json();
             if (data.update_available) {
+                window.updateData = data;
                 const banner = document.getElementById('updateBanner');
                 if (banner) {
                     banner.style.display = 'block';
                     document.getElementById('updateVersion').textContent = `Version ${data.latest_version} is now available`;
+                    const notesEl = document.getElementById('updateReleaseNotes');
+                    if (notesEl && data.release_notes) {
+                        notesEl.textContent = data.release_notes;
+                    }
                 }
             }
         }
