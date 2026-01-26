@@ -8,6 +8,7 @@ import logging
 import os
 import platform
 import subprocess
+import sys
 import urllib.parse
 from pathlib import Path
 from typing import List, Literal
@@ -146,9 +147,18 @@ async def delete(payload: PathsPayload):
 async def open_file(payload: PathPayload):
     try:
         p = file_service.validate_path(payload.path)
-        if sys.platform == "win32": os.startfile(p)
-        elif sys.platform == "darwin": subprocess.run(["open", str(p)])
-        else: subprocess.run(["xdg-open", str(p)])
+        if sys.platform == "win32":
+            os.startfile(p)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            # Use Popen to avoid blocking the event loop and suppress noisy stderr output (like Qt warnings)
+            subprocess.Popen(
+                ["xdg-open", str(p)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
         return {"status": "success"}
     except Exception as e: _map_error(e)
 

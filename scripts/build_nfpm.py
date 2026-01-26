@@ -38,7 +38,7 @@ class NFPMBuilder:
             "name": self.package_name,
             "version": VERSION,
             "description": "Cross-platform desktop app for secure remote PC control and management.",
-            "maintainer": "Azhar Zouhir <support@bytedz.xyz>",
+            "maintainer": "Azhar Zouhir <support@bytedz.com>",
             "homepage": "https://github.com/BYTEDz/PCLink",
             "license": "AGPL-3.0-or-later",
             "architecture": "amd64",
@@ -220,7 +220,7 @@ Show help message and exit
 \\fI~/.config/pclink/\\fR
 User configuration directory
 .SH AUTHOR
-Azhar Zouhir <support@bytedz.xyz>
+Azhar Zouhir <support@bytedz.com>
 """
         man_path = self.staging_dir / "usr" / "share" / "man" / "man1" / "pclink.1"
         man_path.write_text(man_content, encoding='utf-8')
