@@ -28,7 +28,7 @@ PCLink implements multiple security layers to protect your system:
 
 We take security seriously. If you discover a security vulnerability in PCLink, please report it responsibly:
 
-**Contact**: support@bytedz.xyz
+**Contact**: support@bytedz.com
 
 ### What to Include
 
@@ -65,4 +65,3 @@ When using PCLink:
 Security patches are released as soon as possible after verification. Check the [CHANGELOG](CHANGELOG.md) for security-related updates.
 
 **Stay Protected**: PCLink includes an auto-update feature that notifies you when new versions are available. We strongly encourage enabling automatic updates or checking regularly for the latest release to ensure you have the most recent security patches and improvements.
-

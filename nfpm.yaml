@@ -1,72 +1,74 @@
 arch: amd64
 contents:
-- dst: /usr/lib/pclink
-  src: build/nfpm/staging/usr/lib/pclink
-- dst: /usr/bin/pclink
-  src: build/nfpm/staging/usr/bin/pclink
-- dst: /usr/bin/pclink-power-wrapper
-  src: build/nfpm/staging/usr/bin/pclink-power-wrapper
-- dst: /usr/bin/test-power-permissions
-  src: build/nfpm/staging/usr/bin/test-power-permissions
-- dst: /usr/share/applications/xyz.bytedz.PCLink.desktop
-  src: build/nfpm/staging/usr/share/applications/xyz.bytedz.PCLink.desktop
-- dst: /usr/share/icons/hicolor/256x256/apps/xyz.bytedz.PCLink.png
-  src: build/nfpm/staging/usr/share/icons/hicolor/256x256/apps/xyz.bytedz.PCLink.png
-- dst: /usr/share/man/man1/pclink.1
-  src: build/nfpm/staging/usr/share/man/man1/pclink.1
-- dst: /usr/lib/systemd/user/pclink.service
-  src: build/nfpm/staging/usr/lib/systemd/user/pclink.service
-- dst: /etc/sudoers.d/pclink
-  file_info:
-    mode: 288
-  src: build/nfpm/staging/etc/sudoers.d/pclink
-- dst: /usr/share/doc/pclink
-  src: build/nfpm/staging/usr/share/doc/pclink
+  - dst: /usr/lib/pclink
+    src: build/nfpm/staging/usr/lib/pclink
+  - dst: /usr/bin/pclink
+    src: build/nfpm/staging/usr/bin/pclink
+  - dst: /usr/bin/pclink-power-wrapper
+    src: build/nfpm/staging/usr/bin/pclink-power-wrapper
+  - dst: /usr/bin/test-power-permissions
+    src: build/nfpm/staging/usr/bin/test-power-permissions
+  - dst: /usr/share/applications/xyz.bytedz.PCLink.desktop
+    src: build/nfpm/staging/usr/share/applications/xyz.bytedz.PCLink.desktop
+  - dst: /usr/share/icons/hicolor/256x256/apps/xyz.bytedz.PCLink.png
+    src: build/nfpm/staging/usr/share/icons/hicolor/256x256/apps/xyz.bytedz.PCLink.png
+  - dst: /usr/share/man/man1/pclink.1
+    src: build/nfpm/staging/usr/share/man/man1/pclink.1
+  - dst: /usr/lib/systemd/user/pclink.service
+    src: build/nfpm/staging/usr/lib/systemd/user/pclink.service
+  - dst: /etc/sudoers.d/pclink
+    file_info:
+      mode: 288
+    src: build/nfpm/staging/etc/sudoers.d/pclink
+  - dst: /usr/share/doc/pclink
+    src: build/nfpm/staging/usr/share/doc/pclink
 depends:
-- python3 (>= 3.8)
-- python3-pip
-- python3-venv
-- libxcb-cursor0
-- libxcb-xinerama0
-- libxcb-randr0
-- libxcb-render-util0
-- libxcb-keysyms1
-- libxcb-image0
-- libxcb-icccm4
-- python3-gi
-- gir1.2-appindicator3-0.1
-- gir1.2-gtk-3.0
-- systemd | sysvinit-core | runit
-- dbus
-- procps
+  - python3 (>= 3.8)
+  - python3-pip
+  - python3-venv
+  - libxcb-cursor0
+  - libxcb-xinerama0
+  - libxcb-randr0
+  - libxcb-render-util0
+  - libxcb-keysyms1
+  - libxcb-image0
+  - libxcb-icccm4
+  - python3-gi
+  - gir1.2-appindicator3-0.1
+  - gir1.2-gtk-3.0
+  - systemd | sysvinit-core | runit
+  - dbus
+  - procps
+  - wl-clipboard
+  - gnome-screenshot
 description: Cross-platform desktop app for secure remote PC control and management.
 homepage: https://github.com/BYTEDz/PCLink
 license: AGPL-3.0-or-later
-maintainer: Azhar Zouhir <support@bytedz.xyz>
+maintainer: Azhar Zouhir <support@bytedz.com>
 name: pclink
 overrides:
   rpm:
     depends:
-    - python3 >= 3.8
-    - systemd
-    - dbus
+      - python3 >= 3.8
+      - systemd
+      - dbus
+      - wl-clipboard
+      - gnome-screenshot
     recommends:
-    - python3-pip
-    - xcb-util-cursor
-    - libxcb
-    - xcb-util-renderutil
-    - xcb-util-keysyms
-    - xcb-util-image
-    - xcb-util-wm
-    - python3-gobject
-    - libappindicator-gtk3
-    - gtk3
-    - procps-ng
-    - python3-devel
-    - gcc
-    - libayatana-appindicator-gtk3
-    - wl-clipboard
-    - gnome-screenshot
+      - python3-pip
+      - xcb-util-cursor
+      - libxcb
+      - xcb-util-renderutil
+      - xcb-util-keysyms
+      - xcb-util-image
+      - xcb-util-wm
+      - python3-gobject
+      - libappindicator-gtk3
+      - gtk3
+      - procps-ng
+      - python3-devel
+      - gcc
+      - libayatana-appindicator-gtk3
 platform: linux
 priority: optional
 scripts:

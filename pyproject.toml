@@ -9,7 +9,7 @@ description = "Cross-platform desktop app for secure remote PC control and manag
 readme = "README.md"
 license = "AGPL-3.0-or-later"
 authors = [
-    {name = "AZHAR ZOUHIR", email = "azhar@bytedz.xyz"}
+    {name = "AZHAR ZOUHIR", email = "support@bytedz.com"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

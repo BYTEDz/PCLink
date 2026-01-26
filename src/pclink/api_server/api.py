@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import (Depends, FastAPI, Header, HTTPException, Query, Request,
                      WebSocket, WebSocketDisconnect)
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 from ..core import constants
@@ -26,7 +27,8 @@ from ..web_ui.router import create_web_ui_router
 from .file_browser import router as file_browser_router
 
 # UPDATED: Import from the new transfers package
-from .transfers import upload_router, download_router, restore_sessions, cleanup_stale_sessions
+# UPDATED: Import from the new transfer routers
+from .transfer_router import upload_router, download_router, restore_sessions_startup
 
 from .info_router import router as info_router
 from .media_streaming import router as media_streaming_router
@@ -159,7 +161,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     ui_manager = ConnectionManager()
     
     server_api_key = validate_api_key(api_key)
-    network_monitor = NetworkMonitor()
     controller = controller_instance
 
     async def verify_api_key(x_api_key: str = Header(None), token: str = Query(None), request: Request = None):
@@ -206,6 +207,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     WEB_AUTH = Depends(verify_web_session)
     MOBILE_API = [Depends(verify_api_key), Depends(verify_mobile_api_enabled)]
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     
     @app.middleware("http")
     async def upload_optimization_middleware(request: Request, call_next):
@@ -305,7 +307,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     @app.on_event("startup")
     async def startup_event():
         try:
-            result = await asyncio.to_thread(restore_sessions)
+            result = await restore_sessions_startup()
             log.info(f"Session restoration: {result['restored_uploads']} uploads, {result['restored_downloads']} downloads")
             
             async def periodic_cleanup():
@@ -314,7 +316,8 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                     try:
                         from ..core.config import config_manager
                         threshold = config_manager.get("transfer_cleanup_threshold", 7)
-                        await cleanup_stale_sessions(threshold_days=threshold)
+                        # await cleanup_stale_sessions(threshold_days=threshold) # TODO: Re-implement in service
+                        pass
                     except Exception as e:
                         log.error(f"Periodic cleanup failed: {e}")
             
@@ -323,7 +326,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         except Exception as e:
             log.error(f"Failed to restore sessions on startup: {e}")
         
-        asyncio.create_task(broadcast_updates_task(mobile_manager, app.state, network_monitor))
+        asyncio.create_task(broadcast_updates_task(mobile_manager, app.state))
         
         # Clear extension crash counter on successful startup
         extension_manager.mark_startup_success()
@@ -989,15 +992,16 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 
     return app
 
-async def broadcast_updates_task(manager: ConnectionManager, state: Any, network_monitor: NetworkMonitor):
+async def broadcast_updates_task(manager: ConnectionManager, state: Any):
+    from ..services import system_service, media_service
     while True:
         try:
             if not manager.active_connections:
                 await asyncio.sleep(5)
                 continue
             
-            system_data = await get_system_info_data(network_monitor)
-            media_data = await get_media_info_data()
+            system_data = await system_service.get_system_info()
+            media_data = await media_service.get_media_info()
             system_data["allow_insecure_shell"] = state.allow_insecure_shell
             payload = {"type": "update", "data": {"system": system_data, "media": media_data}}
             await manager.broadcast(payload)

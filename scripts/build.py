@@ -233,6 +233,57 @@ class Builder:
         icon_path = self.assets_dir / "icon.png"
         return icon_path if icon_path.exists() else None
         
+    def _generate_version_info(self, build_name: str) -> Path:
+        """Generates a Windows version resource file for PyInstaller."""
+        info_file = self.build_dir / f"{build_name}_version.txt"
+        
+        # Get semantic version parts
+        try:
+            v = self.version.split('-')[0].split('.')
+            while len(v) < 4: v.append('0')
+            file_ver = tuple(map(int, v[:4]))
+        except:
+            file_ver = (1, 0, 0, 0)
+            
+        ver_str = ".".join(map(str, file_ver))
+        
+        content = f"""
+# UTF-8
+#
+# For more details about fixed file info 'ffi' see:
+# http://msdn.microsoft.com/en-us/library/ms646997.aspx
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={file_ver},
+    prodvers={file_ver},
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'040904B0',
+        [StringStruct(u'CompanyName', u'BYTEDz'),
+        StringStruct(u'FileDescription', u'PCLink Server'),
+        StringStruct(u'FileVersion', u'{ver_str}'),
+        StringStruct(u'InternalName', u'PCLink'),
+        StringStruct(u'LegalCopyright', u'Copyright © 2026 Azhar Zouhir / BYTEDz'),
+        StringStruct(u'OriginalFilename', u'{build_name}.exe'),
+        StringStruct(u'ProductName', u'PCLink'),
+        StringStruct(u'ProductVersion', u'{self.version}')])
+      ]), 
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)
+"""
+        info_file.write_text(content, encoding='utf-8')
+        return info_file
+
     def _get_inno_setup_icon(self) -> Path | None:
         if self.platform != "windows": return None
         return self._ensure_icon()
@@ -296,6 +347,7 @@ class Builder:
             f"--distpath={self.dist_dir}", f"--workpath={self.build_dir}",
             f"--specpath={self.build_dir}",
             "--paths=src",
+            "--noupx",  # CRITICAL: UPX is a major trigger for False Positives
         ]
         
         # Add data directories only if they exist
@@ -306,6 +358,13 @@ class Builder:
             cmd.append(f"--add-data={web_ui_static_dir}{os.pathsep}src/pclink/web_ui/static")
         
         cmd.append("--onefile" if onefile else "--onedir")
+        
+        # Metadata and Architecture info
+        if self.platform == "windows":
+            # Generate version info file
+            version_file = self._generate_version_info(name)
+            cmd.append(f"--version-file={version_file}")
+
         if self.debug: 
             cmd.append("--console")
         else: 
