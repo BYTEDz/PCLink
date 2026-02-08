@@ -44,6 +44,7 @@ from .utils_router import router as utils_router
 from .macro_router import router as macro_router
 from .applications_router import router as applications_router
 from .extension_router import mgmt_router, runtime_router, mount_extension_routes
+from .services_router import router as services_router
 from ..core.extension_manager import ExtensionManager
 
 log = logging.getLogger(__name__)
@@ -228,6 +229,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         @app.get("/ui/")
         async def web_ui_fallback(): return {"message": "Web UI not available", "error": str(e)}
     
+    # --- Service Management ---
+    app.include_router(services_router, prefix="/ui/services", tags=["Services"], dependencies=[WEB_AUTH])
+    
     # --- Register Routers (ORDER MATTERS) ---
     app.include_router(upload_router, prefix="/files/upload", tags=["Uploads"], dependencies=MOBILE_API)
     app.include_router(download_router, prefix="/files/download", tags=["Downloads"], dependencies=MOBILE_API)
@@ -304,6 +308,48 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                     )
         return await call_next(request)
 
+    @app.middleware("http")
+    async def service_enforcement_middleware(request: Request, call_next):
+        """Enforces service-level permissions based on configuration."""
+        path = request.url.path
+        
+        # Define path mappings for services
+        service_mappings = {
+            "/files": "files",
+            "/system": "system",
+            "/info": "info",
+            "/input": "input",
+            "/media": "media",
+            "/terminal": "terminal",
+            "/macro": "macros",
+            "/applications": "applications",
+            "/utils": "utils",
+        }
+        
+        # Whitelist core endpoints
+        whitelist = ["/info/version", "/ping"]
+        if any(path == p for p in whitelist):
+            return await call_next(request)
+        
+        for route_prefix, service_name in service_mappings.items():
+            if path.startswith(route_prefix):
+                from ..core.config import config_manager
+                services = config_manager.get("services", {})
+                if not services.get(service_name, True):
+                    from fastapi.responses import JSONResponse
+                    log.warning(f"Blocking request to disabled service '{service_name}': {path}")
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "detail": f"The '{service_name}' service is currently disabled.",
+                            "service": service_name,
+                            "action": "ENABLE_SERVICE_IN_UI"
+                        }
+                    )
+                break
+                
+        return await call_next(request)
+
     @app.on_event("startup")
     async def startup_event():
         try:
@@ -348,6 +394,12 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         try:
             while True:
                 data = await websocket.receive_json()
+                from ..core.config import config_manager
+                services = config_manager.get("services", {})
+                if not services.get("input", True):
+                    # Silently ignore input commands if the service is disabled
+                    continue
+                    
                 if (msg_type := data.get("type")) == "mouse_control": handle_mouse_command(data)
                 elif msg_type == "keyboard_control": handle_keyboard_command(data)
         except (WebSocketDisconnect, OSError): pass
@@ -994,16 +1046,39 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 
 async def broadcast_updates_task(manager: ConnectionManager, state: Any):
     from ..services import system_service, media_service
+    from ..core.config import config_manager
     while True:
         try:
             if not manager.active_connections:
                 await asyncio.sleep(5)
                 continue
             
-            system_data = await system_service.get_system_info()
-            media_data = await media_service.get_media_info()
-            system_data["allow_insecure_shell"] = state.allow_insecure_shell
-            payload = {"type": "update", "data": {"system": system_data, "media": media_data}}
+            services = config_manager.get("services", {})
+            
+            # Prepare internal data structure
+            update_data = {}
+            
+            # Check services for system info
+            if services.get("info", True):
+                update_data["system"] = await system_service.get_system_info()
+                update_data["system"]["allow_insecure_shell"] = state.allow_insecure_shell
+            else:
+                # Basic info only even if service is disabled
+                import platform
+                from ..core.version import __version__
+                update_data["system"] = {
+                    "version": __version__,
+                    "platform": platform.system(),
+                    "allow_insecure_shell": state.allow_insecure_shell
+                }
+
+            # Check services for media info
+            if services.get("media", True):
+                update_data["media"] = await media_service.get_media_info()
+            else:
+                update_data["media"] = {"status": "Service disabled"}
+
+            payload = {"type": "update", "data": update_data}
             await manager.broadcast(payload)
         except Exception as e: log.error(f"Error in broadcast task: {e}")
         await asyncio.sleep(1)

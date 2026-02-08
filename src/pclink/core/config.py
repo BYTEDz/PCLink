@@ -30,6 +30,20 @@ DEFAULT_SETTINGS = {
     "auto_start": False,
     "auto_open_webui": True,
     "transfer_cleanup_threshold": 7,
+
+    # Services (API features that can be enabled/disabled)
+    "services": {
+        "files": True,
+        "system": True,
+        "info": True,
+        "input": True,
+        "media": True,
+        "terminal": False, # Terminal access disabled by default for security
+        "macros": True,
+        "extensions": False, # Tied to allow_extensions, but can be toggled here too
+        "applications": True,
+        "utils": True,
+    }
 }
 
 
@@ -54,7 +68,33 @@ class ConfigManager:
         try:
             with self.config_file.open("r", encoding="utf-8") as f:
                 user_config = json.load(f)
+                
+                # Merge services to ensure new default services are included
+                if "services" in user_config and isinstance(user_config["services"], dict):
+                    merged_services = DEFAULT_SETTINGS["services"].copy()
+                    merged_services.update(user_config["services"])
+                    user_config["services"] = merged_services
+                
                 self._json_cache.update(user_config)
+                
+                # Perform initial sync for services and ensure all default services are present
+                services = self._json_cache.get("services", {})
+                if not isinstance(services, dict): services = {}
+                else: services = services.copy()
+
+                # Sync legacy keys
+                if "allow_extensions" in self._json_cache:
+                    services["extensions"] = self._json_cache["allow_extensions"]
+                if "allow_terminal_access" in self._json_cache:
+                    services["terminal"] = self._json_cache["allow_terminal_access"]
+                
+                # Ensure all defaults are present
+                for svc, default_val in DEFAULT_SETTINGS["services"].items():
+                    if svc not in services:
+                        services[svc] = default_val
+                        
+                self._json_cache["services"] = services
+                
             log.info(f"Configuration loaded from {self.config_file}")
         except (IOError, json.JSONDecodeError) as e:
             log.error(f"Failed to load config file, using defaults instead: {e}")
@@ -83,6 +123,23 @@ class ConfigManager:
 
         try:
             self._json_cache[key] = value
+            
+            # Sync legacy keys with services dict
+            if key == "allow_extensions":
+                services = self._json_cache.get("services", {}).copy()
+                services["extensions"] = value
+                self._json_cache["services"] = services
+            elif key == "allow_terminal_access":
+                services = self._json_cache.get("services", {}).copy()
+                services["terminal"] = value
+                self._json_cache["services"] = services
+            elif key == "services":
+                # Reverse sync: if services dict is updated, update legacy keys
+                if "extensions" in value:
+                    self._json_cache["allow_extensions"] = value["extensions"]
+                if "terminal" in value:
+                    self._json_cache["allow_terminal_access"] = value["terminal"]
+
             self._save_to_file()
             log.debug(f"Setting '{key}' saved to config file.")
         except Exception as e:

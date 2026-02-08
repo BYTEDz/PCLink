@@ -86,6 +86,11 @@ class SystemService:
         self._system_info_cache_time = 0
         self._SYSTEM_INFO_TTL = 0.5  # 500ms cache
         
+        # Thermal data cache (Windows PowerShell calls are expensive)
+        self._thermals_cache: Dict[str, float] = {}
+        self._thermals_cache_time = 0
+        self._THERMALS_TTL = 30  # 30 seconds - temperature doesn't change fast
+        
         # Initialize psutil markers to avoid zero values on first call
         try:
             psutil.cpu_percent(interval=None)
@@ -295,6 +300,11 @@ class SystemService:
         }
 
     def _get_windows_thermals(self) -> Dict[str, float]:
+        # Return cached data if still valid (avoids spawning PowerShell every second)
+        now = time.time()
+        if self._thermals_cache and (now - self._thermals_cache_time) < self._THERMALS_TTL:
+            return self._thermals_cache
+        
         thermals = {}
         ps_commands = [
             "Get-CimInstance -Namespace root/WMI -ClassName MSAcpi_ThermalZoneTemperature | Select-Object -ExpandProperty CurrentTemperature",
@@ -320,6 +330,10 @@ class SystemService:
                             if "cpu" in name.lower() and "package" in name.lower(): thermals["cpu_temp_celsius"] = val
                         except ValueError: pass
         except Exception: pass
+        
+        # Cache the result
+        self._thermals_cache = thermals
+        self._thermals_cache_time = now
         return thermals
 
     async def get_volume(self) -> Dict[str, Any]:

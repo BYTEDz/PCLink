@@ -60,6 +60,10 @@
             <i data-feather="link"></i>
             <span>Pairing</span>
           </button>
+          <button class="nav-item" data-tab="services">
+            <i data-feather="grid"></i>
+            <span>Services</span>
+          </button>
           <button class="nav-item" data-tab="settings">
             <i data-feather="settings"></i>
             <span>Settings</span>
@@ -368,20 +372,6 @@
               </div>
               <div class="form-group">
                 <label>
-                  <input type="checkbox" id="allowTerminalAccess" />
-                  <i data-feather="terminal"></i> Allow terminal access from
-                  client devices
-                </label>
-              </div>
-              <div class="form-group">
-                <label>
-                  <input type="checkbox" id="allowExtensions" />
-                  <i data-feather="package"></i> Enable extension system
-                </label>
-                <small>Load and run third-party extensions.</small>
-              </div>
-              <div class="form-group">
-                <label>
                   <input type="checkbox" id="autoOpenWebUI" checked />
                   <i data-feather="link"></i> Auto-open web UI on server start
                 </label>
@@ -506,6 +496,19 @@
                 <button class="btn btn-warning" onclick="executeCleanup()">
                   <i data-feather="trash-2"></i> Clean Up Now
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="services">
+          <div class="card">
+            <h3><i data-feather="grid"></i> Services Center</h3>
+            <p>Granularly enable or disable specific API features for security and customization.</p>
+            <div id="servicesGrid" class="services-grid">
+              <div class="loading-state">
+                <i data-feather="loader" class="spinner"></i>
+                <p>Loading services...</p>
               </div>
             </div>
           </div>
