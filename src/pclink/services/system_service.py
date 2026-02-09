@@ -300,38 +300,52 @@ class SystemService:
         }
 
     def _get_windows_thermals(self) -> Dict[str, float]:
-        # Return cached data if still valid (avoids spawning PowerShell every second)
+        """Provides CPU temperature using native WMI (avoids expensive PowerShell spawning)."""
         now = time.time()
         if self._thermals_cache and (now - self._thermals_cache_time) < self._THERMALS_TTL:
             return self._thermals_cache
-        
+
         thermals = {}
-        ps_commands = [
-            "Get-CimInstance -Namespace root/WMI -ClassName MSAcpi_ThermalZoneTemperature | Select-Object -ExpandProperty CurrentTemperature",
-            "Get-CimInstance -Namespace root/LibreHardwareMonitor -Query 'Select * from Sensor where SensorType=\"Temperature\"' | Select-Object -Property Name, Value"
-        ]
         try:
-            full_cmd = " ; ".join([f"try {{ {cmd} }} catch {{}}" for cmd in ps_commands])
-            process = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", full_cmd],
-                capture_output=True, text=True, timeout=2, creationflags=SUBPROCESS_FLAGS
-            )
-            lines = process.stdout.strip().splitlines()
-            for line in lines:
-                if line.strip().isdigit():
-                    temp_c = (int(line.strip()) - 2732) / 10.0
-                    if 0 < temp_c < 120: thermals["cpu_temp_celsius"] = round(temp_c, 1)
-                elif " " in line:
-                    parts = line.rsplit(None, 1)
-                    if len(parts) == 2:
-                        name, value = parts
+            import pythoncom
+            import win32com.client
+
+            pythoncom.CoInitialize()
+            try:
+                # 1. Try ACPI Thermal Zone (Standard Windows)
+                try:
+                    wmi_service = win32com.client.GetObject("winmgmts:\\\\.\\root\\WMI")
+                    results = wmi_service.ExecQuery("SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature")
+                    for item in results:
+                        # Value is in tenths of Kelvin
+                        temp_c = (item.CurrentTemperature - 2732) / 10.0
+                        if 0 < temp_c < 125:
+                            thermals["cpu_temp_celsius"] = round(temp_c, 1)
+                            break
+                except Exception:
+                    pass
+
+                # 2. Try LibreHardwareMonitor or OpenHardwareMonitor as robust fallbacks
+                if "cpu_temp_celsius" not in thermals:
+                    for ns in ["root\\LibreHardwareMonitor", "root\\OpenHardwareMonitor"]:
                         try:
-                            val = float(value)
-                            if "cpu" in name.lower() and "package" in name.lower(): thermals["cpu_temp_celsius"] = val
-                        except ValueError: pass
-        except Exception: pass
-        
-        # Cache the result
+                            wmi_service = win32com.client.GetObject(f"winmgmts:\\\\.\\{ns}")
+                            query = "SELECT Name, Value FROM Sensor WHERE SensorType='Temperature'"
+                            sensors = wmi_service.ExecQuery(query)
+                            for sensor in sensors:
+                                name = sensor.Name.lower()
+                                if "cpu" in name and ("package" in name or "core" in name or "total" in name):
+                                    thermals["cpu_temp_celsius"] = float(sensor.Value)
+                                    break
+                            if "cpu_temp_celsius" in thermals:
+                                break
+                        except Exception:
+                            continue
+            finally:
+                pythoncom.CoUninitialize()
+        except Exception as e:
+            log.debug(f"Windows thermal detection failed: {e}")
+
         self._thermals_cache = thermals
         self._thermals_cache_time = now
         return thermals
