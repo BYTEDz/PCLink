@@ -102,6 +102,11 @@ class DiscoveryService:
                 for broadcast_addr in broadcast_addresses:
                     try:
                         self._socket.sendto(beacon_payload, (broadcast_addr, DISCOVERY_PORT))
+                    except OSError as e:
+                        if getattr(e, 'winerror', None) == 10051 or getattr(e, 'errno', None) == 101: # 10051: Unreachable Network, 101: ENETUNREACH
+                            log.debug(f"Skipping unreachable network: {broadcast_addr}")
+                        else:
+                            log.warning(f"Failed to broadcast to {broadcast_addr}: {e}")
                     except Exception as addr_error:
                         log.warning(f"Failed to broadcast to {broadcast_addr}: {addr_error}")
                         

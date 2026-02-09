@@ -14,6 +14,7 @@ from .core.server_controller import ServerController
 from .core.singleton import PCLinkSingleton
 from .core.system_tray import SystemTrayManager
 from .core.utils import run_preflight_checks
+from .services import macro_service
 from .core.version import __app_name__, __version__
 
 
@@ -62,6 +63,15 @@ def main() -> int:
         else:
             log.info("System tray is disabled by user configuration.")
             tray_manager = None
+            
+        # Register notification handler for Macro Service
+        def macro_notification_handler(title, message):
+            if tray_manager:
+                tray_manager.show_notification(title, message)
+            else:
+                log.info(f"NOTIFICATION (Headless): {title} - {message}")
+        
+        macro_service.set_notification_handler(macro_notification_handler)
 
         if tray_manager and tray_manager.is_tray_available():
             tray_manager.show()

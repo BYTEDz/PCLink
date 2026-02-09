@@ -10,6 +10,7 @@ import webbrowser
 from pathlib import Path
 
 from .utils import resource_path
+from .windows_notifier import WindowsNotifier
 
 TRAY_AVAILABLE = False
 IMPORT_ERROR = ""
@@ -58,6 +59,9 @@ class SystemTrayManager:
         self.controller = controller
         self.icon = None
         self.indicator = None
+        self.notifier = None
+        if sys.platform == "win32":
+            self.notifier = WindowsNotifier()
         self.running = False
         self.use_linux_native = False
 
@@ -259,8 +263,18 @@ class SystemTrayManager:
             log.error(f"Error hiding tray icon: {e}")
 
     def show_notification(self, title, message):
+        # 1. Try Windows Notifier (highest priority on Windows)
+        if sys.platform == "win32" and self.notifier and self.notifier.is_available():
+            if self.notifier.show(title, message):
+                return
+
+        # 2. Try pystray (fallback for Windows, primary for others if available)
         if self.icon and self.running and getattr(pystray.Icon, 'HAS_NOTIFICATION', False):
             self.icon.notify(message, title)
+            return
+
+        # 3. Last fallback: Log it
+        log.info(f"NOTIFICATION: {title} - {message}")
 
     def is_server_running(self, item=None):
         return self.controller and self.controller.mobile_api_enabled

@@ -9,6 +9,18 @@ from ..core.version import __version__
 router = APIRouter()
 
 
+@router.get("/ping")
+async def ping():
+    """Lightweight endpoint for heartbeat checks."""
+    return {"status": "ok", "version": __version__}
+
+
+@router.get("/heartbeat")
+async def heartbeat():
+    """Ultra-lightweight heartbeat for status checks."""
+    return {"status": "ok", "time": time.time()}
+
+
 @router.get("/system")
 async def get_system_info() -> Dict[str, Any]:
     """Provides general system information."""

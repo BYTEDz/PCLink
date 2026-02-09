@@ -27,8 +27,8 @@ from ..web_ui.router import create_web_ui_router
 from .file_browser import router as file_browser_router
 
 # UPDATED: Import from the new transfers package
-# UPDATED: Import from the new transfer routers
-from .transfer_router import upload_router, download_router, restore_sessions_startup
+from .transfer_router import upload_router, download_router, restore_sessions_startup, cleanup_stale_sessions
+from ..services.transfer_service import transfer_service, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
 
 from .info_router import router as info_router
 from .media_streaming import router as media_streaming_router
@@ -44,6 +44,7 @@ from .utils_router import router as utils_router
 from .macro_router import router as macro_router
 from .applications_router import router as applications_router
 from .extension_router import mgmt_router, runtime_router, mount_extension_routes
+from .services_router import router as services_router
 from ..core.extension_manager import ExtensionManager
 
 log = logging.getLogger(__name__)
@@ -228,6 +229,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         @app.get("/ui/")
         async def web_ui_fallback(): return {"message": "Web UI not available", "error": str(e)}
     
+    # --- Service Management ---
+    app.include_router(services_router, prefix="/ui/services", tags=["Services"], dependencies=[WEB_AUTH])
+    
     # --- Register Routers (ORDER MATTERS) ---
     app.include_router(upload_router, prefix="/files/upload", tags=["Uploads"], dependencies=MOBILE_API)
     app.include_router(download_router, prefix="/files/download", tags=["Downloads"], dependencies=MOBILE_API)
@@ -304,6 +308,48 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                     )
         return await call_next(request)
 
+    @app.middleware("http")
+    async def service_enforcement_middleware(request: Request, call_next):
+        """Enforces service-level permissions based on configuration."""
+        path = request.url.path
+        
+        # Define path mappings for services
+        service_mappings = {
+            "/files": "files",
+            "/system": "system",
+            "/info": "info",
+            "/input": "input",
+            "/media": "media",
+            "/terminal": "terminal",
+            "/macro": "macros",
+            "/applications": "applications",
+            "/utils": "utils",
+        }
+        
+        # Whitelist core endpoints
+        whitelist = ["/info/version", "/ping", "/info/heartbeat", "/heartbeat"]
+        if any(path == p for p in whitelist):
+            return await call_next(request)
+        
+        for route_prefix, service_name in service_mappings.items():
+            if path.startswith(route_prefix):
+                from ..core.config import config_manager
+                services = config_manager.get("services", {})
+                if not services.get(service_name, True):
+                    from fastapi.responses import JSONResponse
+                    log.warning(f"Blocking request to disabled service '{service_name}': {path}")
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "detail": f"The '{service_name}' service is currently disabled.",
+                            "service": service_name,
+                            "action": "ENABLE_SERVICE_IN_UI"
+                        }
+                    )
+                break
+                
+        return await call_next(request)
+
     @app.on_event("startup")
     async def startup_event():
         try:
@@ -316,7 +362,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                     try:
                         from ..core.config import config_manager
                         threshold = config_manager.get("transfer_cleanup_threshold", 7)
-                        # await cleanup_stale_sessions(threshold_days=threshold) # TODO: Re-implement in service
+                        await cleanup_stale_sessions(days=threshold)
                         pass
                     except Exception as e:
                         log.error(f"Periodic cleanup failed: {e}")
@@ -348,6 +394,12 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         try:
             while True:
                 data = await websocket.receive_json()
+                from ..core.config import config_manager
+                services = config_manager.get("services", {})
+                if not services.get("input", True):
+                    # Silently ignore input commands if the service is disabled
+                    continue
+                    
                 if (msg_type := data.get("type")) == "mouse_control": handle_mouse_command(data)
                 elif msg_type == "keyboard_control": handle_keyboard_command(data)
         except (WebSocketDisconnect, OSError): pass
@@ -510,6 +562,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 
     @app.get("/ping", dependencies=MOBILE_API)
     async def ping(): return {"status": "pong"}
+
+    @app.get("/heartbeat", dependencies=MOBILE_API)
+    async def heartbeat(): return {"status": "ok", "time": time.time()}
 
     @app.get("/status")
     async def server_status():
@@ -856,7 +911,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def debug_performance():
         import psutil
         import time
-        from .transfers.session import ACTIVE_UPLOADS, ACTIVE_DOWNLOADS, TRANSFER_LOCKS, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
+        ACTIVE_UPLOADS = transfer_service.active_uploads
+        ACTIVE_DOWNLOADS = transfer_service.active_downloads
+        TRANSFER_LOCKS = transfer_service.transfer_locks
         
         process = psutil.Process()
         persisted_uploads = len(list(TEMP_UPLOAD_DIR.glob("*.meta")))
@@ -904,7 +961,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     @app.get("/transfers/cleanup/status", dependencies=[WEB_AUTH])
     async def get_transfer_cleanup_status():
         try:
-            from .transfers.session import TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
             from ..core.config import config_manager
             
             threshold = config_manager.get("transfer_cleanup_threshold", 7)
@@ -936,7 +992,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         try:
             from ..core.config import config_manager
             threshold = config_manager.get("transfer_cleanup_threshold", 7)
-            result = await cleanup_stale_sessions(threshold_days=threshold)
+            result = await cleanup_stale_sessions(days=threshold)
             return {"status": "success", "cleaned": result}
         except Exception as e:
             log.error(f"Manual cleanup failed: {e}")
@@ -994,16 +1050,39 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 
 async def broadcast_updates_task(manager: ConnectionManager, state: Any):
     from ..services import system_service, media_service
+    from ..core.config import config_manager
     while True:
         try:
             if not manager.active_connections:
                 await asyncio.sleep(5)
                 continue
             
-            system_data = await system_service.get_system_info()
-            media_data = await media_service.get_media_info()
-            system_data["allow_insecure_shell"] = state.allow_insecure_shell
-            payload = {"type": "update", "data": {"system": system_data, "media": media_data}}
+            services = config_manager.get("services", {})
+            
+            # Prepare internal data structure
+            update_data = {}
+            
+            # Check services for system info
+            if services.get("info", True):
+                update_data["system"] = await system_service.get_system_info()
+                update_data["system"]["allow_insecure_shell"] = state.allow_insecure_shell
+            else:
+                # Basic info only even if service is disabled
+                import platform
+                from ..core.version import __version__
+                update_data["system"] = {
+                    "version": __version__,
+                    "platform": platform.system(),
+                    "allow_insecure_shell": state.allow_insecure_shell
+                }
+
+            # Check services for media info
+            if services.get("media", True):
+                update_data["media"] = await media_service.get_media_info()
+            else:
+                update_data["media"] = {"status": "Service disabled"}
+
+            payload = {"type": "update", "data": update_data}
             await manager.broadcast(payload)
         except Exception as e: log.error(f"Error in broadcast task: {e}")
         await asyncio.sleep(1)

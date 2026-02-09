@@ -108,8 +108,13 @@ def setup_logging(level=logging.INFO):
         logging.getLogger("asyncio").setLevel(logging.CRITICAL)
     
     if not is_frozen:
-        print(f"🚀 PCLink Logging Initialized")
-        print(f"📁 Log file: {log_file}")
+        try:
+            print(f"🚀 PCLink Logging Initialized")
+            print(f"📁 Log file: {log_file}")
+        except UnicodeEncodeError:
+            # Fallback for Windows consoles that don't support UTF-8/Emojis
+            print(f"[+] PCLink Logging Initialized")
+            print(f"[-] Log file: {log_file}")
     
     logging.info("=" * 50)
     logging.info("Logging configured. Log file located at: %s", log_file)

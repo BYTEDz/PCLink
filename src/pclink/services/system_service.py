@@ -86,6 +86,11 @@ class SystemService:
         self._system_info_cache_time = 0
         self._SYSTEM_INFO_TTL = 0.5  # 500ms cache
         
+        # Thermal data cache (Windows PowerShell calls are expensive)
+        self._thermals_cache: Dict[str, float] = {}
+        self._thermals_cache_time = 0
+        self._THERMALS_TTL = 30  # 30 seconds - temperature doesn't change fast
+        
         # Initialize psutil markers to avoid zero values on first call
         try:
             psutil.cpu_percent(interval=None)
@@ -295,6 +300,11 @@ class SystemService:
         }
 
     def _get_windows_thermals(self) -> Dict[str, float]:
+        # Return cached data if still valid (avoids spawning PowerShell every second)
+        now = time.time()
+        if self._thermals_cache and (now - self._thermals_cache_time) < self._THERMALS_TTL:
+            return self._thermals_cache
+        
         thermals = {}
         ps_commands = [
             "Get-CimInstance -Namespace root/WMI -ClassName MSAcpi_ThermalZoneTemperature | Select-Object -ExpandProperty CurrentTemperature",
@@ -320,6 +330,10 @@ class SystemService:
                             if "cpu" in name.lower() and "package" in name.lower(): thermals["cpu_temp_celsius"] = val
                         except ValueError: pass
         except Exception: pass
+        
+        # Cache the result
+        self._thermals_cache = thermals
+        self._thermals_cache_time = now
         return thermals
 
     async def get_volume(self) -> Dict[str, Any]:
@@ -335,14 +349,33 @@ class SystemService:
 
     def _get_volume_win32(self) -> Dict[str, Any]:
         from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        import comtypes
         try:
             CoInitialize()
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            from pycaw.pycaw import IAudioEndpointVolume
+            # Try to get enumerator interface/CLSID from pycaw, fallback to raw GUIDs
+            try:
+                from pycaw.pycaw import IMMDeviceEnumerator
+                from pycaw.constants import CLSID_MMDeviceEnumerator
+            except ImportError:
+                IMMDeviceEnumerator = comtypes.GUID("{A95664D2-9614-4F35-A746-DE8DB63617E6}")
+                CLSID_MMDeviceEnumerator = comtypes.GUID("{BCDE0395-E52F-467C-8E3D-C4579291692E}")
+
+            enumerator = comtypes.CoCreateInstance(
+                CLSID_MMDeviceEnumerator,
+                IMMDeviceEnumerator,
+                comtypes.CLSCTX_INPROC_SERVER
+            )
+            # 0: eRender, 0: eConsole
+            device = enumerator.GetDefaultAudioEndpoint(0, 0)
+            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             volume = interface.QueryInterface(IAudioEndpointVolume)
             return {"level": round(volume.GetMasterVolumeLevelScalar() * 100), "muted": bool(volume.GetMute())}
-        finally: CoUninitialize()
+        except Exception as e:
+            log.error(f"Ultimate volume fetch failure: {e}")
+            raise
+        finally:
+            CoUninitialize()
 
     async def _get_volume_linux_fallback(self) -> Dict[str, Any]:
         methods = [
@@ -381,15 +414,34 @@ class SystemService:
 
     def _set_volume_win32(self, level: int):
         from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        import comtypes
         try:
             CoInitialize()
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            from pycaw.pycaw import IAudioEndpointVolume
+            try:
+                from pycaw.pycaw import IMMDeviceEnumerator
+                from pycaw.constants import CLSID_MMDeviceEnumerator
+            except ImportError:
+                IMMDeviceEnumerator = comtypes.GUID("{A95664D2-9614-4F35-A746-DE8DB63617E6}")
+                CLSID_MMDeviceEnumerator = comtypes.GUID("{BCDE0395-E52F-467C-8E3D-C4579291692E}")
+
+            enumerator = comtypes.CoCreateInstance(
+                CLSID_MMDeviceEnumerator,
+                IMMDeviceEnumerator,
+                comtypes.CLSCTX_INPROC_SERVER
+            )
+            device = enumerator.GetDefaultAudioEndpoint(0, 0)
+            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             volume = interface.QueryInterface(IAudioEndpointVolume)
+            
             volume.SetMute(1 if level == 0 else 0, None)
-            if level > 0: volume.SetMasterVolumeLevelScalar(level / 100, None)
-        finally: CoUninitialize()
+            if level > 0:
+                volume.SetMasterVolumeLevelScalar(level / 100, None)
+        except Exception as e:
+            log.error(f"Ultimate volume set failure: {e}")
+            raise
+        finally:
+            CoUninitialize()
 
     async def power_command(self, command: str, hybrid: bool = True):
         """Handles shutdown, reboot, lock, sleep."""

@@ -18,6 +18,10 @@ if platform.system() != "Windows":
 else:
     import threading
 
+SUBPROCESS_FLAGS = 0
+if sys.platform == "win32":
+    SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
+
 class TerminalService:
     """Logic for terminal shell management and platform-specific I/O bridging."""
 
@@ -27,12 +31,12 @@ class TerminalService:
             shells = ["cmd"]
             # Check for powershell
             try:
-                if subprocess.run(["powershell", "-Command", "Get-Host"], capture_output=True, timeout=1).returncode == 0:
+                if subprocess.run(["powershell", "-Command", "Get-Host"], capture_output=True, timeout=1, creationflags=SUBPROCESS_FLAGS).returncode == 0:
                     shells.append("powershell")
             except Exception: pass
             
             try:
-                if subprocess.run(["pwsh", "-Version"], capture_output=True, timeout=1).returncode == 0:
+                if subprocess.run(["pwsh", "-Version"], capture_output=True, timeout=1, creationflags=SUBPROCESS_FLAGS).returncode == 0:
                     if "powershell" not in shells: shells.append("powershell")
             except Exception: pass
                 
@@ -41,7 +45,7 @@ class TerminalService:
             available = []
             for s in ["bash", "sh", "zsh", "fish"]:
                 try:
-                    if subprocess.run(["which", s], capture_output=True, timeout=1).returncode == 0:
+                    if subprocess.run(["which", s], capture_output=True, timeout=1, creationflags=SUBPROCESS_FLAGS).returncode == 0:
                         available.append(s)
                 except Exception: pass
             

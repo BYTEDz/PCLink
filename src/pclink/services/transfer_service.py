@@ -209,6 +209,23 @@ class TransferService:
         
         return {"download_id": dl_id, "file_size": stat.st_size, "file_name": path.name}
 
+    async def cleanup_stale_sessions(self, threshold_days: int = 7) -> int:
+        """Deletes session files older than the specified threshold."""
+        threshold_seconds = threshold_days * 24 * 60 * 60
+        current_time = time.time()
+        deleted_count = 0
+        
+        for dir_path in [TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR]:
+            if not dir_path.exists(): continue
+            for f in dir_path.glob("*"):
+                if f.is_file() and (current_time - f.stat().st_mtime > threshold_seconds):
+                    try:
+                        f.unlink()
+                        deleted_count += 1
+                    except Exception as e:
+                        log.error(f"Failed to delete stale file {f}: {e}")
+        return deleted_count
+
     async def restore_sessions(self):
         # Scan disk for active sessions on startup
         count_up = 0

@@ -173,11 +173,11 @@ class PCLinkWebUI {
             case 'logs':
                 await this.loadLogs();
                 break;
+            case 'services':
+                await this.loadServices();
+                break;
         }
     }
-
-    // ... Rest of the helper methods (API calls, status updates, etc.) remain the same ...
-    // Copying them here to ensure the file is complete
 
     async loadApiKey() {
         try {
@@ -541,28 +541,24 @@ class PCLinkWebUI {
         try {
             const response = await fetch('/settings/load', { headers: this.getHeaders() });
             if (response.ok) {
-                const settings = await response.json();
+                const config = await response.json();
                 const portInput = document.getElementById('serverPortInput');
                 if (portInput) portInput.value = window.location.port || '38080';
 
-                const autoStart = document.getElementById('autoStartCheckbox');
-                if (autoStart) autoStart.checked = settings.auto_start || false;
-
-                const allowTerminal = document.getElementById('allowTerminalAccess');
-                if (allowTerminal) {
-                    allowTerminal.checked = settings.allow_terminal_access !== false; // Default to true
+                if (config.auto_start !== undefined) {
+                    const autoStartCheckbox = document.getElementById('autoStartCheckbox');
+                    if (autoStartCheckbox) autoStartCheckbox.checked = config.auto_start;
                 }
-                const allowExtensions = document.getElementById('allowExtensions');
-                if (allowExtensions) {
-                    allowExtensions.checked = settings.allow_extensions || false;
+                
+                if (config.auto_open_webui !== undefined) {
+                    const autoOpenWebUI = document.getElementById('autoOpenWebUI');
+                    if (autoOpenWebUI) autoOpenWebUI.checked = config.auto_open_webui;
                 }
-                const autoOpen = document.getElementById('autoOpenWebUI');
-                if (autoOpen) autoOpen.checked = settings.auto_open_webui !== false;
 
                 await this.loadTransferSettings();
             }
         } catch (e) {
-            // If settings fail to load, keep logs visible by default
+           
         }
     }
 
@@ -586,6 +582,91 @@ class PCLinkWebUI {
             }
         } catch (e) {
             console.error('Failed to load transfer settings:', e);
+        }
+    }
+
+    async loadServices() {
+        const grid = document.getElementById('servicesGrid');
+        if (!grid) return;
+
+        try {
+            const response = await this.webUICall('/ui/services/');
+            if (response.ok) {
+                const data = await response.json();
+                this.displayServices(data.services || []);
+            } else {
+                grid.innerHTML = '<p class="error">Failed to load services</p>';
+            }
+        } catch (error) {
+            console.error('Failed to load services:', error);
+            grid.innerHTML = '<p class="error">Error connecting to services API</p>';
+        }
+    }
+
+    displayServices(services) {
+        const grid = document.getElementById('servicesGrid');
+        if (!grid) return;
+
+        if (services.length === 0) {
+            grid.innerHTML = '<p>No services registered</p>';
+            return;
+        }
+
+        grid.innerHTML = services.map(service => `
+            <div class="service-card ${!service.enabled ? 'disabled' : ''}" id="service-card-${service.id}">
+                <div class="service-header">
+                    <div class="service-info-main">
+                        <div class="service-icon-wrapper">
+                            <i data-feather="${service.icon || 'box'}"></i>
+                        </div>
+                        <div class="service-text-container">
+                            <h4>${service.title}</h4>
+                            <div class="service-description">${service.description}</div>
+                        </div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" ${service.enabled ? 'checked' : ''} 
+                               onchange="toggleService('${service.id}', this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+        `).join('');
+
+        // Ensure feather icons are replaced after content is added
+        if (window.feather) {
+            // Use a small timeout to ensure DOM is fully updated before feather.replace()
+            setTimeout(() => feather.replace(), 0);
+        }
+    }
+
+    async toggleService(serviceId, enabled) {
+        const card = document.getElementById(`service-card-${serviceId}`);
+        try {
+            const response = await this.webUICall('/ui/services/toggle', {
+                method: 'POST',
+                body: JSON.stringify({ name: serviceId, enabled: enabled })
+            });
+
+            if (response.ok) {
+                if (card) {
+                    if (enabled) card.classList.remove('disabled');
+                    else card.classList.add('disabled');
+                }
+                this.showToast('Success', `Service '${serviceId}' ${enabled ? 'enabled' : 'disabled'}`);
+                
+                // If extensions were toggled, it might affect other UI parts
+                if (serviceId === 'extensions') {
+                    this.loadSettings();
+                }
+            } else {
+                throw new Error('Failed to toggle service');
+            }
+        } catch (error) {
+            console.error('Toggle service failed:', error);
+            this.showToast('Error', `Failed to update service status`, 'error');
+            // Revert checkbox state
+            this.loadServices();
         }
     }
 }
@@ -630,25 +711,24 @@ function toggleAutoRefresh() {
 
 async function saveSettings() {
     // Basic save settings implementation
-    const autoStart = document.getElementById('autoStartCheckbox').checked;
-    const allowTerminal = document.getElementById('allowTerminalAccess').checked;
-    const allowExtensions = document.getElementById('allowExtensions').checked;
-    const autoOpen = document.getElementById('autoOpenWebUI').checked;
-
+    const settings = {
+        auto_start: document.getElementById('autoStartCheckbox')?.checked,
+        auto_open_webui: document.getElementById('autoOpenWebUI')?.checked
+    };
 
     try {
-        await window.pclinkUI.webUICall('/settings/save', {
+        const response = await window.pclinkUI.webUICall('/settings/save', {
             method: 'POST',
-            body: JSON.stringify({
-                auto_start: autoStart,
-                allow_terminal_access: allowTerminal,
-                allow_extensions: allowExtensions,
-                auto_open_webui: autoOpen
-            })
+            body: JSON.stringify(settings)
         });
-        window.pclinkUI.showToast('Success', 'Settings saved.');
+        if (response.ok) {
+            window.pclinkUI.showToast('Success', 'Settings saved successfully');
+        } else {
+            window.pclinkUI.showToast('Error', 'Failed to save settings', 'error');
+        }
     } catch (e) {
-        window.pclinkUI.showToast('Error', 'Failed to save settings', 'error');
+        console.error('Failed to save settings:', e);
+        window.pclinkUI.showToast('Error', 'An error occurred while saving settings', 'error');
     }
 }
 
@@ -685,6 +765,12 @@ async function executeCleanup() {
         }
     } catch (e) {
         window.pclinkUI.showToast('Error', 'Failed to execute cleanup', 'error');
+    }
+}
+
+async function toggleService(serviceId, enabled) {
+    if (window.pclinkUI) {
+        await window.pclinkUI.toggleService(serviceId, enabled);
     }
 }
 
@@ -928,4 +1014,15 @@ window.clearLogs = async () => {
             window.pclinkUI.showToast('Error', 'Failed to clear logs');
         }
     }
+};
+window.updateNotificationSettings = () => {
+    if (!window.pclinkUI) return;
+    window.pclinkUI.notificationSettings = {
+        deviceConnect: document.getElementById('notifyDeviceConnect').checked,
+        deviceDisconnect: document.getElementById('notifyDeviceDisconnect').checked,
+        pairingRequest: document.getElementById('notifyPairingRequest').checked,
+        updates: document.getElementById('notifyUpdates').checked
+    };
+    window.pclinkUI.saveNotificationSettings();
+    window.pclinkUI.showToast('Success', 'Notification settings updated');
 };

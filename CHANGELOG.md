@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-02-09
+
+### Added
+
+- **Service Center:** New Web UI component for granular control of application features.
+- **Health Monitoring:** Heartbeat and ping API endpoints for service monitoring.
+- **API Middleware:** Enforces permissions by blocking access to disabled services.
+- **Command Deduplication:** Logic to prevent accidental duplicate executions.
+- **Notifications:** Native Windows notification support.
+
+### Improved
+
+- **Windows Performance:** Cached thermal data to reduce PowerShell overhead.
+- **User Experience:** Background subprocess windows are now hidden during shell detection.
+- **Audio Reliability:** Improved volume control and audio device enumeration on Windows.
+- **Network Stability:** Enhanced discovery reliability when encountering unreachable interfaces.
+- **Compatibility:** Console logging support for environments without UTF-8.
+- **Data Reporting:** Improved performance metrics for active file transfers.
+
+### Security
+
+- **Terminal Access:** Now disabled by default.
+- **Access Control:** Implemented service-level access control for API endpoints, WebSockets, and broadcast updates.
+
+### Changed
+
+- **Windows Architecture:** Replaced monolithic Windows SDK dependency with modular WinRT libraries.
+- **Session Management:** Refactored transfer sessions to include automated cleanup of stale files.
+
 ## [3.2.0] - 2026-01-06
 
 SECTION: Added
