@@ -228,6 +228,5 @@ async def cancel_download(download_id: str, bg_tasks: BackgroundTasks, client_id
 def restore_sessions_startup():
     return transfer_service.restore_sessions()
 
-def cleanup_stale_sessions_startup(days=7):
-    # Not implemented in service yet, simplified for now
-    pass
+async def cleanup_stale_sessions(days=7):
+    return await transfer_service.cleanup_stale_sessions(days)

@@ -10,8 +10,8 @@ from .utils import resource_path # Import our robust path helper
 log = logging.getLogger(__name__)
 
 try:
-    from winsdk.windows.data.xml.dom import XmlDocument
-    from winsdk.windows.ui.notifications import ToastNotification, ToastNotificationManager
+    from winrt.windows.data.xml.dom import XmlDocument
+    from winrt.windows.ui.notifications import ToastNotification, ToastNotificationManager
     notifier = ToastNotificationManager.create_toast_notifier(APP_AUMID)
     WINSDK_AVAILABLE = True
 except (ImportError, RuntimeError, TypeError) as e:

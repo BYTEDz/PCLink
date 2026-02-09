@@ -349,14 +349,33 @@ class SystemService:
 
     def _get_volume_win32(self) -> Dict[str, Any]:
         from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        import comtypes
         try:
             CoInitialize()
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            from pycaw.pycaw import IAudioEndpointVolume
+            # Try to get enumerator interface/CLSID from pycaw, fallback to raw GUIDs
+            try:
+                from pycaw.pycaw import IMMDeviceEnumerator
+                from pycaw.constants import CLSID_MMDeviceEnumerator
+            except ImportError:
+                IMMDeviceEnumerator = comtypes.GUID("{A95664D2-9614-4F35-A746-DE8DB63617E6}")
+                CLSID_MMDeviceEnumerator = comtypes.GUID("{BCDE0395-E52F-467C-8E3D-C4579291692E}")
+
+            enumerator = comtypes.CoCreateInstance(
+                CLSID_MMDeviceEnumerator,
+                IMMDeviceEnumerator,
+                comtypes.CLSCTX_INPROC_SERVER
+            )
+            # 0: eRender, 0: eConsole
+            device = enumerator.GetDefaultAudioEndpoint(0, 0)
+            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             volume = interface.QueryInterface(IAudioEndpointVolume)
             return {"level": round(volume.GetMasterVolumeLevelScalar() * 100), "muted": bool(volume.GetMute())}
-        finally: CoUninitialize()
+        except Exception as e:
+            log.error(f"Ultimate volume fetch failure: {e}")
+            raise
+        finally:
+            CoUninitialize()
 
     async def _get_volume_linux_fallback(self) -> Dict[str, Any]:
         methods = [
@@ -395,15 +414,34 @@ class SystemService:
 
     def _set_volume_win32(self, level: int):
         from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        import comtypes
         try:
             CoInitialize()
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            from pycaw.pycaw import IAudioEndpointVolume
+            try:
+                from pycaw.pycaw import IMMDeviceEnumerator
+                from pycaw.constants import CLSID_MMDeviceEnumerator
+            except ImportError:
+                IMMDeviceEnumerator = comtypes.GUID("{A95664D2-9614-4F35-A746-DE8DB63617E6}")
+                CLSID_MMDeviceEnumerator = comtypes.GUID("{BCDE0395-E52F-467C-8E3D-C4579291692E}")
+
+            enumerator = comtypes.CoCreateInstance(
+                CLSID_MMDeviceEnumerator,
+                IMMDeviceEnumerator,
+                comtypes.CLSCTX_INPROC_SERVER
+            )
+            device = enumerator.GetDefaultAudioEndpoint(0, 0)
+            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             volume = interface.QueryInterface(IAudioEndpointVolume)
+            
             volume.SetMute(1 if level == 0 else 0, None)
-            if level > 0: volume.SetMasterVolumeLevelScalar(level / 100, None)
-        finally: CoUninitialize()
+            if level > 0:
+                volume.SetMasterVolumeLevelScalar(level / 100, None)
+        except Exception as e:
+            log.error(f"Ultimate volume set failure: {e}")
+            raise
+        finally:
+            CoUninitialize()
 
     async def power_command(self, command: str, hybrid: bool = True):
         """Handles shutdown, reboot, lock, sleep."""

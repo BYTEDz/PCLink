@@ -11,7 +11,8 @@ MIT License:
 - PyYAML
 - pycaw
 - comtypes
-- winsdk
+- winrt-runtime
+- winrt-Windows.*
 - getmac
 - wsproto
 

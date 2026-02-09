@@ -27,8 +27,8 @@ from ..web_ui.router import create_web_ui_router
 from .file_browser import router as file_browser_router
 
 # UPDATED: Import from the new transfers package
-# UPDATED: Import from the new transfer routers
-from .transfer_router import upload_router, download_router, restore_sessions_startup
+from .transfer_router import upload_router, download_router, restore_sessions_startup, cleanup_stale_sessions
+from ..services.transfer_service import transfer_service, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
 
 from .info_router import router as info_router
 from .media_streaming import router as media_streaming_router
@@ -327,7 +327,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         }
         
         # Whitelist core endpoints
-        whitelist = ["/info/version", "/ping"]
+        whitelist = ["/info/version", "/ping", "/info/heartbeat", "/heartbeat"]
         if any(path == p for p in whitelist):
             return await call_next(request)
         
@@ -362,7 +362,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                     try:
                         from ..core.config import config_manager
                         threshold = config_manager.get("transfer_cleanup_threshold", 7)
-                        # await cleanup_stale_sessions(threshold_days=threshold) # TODO: Re-implement in service
+                        await cleanup_stale_sessions(days=threshold)
                         pass
                     except Exception as e:
                         log.error(f"Periodic cleanup failed: {e}")
@@ -562,6 +562,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
 
     @app.get("/ping", dependencies=MOBILE_API)
     async def ping(): return {"status": "pong"}
+
+    @app.get("/heartbeat", dependencies=MOBILE_API)
+    async def heartbeat(): return {"status": "ok", "time": time.time()}
 
     @app.get("/status")
     async def server_status():
@@ -908,7 +911,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     async def debug_performance():
         import psutil
         import time
-        from .transfers.session import ACTIVE_UPLOADS, ACTIVE_DOWNLOADS, TRANSFER_LOCKS, TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
+        ACTIVE_UPLOADS = transfer_service.active_uploads
+        ACTIVE_DOWNLOADS = transfer_service.active_downloads
+        TRANSFER_LOCKS = transfer_service.transfer_locks
         
         process = psutil.Process()
         persisted_uploads = len(list(TEMP_UPLOAD_DIR.glob("*.meta")))
@@ -956,7 +961,6 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     @app.get("/transfers/cleanup/status", dependencies=[WEB_AUTH])
     async def get_transfer_cleanup_status():
         try:
-            from .transfers.session import TEMP_UPLOAD_DIR, DOWNLOAD_SESSION_DIR
             from ..core.config import config_manager
             
             threshold = config_manager.get("transfer_cleanup_threshold", 7)
@@ -988,7 +992,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
         try:
             from ..core.config import config_manager
             threshold = config_manager.get("transfer_cleanup_threshold", 7)
-            result = await cleanup_stale_sessions(threshold_days=threshold)
+            result = await cleanup_stale_sessions(days=threshold)
             return {"status": "success", "cleaned": result}
         except Exception as e:
             log.error(f"Manual cleanup failed: {e}")

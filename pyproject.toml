@@ -48,7 +48,12 @@ dependencies = [
     "comtypes>=1.2.0; sys_platform == 'win32'",
     "pycaw>=20230330; sys_platform == 'win32'",
     "pywin32>=306; sys_platform == 'win32'",
-    "winsdk>=1.0.0b9; sys_platform == 'win32'",
+    "winrt-runtime; sys_platform == 'win32'",
+    "winrt-Windows.Foundation; sys_platform == 'win32'",
+    "winrt-Windows.Data.Xml.Dom; sys_platform == 'win32'",
+    "winrt-Windows.UI.Notifications; sys_platform == 'win32'",
+    "winrt-Windows.Media.Control; sys_platform == 'win32'",
+    "winshell>=0.6; sys_platform == 'win32'",
 ]
 
 [project.scripts]

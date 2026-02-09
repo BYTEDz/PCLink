@@ -25,7 +25,7 @@ try:
     import win32process
     import comtypes
     from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
-    from pycaw.pycaw import AudioUtilities
+    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
     LEGACY_SUPPORT_AVAILABLE = True
 except ImportError:
     LEGACY_SUPPORT_AVAILABLE = False
@@ -98,7 +98,7 @@ class MediaService:
         last_source = self._cache["data"].get("source_app", "")
         if "Legacy" not in str(last_source):
             try:
-                from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
+                from winrt.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
                 manager = await MediaManager.request_async()
                 session = manager.get_current_session()
                 if session:
@@ -122,15 +122,34 @@ class MediaService:
             except Exception: pass
 
     def _control_volume_win32(self, action: str):
+        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
+        import comtypes
         try:
             CoInitialize()
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            from pycaw.pycaw import IAudioEndpointVolume
+            try:
+                from pycaw.pycaw import IMMDeviceEnumerator
+                from pycaw.constants import CLSID_MMDeviceEnumerator
+            except ImportError:
+                IMMDeviceEnumerator = comtypes.GUID("{A95664D2-9614-4F35-A746-DE8DB63617E6}")
+                CLSID_MMDeviceEnumerator = comtypes.GUID("{BCDE0395-E52F-467C-8E3D-C4579291692E}")
+
+            enumerator = comtypes.CoCreateInstance(
+                CLSID_MMDeviceEnumerator,
+                IMMDeviceEnumerator,
+                comtypes.CLSCTX_INPROC_SERVER
+            )
+            device = enumerator.GetDefaultAudioEndpoint(0, 0)
+            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             vol = interface.QueryInterface(IAudioEndpointVolume)
+            
             if action == "volume_up": vol.SetMasterVolumeLevelScalar(min(1.0, vol.GetMasterVolumeLevelScalar() + 0.02), None)
             elif action == "volume_down": vol.SetMasterVolumeLevelScalar(max(0.0, vol.GetMasterVolumeLevelScalar() - 0.02), None)
             elif action == "mute_toggle": vol.SetMute(not vol.GetMute(), None)
-        finally: CoUninitialize()
+        except Exception as e:
+            log.error(f"Ultimate media volume control failure: {e}")
+        finally:
+            CoUninitialize()
 
     async def _control_media_linux(self, action: str, position_sec: int = 0):
         from .system_service import system_service
@@ -178,7 +197,7 @@ class MediaService:
     async def _get_media_info_win32(self) -> Dict[str, Any]:
         smtc_data = None
         try:
-            from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
+            from winrt.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
             manager = await MediaManager.request_async()
             session = manager.get_current_session()
             if session:
