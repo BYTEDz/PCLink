@@ -235,6 +235,7 @@ class Builder:
         
     def _generate_version_info(self, build_name: str) -> Path:
         """Generates a Windows version resource file for PyInstaller."""
+        self.build_dir.mkdir(parents=True, exist_ok=True)
         info_file = self.build_dir / f"{build_name}_version.txt"
         
         # Get semantic version parts
@@ -436,6 +437,7 @@ VSVersionInfo(
             content = content.replace("LicenseFile=__LICENSE_FILE__", "; LicenseFile not found")
         
         processed_iss_path = self.build_dir / "processed.iss"
+        self.build_dir.mkdir(parents=True, exist_ok=True)
         processed_iss_path.write_text(content, encoding='utf-8')
 
         print(f"[INFO] Generated Inno Setup script: {processed_iss_path}")
@@ -474,7 +476,11 @@ def main():
         
         if args.clean: 
             builder.clean()
-        builder.releases_dir.mkdir(exist_ok=True)
+        
+        # Ensure base directories exist
+        builder.build_dir.mkdir(parents=True, exist_ok=True)
+        builder.dist_dir.mkdir(parents=True, exist_ok=True)
+        builder.releases_dir.mkdir(parents=True, exist_ok=True)
 
         os_name = "windows" if builder.platform == "windows" else builder.platform
         base_name = f"{APP_NAME}-{builder.version}-{os_name}-{builder.arch}"
