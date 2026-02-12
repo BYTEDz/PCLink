@@ -25,6 +25,7 @@ from ..web_ui.router import create_web_ui_router
 
 # --- API Router Imports ---
 from .file_browser import router as file_browser_router
+from .phone_file_router import router as phone_file_router
 
 # UPDATED: Import from the new transfers package
 from .transfer_router import upload_router, download_router, restore_sessions_startup, cleanup_stale_sessions
@@ -236,6 +237,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     app.include_router(upload_router, prefix="/files/upload", tags=["Uploads"], dependencies=MOBILE_API)
     app.include_router(download_router, prefix="/files/download", tags=["Downloads"], dependencies=MOBILE_API)
     app.include_router(file_browser_router, prefix="/files", tags=["Files"], dependencies=MOBILE_API)
+    app.include_router(phone_file_router, prefix="/phone/files", tags=["Phone Files"], dependencies=MOBILE_API)
     
     app.include_router(system_router, prefix="/system", tags=["System"], dependencies=MOBILE_API)
     app.include_router(media_streaming_router, prefix="/files", tags=["Streaming"], dependencies=MOBILE_API)
