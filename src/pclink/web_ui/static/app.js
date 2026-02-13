@@ -23,6 +23,7 @@ class PCLinkWebUI {
         this.phoneFileItems = [];
         this.phoneIsReadOnly = false;
         this.isUploading = false;
+        this.currentPhoneDeviceId = null; // Track selected device for file browsing
         this.init();
     }
 
@@ -48,7 +49,7 @@ class PCLinkWebUI {
             if (activeTab === 'dashboard') {
                 this.updateActivity();
                 this.updateServerStatus();
-            } else if (activeTab === 'devices') {
+            } else if (activeTab === 'devices' || activeTab === 'phone-files') {
                 this.loadDevices();
             } else if (activeTab === 'logs') {
                 this.loadLogs();
@@ -187,6 +188,7 @@ class PCLinkWebUI {
                 await this.loadServices();
                 break;
             case 'phone-files':
+                await this.loadDevices();
                 await this.loadPhoneFiles(this.currentPhonePath);
                 break;
         }
@@ -362,6 +364,7 @@ class PCLinkWebUI {
                 const result = await response.json();
                 this.devices = result.devices || [];
                 this.displayDevices();
+                this.updatePhoneDeviceSelector();
                 this.updateDeviceCount();
             }
             await this.loadPendingRequests();
@@ -442,6 +445,8 @@ class PCLinkWebUI {
 
     displayDevices() {
         const deviceListElement = document.getElementById('deviceList');
+        if (!deviceListElement) return;
+
         if (this.devices.length === 0) {
             deviceListElement.innerHTML = '<p>No mobile devices connected</p>';
             return;
@@ -460,6 +465,41 @@ class PCLinkWebUI {
                 <button class="btn btn-sm btn-secondary" onclick="revokeDevice('${device.id}')">Revoke Access</button>
             </div>
         `).join('');
+    }
+
+    updatePhoneDeviceSelector() {
+        const selector = document.getElementById('phoneDeviceSelector');
+        if (!selector) return;
+        
+        // Save current selection to restore state
+        const currentSelection = this.currentPhoneDeviceId;
+        
+        // Reset options
+        selector.innerHTML = '<option value="">Select Device...</option>';
+        
+        this.devices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.id;
+            // Show status indicator emoji?
+            option.textContent = `${device.name} (${device.ip})`;
+            if (device.id === currentSelection) {
+                option.selected = true;
+            }
+            selector.appendChild(option);
+        });
+        
+        // Auto-select first device if none selected and devices exist
+        if (!this.currentPhoneDeviceId && this.devices.length > 0) {
+            this.currentPhoneDeviceId = this.devices[0].id;
+            selector.value = this.currentPhoneDeviceId;
+        }
+    }
+
+    async handlePhoneDeviceChange(deviceId) {
+        console.log('Phone device changed to:', deviceId);
+        this.currentPhoneDeviceId = deviceId;
+        this.currentPhonePath = '/'; // Reset path when switching devices
+        await this.loadPhoneFiles('/');
     }
 
     updateDeviceCount() {
@@ -698,7 +738,12 @@ class PCLinkWebUI {
             const disabledState = container.querySelector('.service-disabled');
             
             try {
-                const response = await fetch(`/phone/files/.browse${cleanPath}`, {
+                let url = `/phone/files/.browse${cleanPath}`;
+                if (this.currentPhoneDeviceId) {
+                    url += `?device_id=${encodeURIComponent(this.currentPhoneDeviceId)}`;
+                }
+                
+                const response = await fetch(url, {
                     headers: this.getHeaders()
                 });
                 
@@ -842,7 +887,11 @@ class PCLinkWebUI {
             console.log(`[Upload] Starting upload of ${file.name} to ${cleanFullPath}`);
 
             const xhr = new XMLHttpRequest();
-            xhr.open('PUT', `/phone/files${cleanFullPath}`, true);
+            let url = `/phone/files${cleanFullPath}`;
+            if (this.currentPhoneDeviceId) {
+                url += `?device_id=${encodeURIComponent(this.currentPhoneDeviceId)}`;
+            }
+            xhr.open('PUT', url, true);
             
             // Add API key if present
             if (this.apiKey) {
@@ -892,7 +941,11 @@ class PCLinkWebUI {
         for (const path of paths) {
             try {
                 const cleanPath = path.startsWith('/') ? path : '/' + path;
-                const response = await fetch(`/phone/files${cleanPath}`, {
+                let url = `/phone/files${cleanPath}`;
+                if (this.currentPhoneDeviceId) {
+                    url += `?device_id=${encodeURIComponent(this.currentPhoneDeviceId)}`;
+                }
+                const response = await fetch(url, {
                     method: 'DELETE',
                     headers: this.getHeaders()
                 });
@@ -1166,7 +1219,11 @@ window.downloadSelectedItems = () => {
         paths.forEach(path => {
             const cleanPath = path.startsWith('/') ? path : '/' + path;
             const link = document.createElement('a');
-            link.href = `/phone/files${cleanPath}`;
+            let url = `/phone/files${cleanPath}`;
+            if (window.pclinkUI?.currentPhoneDeviceId) {
+                url += `?device_id=${encodeURIComponent(window.pclinkUI.currentPhoneDeviceId)}`;
+            }
+            link.href = url;
             link.download = path.split('/').pop();
             document.body.appendChild(link);
             link.click();
@@ -1177,7 +1234,17 @@ window.downloadSelectedItems = () => {
 
 window.downloadPhoneFile = (path) => {
     // Generate an absolute URL for download
-    window.location.href = `/phone/files${path.startsWith('/') ? path : '/' + path}`;
+    let url = `/phone/files${path.startsWith('/') ? path : '/' + path}`;
+    if (window.pclinkUI?.currentPhoneDeviceId) {
+        url += `?device_id=${encodeURIComponent(window.pclinkUI.currentPhoneDeviceId)}`;
+    }
+    window.location.href = url;
+};
+
+window.handlePhoneDeviceChange = (deviceId) => {
+    if (window.pclinkUI) {
+        window.pclinkUI.handlePhoneDeviceChange(deviceId);
+    }
 };
 
 // Initialization

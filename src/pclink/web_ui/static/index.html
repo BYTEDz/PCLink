@@ -516,6 +516,9 @@
                 </span>
               </h3>
               <div class="file-browser-actions">
+                <select id="phoneDeviceSelector" class="device-select" style="max-width: 200px; margin-right: 10px;" onchange="handlePhoneDeviceChange(this.value)">
+                  <option value="">Select Device...</option>
+                </select>
                 <button
                   class="btn btn-sm"
                   onclick="goBackPhoneFiles()"

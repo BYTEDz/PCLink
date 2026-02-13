@@ -10,14 +10,19 @@ from ..core.device_manager import device_manager
 log = logging.getLogger(__name__)
 router = APIRouter()
 
-def get_active_phone_details() -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Finds the IP, ID, and API Key of the first approved device."""
+def get_active_phone_details(target_device_id: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Finds the IP, ID, and API Key of the target device or first approved device."""
     try:
         devices = device_manager.get_all_devices()
         for d in devices:
+            # attribute access
+            dev_id = getattr(d, 'device_id', None) or getattr(d, 'id', None)
+            
+            # Filter by target ID if provided
+            if target_device_id and dev_id != target_device_id:
+                continue
+                
             if d.is_approved and d.current_ip:
-                # Use robust attribute access
-                dev_id = getattr(d, 'device_id', None) or getattr(d, 'id', None)
                 api_key = getattr(d, 'api_key', None)
                 if dev_id:
                      return d.current_ip, dev_id, api_key
@@ -29,7 +34,8 @@ def get_active_phone_details() -> Tuple[Optional[str], Optional[str], Optional[s
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PROPFIND", "OPTIONS", "MKCOL", "MOVE", "COPY"])
 async def proxy_webdav(request: Request, path: str):
     """Proxies WebDAV requests to the phone's WebDAV server."""
-    phone_ip, device_id, api_key = get_active_phone_details()
+    target_device_id = request.query_params.get("device_id")
+    phone_ip, device_id, api_key = get_active_phone_details(target_device_id)
     
     if not phone_ip:
         log.warning("Proxy failed: No active phone connected")
