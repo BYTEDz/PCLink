@@ -266,9 +266,12 @@ class SystemService:
                     fans[label] = [{"label": f.label, "current": f.current} for f in entries]
             except Exception: pass
 
+        from .discovery_service import DiscoveryService
+        
         return {
             "os": os_name,
             "hostname": socket.gethostname(),
+            "server_id": DiscoveryService.generate_server_id(), # Added
             "uptime_seconds": int(uptime),
             "boot_time": int(boot),
             "procs": len(psutil.pids()),

@@ -12,13 +12,24 @@ router = APIRouter()
 @router.get("/ping")
 async def ping():
     """Lightweight endpoint for heartbeat checks."""
-    return {"status": "ok", "version": __version__}
+    from ..services.discovery_service import DiscoveryService
+    return {
+        "status": "ok", 
+        "version": __version__,
+        "server_id": DiscoveryService.generate_server_id()
+    }
 
 
 @router.get("/heartbeat")
 async def heartbeat():
     """Ultra-lightweight heartbeat for status checks."""
-    return {"status": "ok", "time": time.time()}
+    import time
+    from ..services.discovery_service import DiscoveryService
+    return {
+        "status": "ok", 
+        "time": time.time(),
+        "server_id": DiscoveryService.generate_server_id()
+    }
 
 
 @router.get("/system")
@@ -42,4 +53,8 @@ async def get_media_info() -> Dict[str, Any]:
 @router.get("/version")
 async def get_server_version():
     """Returns the current version of the PCLink server."""
-    return {"version": __version__}
+    from ..services.discovery_service import DiscoveryService
+    return {
+        "version": __version__,
+        "server_id": DiscoveryService.generate_server_id()
+    }

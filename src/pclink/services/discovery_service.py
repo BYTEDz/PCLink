@@ -32,11 +32,15 @@ class DiscoveryService:
         self._running = False
         self._socket: socket.socket | None = None
 
-    def _generate_server_id(self) -> str:
+    @staticmethod
+    def generate_server_id() -> str:
         """Generate deterministic UUID from hardware profile."""
         # Create a UUID based on DNS namespace and system-specific details for consistency.
         system_info = f"{platform.node()}-{platform.system()}-{platform.machine()}"
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, system_info))
+
+    def _generate_server_id(self) -> str:
+        return self.generate_server_id()
 
     def _get_beacon_payload(self) -> bytes:
         """Prepare JSON beacon payload."""
