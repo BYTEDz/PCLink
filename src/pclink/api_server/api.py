@@ -144,6 +144,13 @@ class ConnectionManager:
             if device_id in self.device_connections:
                 del self.device_connections[device_id]
 
+    async def send_to_device(self, device_id: str, message: Dict[str, Any]):
+        """Send a message to a specific device."""
+        if ws_list := self.device_connections.get(device_id):
+            for socket in ws_list:
+                try: await socket.send_json(message)
+                except Exception: pass
+
     async def broadcast(self, message: Dict[str, Any]):
         for connection in self.active_connections[:]:
             try: await connection.send_json(message)
@@ -161,6 +168,10 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     
     mobile_manager = ConnectionManager()
     ui_manager = ConnectionManager()
+    
+    # Expose managers to state for access in routers
+    app.state.mobile_manager = mobile_manager
+    app.state.ui_manager = ui_manager
     
     server_api_key = validate_api_key(api_key)
     controller = controller_instance

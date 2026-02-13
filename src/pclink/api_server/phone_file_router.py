@@ -77,7 +77,24 @@ async def proxy_webdav(request: Request, path: str):
                 break 
             except (requests.ConnectionError, requests.Timeout) as e:
                 if attempt < max_retries - 1:
-                    log.warning(f"WebDAV proxy attempt {attempt + 1} failed, retrying in 1s... ({e})")
+                    log.warning(f"WebDAV proxy attempt {attempt + 1} failed ({e})")
+                    
+                    # Try to wake up WebDAV service on the phone via WebSocket
+                    if attempt == 0:
+                        try:
+                            mobile_manager = request.app.state.mobile_manager
+                            if mobile_manager:
+                                log.info(f"Attempting to wake up WebDAV on device {device_id}...")
+                                await mobile_manager.send_to_device(device_id, {
+                                    "type": "webdav_control",
+                                    "data": {"action": "start"}
+                                })
+                                # Give it slightly more time to start up
+                                await asyncio.sleep(2.0)
+                                continue
+                        except Exception as wake_err:
+                            log.warning(f"Failed to send wakeup signal: {wake_err}")
+                            
                     await asyncio.sleep(1.0) # Non-blocking sleep
                     continue
                 raise
