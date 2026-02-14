@@ -52,7 +52,7 @@ mouse_scroll_limiter = RateLimiter(max_calls=60, period=1.0)
 
 @router.post("/keyboard")
 async def send_keyboard_input(payload: KeyboardInputModel):
-    if not input_service.keyboard:
+    if not input_service.is_available():
         raise HTTPException(status_code=503, detail="Input control not available")
     try:
         if payload.text:
@@ -68,7 +68,7 @@ async def send_keyboard_input(payload: KeyboardInputModel):
 
 @router.post("/mouse/move")
 async def move_mouse(payload: MouseMoveModel):
-    if not input_service.mouse: raise HTTPException(status_code=503, detail="Input control not available")
+    if not input_service.is_available(): raise HTTPException(status_code=503, detail="Input control not available")
     if not mouse_move_limiter.allow(): return {"status": "dropped"}
     try:
         input_service.mouse_move(payload.dx, payload.dy)
@@ -78,7 +78,7 @@ async def move_mouse(payload: MouseMoveModel):
 
 @router.post("/mouse/click")
 async def click_mouse(payload: MouseClickModel):
-    if not input_service.mouse: raise HTTPException(status_code=503, detail="Input control not available")
+    if not input_service.is_available(): raise HTTPException(status_code=503, detail="Input control not available")
     try:
         input_service.mouse_click(payload.button, payload.clicks)
         return {"status": "clicked"}
@@ -87,7 +87,7 @@ async def click_mouse(payload: MouseClickModel):
 
 @router.post("/mouse/scroll")
 async def scroll_mouse(payload: MouseScrollModel):
-    if not input_service.mouse: raise HTTPException(status_code=503, detail="Input control not available")
+    if not input_service.is_available(): raise HTTPException(status_code=503, detail="Input control not available")
     if not mouse_scroll_limiter.allow(): return {"status": "dropped"}
     try:
         input_service.mouse_scroll(payload.dx, payload.dy)

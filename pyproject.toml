@@ -45,6 +45,7 @@ dependencies = [
     "Pillow>=9.0.0",
     "pystray>=0.19.0",
     "python-multipart>=0.0.9",
+    "evdev>=1.6.0; sys_platform == 'linux'",
     "comtypes>=1.2.0; sys_platform == 'win32'",
     "pycaw>=20230330; sys_platform == 'win32'",
     "pywin32>=306; sys_platform == 'win32'",

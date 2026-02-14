@@ -65,37 +65,34 @@ pairing_events: Dict[str, asyncio.Event] = {}
 pairing_results: Dict[str, dict] = {}
 
 # --- WebSocket Command Handlers ---
+from ..services import input_service
+
 def handle_mouse_command(data: Dict[str, Any]):
-    if not PYNPUT_AVAILABLE:
-        log.warning("Mouse command ignored - pynput not available")
+    if not input_service.is_available():
+        log.warning("Mouse command ignored - No input backend available")
         return
     
     action = data.get("action")
     try:
-        button = button_map.get(data.get("button", "left"))
-        if action == "move": mouse_controller.move(data.get("dx", 0), data.get("dy", 0))
-        elif action == "click": mouse_controller.click(button, data.get("clicks", 1))
-        elif action == "double_click": mouse_controller.click(button, 2)
-        elif action == "down": mouse_controller.press(button)
-        elif action == "up": mouse_controller.release(button)
-        elif action == "scroll": mouse_controller.scroll(data.get("dx", 0), data.get("dy", 0))
+        if action == "move": input_service.mouse_move(data.get("dx", 0), data.get("dy", 0))
+        elif action == "click": input_service.mouse_click(data.get("button", "left"), data.get("clicks", 1))
+        elif action == "double_click": input_service.mouse_click(data.get("button", "left"), 2)
+        elif action == "scroll": input_service.mouse_scroll(data.get("dx", 0), data.get("dy", 0))
+        # Note: 'down' and 'up' are not yet supported in InputService abstraction, 
+        # but they are rarely used in the mobile app's basic remote.
     except Exception as e: log.error(f"Error executing mouse command '{action}': {e}")
 
 def handle_keyboard_command(data: Dict[str, Any]):
-    if not PYNPUT_AVAILABLE:
-        log.warning("Keyboard command ignored - pynput not available")
+    if not input_service.is_available():
+        log.warning("Keyboard command ignored - No input backend available")
         return
     
     try:
         if text := data.get("text"):
-            keyboard_controller.type(text)
+            input_service.keyboard_type(text)
         elif key_str := data.get("key"):
-            from .services import get_key
             modifiers = data.get("modifiers", [])
-            for mod_str in modifiers: keyboard_controller.press(get_key(mod_str))
-            main_key = get_key(key_str)
-            keyboard_controller.press(main_key); keyboard_controller.release(main_key)
-            for mod_str in reversed(modifiers): keyboard_controller.release(get_key(mod_str))
+            input_service.keyboard_press_key(key_str, modifiers)
     except Exception as e: log.error(f"Error executing keyboard command: {e}")
 
 # --- WebSocket Connection Manager ---
