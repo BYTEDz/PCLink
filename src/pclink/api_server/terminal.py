@@ -51,11 +51,11 @@ def create_terminal_router(api_key: str) -> APIRouter:
         log.info(f"Terminal session started for {websocket.client}")
 
         try:
+            shell = websocket.query_params.get("shell", "cmd").lower()
             if platform.system() == "Windows":
-                shell = websocket.query_params.get("shell", "cmd").lower()
                 await terminal_service.run_windows_terminal(websocket, shell)
             else:
-                await terminal_service.run_unix_terminal(websocket)
+                await terminal_service.run_unix_terminal(websocket, shell)
         except WebSocketDisconnect:
             log.info("Terminal disconnected")
         except Exception as e:
