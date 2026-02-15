@@ -125,11 +125,14 @@ class TerminalService:
         master_fd = None
         try:
             master_fd, slave_fd = pty.openpty()
+            env = os.environ.copy()
+            env.setdefault("TERM", "xterm-256color")
             process = await asyncio.create_subprocess_exec(
                 shell,
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=slave_fd,
+                env=env,
                 preexec_fn=os.setsid
             )
             os.close(slave_fd)
