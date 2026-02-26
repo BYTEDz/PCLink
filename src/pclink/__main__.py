@@ -455,6 +455,34 @@ def disable():
     click.echo("Use 'pclink stop' to shut it down.")
 
 
+@cli.command(name='fix-wayland')
+def fix_wayland():
+    """Fix mouse/keyboard issues on Wayland by configuring uinput."""
+    if sys.platform != "linux":
+        click.echo("This command is only for Linux systems running Wayland.")
+        return
+
+    from .core.wayland_utils import is_wayland, check_uinput_access, setup_uinput_permissions
+    
+    if not is_wayland():
+        click.echo("Wayland not detected. This fix is specifically for Wayland sessions.")
+        if not click.confirm("Do you want to continue anyway?"):
+            return
+
+    if check_uinput_access():
+        click.echo("✓ You already have write access to /dev/uinput.")
+        click.echo("If input still doesn't work, re-open the mobile app and try again.")
+        return
+
+    click.echo("--- Wayland Input Fix ---")
+    click.echo("To fix mouse/keyboard, PCLink needs permission to create virtual devices.")
+    click.echo("Run the following command to grant access (requires sudo):")
+    click.echo("")
+    click.echo(click.style(setup_uinput_permissions(), fg='yellow', bold=True))
+    click.echo("")
+    click.echo("After running the command, you MUST logout and login again (or restart) for group changes to take effect.")
+
+
 cli.add_command(startup)
 cli.add_command(tray)
 

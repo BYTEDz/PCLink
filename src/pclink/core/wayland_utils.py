@@ -12,7 +12,7 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
+import tempfile 
 from pathlib import Path
 from typing import Optional
 
@@ -53,29 +53,31 @@ def screenshot_portal() -> Optional[bytes]:
     Returns:
         PNG image bytes if successful, None otherwise.
     """
+    # Use a location that is accessible even if the service has PrivateTmp=true
+    # such as the user's cache directory.
+    cache_dir = Path.home() / ".cache" / "pclink"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    
     try:
-        # Try using gnome-screenshot first (simpler, widely available)
-        if shutil.which("gnome-screenshot"):
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp_path = tmp.name
-            
-            result = subprocess.run(
-                ["gnome-screenshot", "-f", tmp_path],
-                capture_output=True,
-                timeout=10
-            )
+        # 1. Try GNOME-specific DBus API (Fastest and works inside services)
+        if shutil.which("gdbus"):
+            tmp_path = str(cache_dir / f"gnome_ss_{os.getpid()}.png")
+            # This API is usually non-interactive on modern GNOME if the service is allowed
+            result = subprocess.run([
+                "gdbus", "call", "--session",
+                "--dest", "org.gnome.Shell.Screenshot",
+                "--object-path", "/org/gnome/Shell/Screenshot",
+                "--method", "org.gnome.Shell.Screenshot.Screenshot",
+                "true", "false", tmp_path
+            ], capture_output=True, timeout=10)
             
             if result.returncode == 0 and Path(tmp_path).exists():
                 with open(tmp_path, "rb") as f:
                     data = f.read()
                 os.unlink(tmp_path)
                 return data
-            
-            # Clean up on failure
-            if Path(tmp_path).exists():
-                os.unlink(tmp_path)
-        
-        # Fallback: try grim (wlroots-based compositors)
+
+        # 2. Try using grim (wlroots-based)
         if shutil.which("grim"):
             result = subprocess.run(
                 ["grim", "-"],
@@ -84,16 +86,16 @@ def screenshot_portal() -> Optional[bytes]:
             )
             if result.returncode == 0:
                 return result.stdout
-        
+
+
         # Fallback: try spectacle (KDE)
         if shutil.which("spectacle"):
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                tmp_path = tmp.name
+            tmp_path = str(cache_dir / f"spectacle_{os.getpid()}.png")
             
             result = subprocess.run(
                 ["spectacle", "-b", "-n", "-o", tmp_path],
                 capture_output=True,
-                timeout=10
+                timeout=30
             )
             
             if result.returncode == 0 and Path(tmp_path).exists():
@@ -102,7 +104,8 @@ def screenshot_portal() -> Optional[bytes]:
                 os.unlink(tmp_path)
                 return data
         
-        log.warning("No Wayland screenshot tool found (tried gnome-screenshot, grim, spectacle)")
+        # Log failure reason if all methods fail
+        log.warning("No Wayland screenshot tool succeeded.")
         return None
         
     except subprocess.TimeoutExpired:
@@ -170,3 +173,29 @@ def clipboard_set_wayland(text: str) -> bool:
     except Exception as e:
         log.error(f"wl-copy failed: {e}")
         return False
+def setup_uinput_permissions() -> str:
+    """
+    Generate a command or script to fix uinput permissions for Wayland.
+    Returns the command that needs to be run with sudo.
+    """
+    user = os.environ.get("USER") or os.environ.get("LOGNAME")
+    if not user:
+        return "echo 'Could not detect current user. Run: sudo groupadd -f input && sudo gpasswd -a $USER input'"
+
+    rule = 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"'
+    rule_file = "/etc/udev/rules.d/99-uinput.rules"
+    
+    # We return a single command that the user can copy-paste and run with sudo
+    cmd = (
+        f'sudo groupadd -f input && '
+        f'sudo gpasswd -a {user} input && '
+        f'echo \'{rule}\' | sudo tee {rule_file} && '
+        f'sudo udevadm control --reload-rules && sudo udevadm trigger && '
+        f'sudo modprobe uinput'
+    )
+    return cmd
+
+
+def check_uinput_access() -> bool:
+    """Check if the current user has write access to /dev/uinput."""
+    return os.access("/dev/uinput", os.W_OK)

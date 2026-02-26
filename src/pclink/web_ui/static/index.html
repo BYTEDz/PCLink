@@ -60,6 +60,10 @@
             <i data-feather="link"></i>
             <span>Pairing</span>
           </button>
+          <button class="nav-item" data-tab="phone-files">
+            <i data-feather="folder"></i>
+            <span>Phone Files</span>
+          </button>
           <button class="nav-item" data-tab="services">
             <i data-feather="grid"></i>
             <span>Services</span>
@@ -501,10 +505,115 @@
           </div>
         </div>
 
+        <div class="tab-content" id="phone-files">
+          <div class="card">
+            <div class="file-browser-header">
+              <h3>
+                <i data-feather="smartphone"></i>
+                <span>Phone File Explorer</span>
+                <span id="phoneReadOnlyBadge" class="status-badge warning" style="display: none;">
+                  <i data-feather="lock"></i> Read-Only
+                </span>
+              </h3>
+              <div class="file-browser-actions">
+                <select id="phoneDeviceSelector" class="device-select" style="max-width: 200px; margin-right: 10px;" onchange="handlePhoneDeviceChange(this.value)">
+                  <option value="">Select Device...</option>
+                </select>
+                <button
+                  class="btn btn-sm"
+                  onclick="goBackPhoneFiles()"
+                  id="phoneBackBtn"
+                  disabled
+                  title="Back"
+                >
+                  <i data-feather="arrow-left"></i>
+                </button>
+                <button
+                  class="btn btn-sm"
+                  onclick="goForwardPhoneFiles()"
+                  id="phoneForwardBtn"
+                  disabled
+                  title="Forward"
+                >
+                  <i data-feather="arrow-right"></i>
+                </button>
+                <button class="btn btn-sm" onclick="refreshPhoneFiles()" title="Refresh">
+                  <i data-feather="refresh-cw"></i>
+                </button>
+                <button class="btn btn-sm btn-primary" id="phoneUploadBtn" onclick="triggerUpload()" title="Upload Files">
+                  <i data-feather="upload"></i>
+                  <span>Upload</span>
+                </button>
+                <input type="file" id="phoneUploadInput" class="hidden-file-input" multiple onchange="handlePhoneUpload(this)">
+              </div>
+            </div>
+
+            <div class="file-browser-controls">
+              <div class="search-wrapper">
+                <i data-feather="search"></i>
+                <input type="text" id="phoneFileSearch" class="search-input" placeholder="Search files..." oninput="handlePhoneSearch(this.value)">
+              </div>
+              <div class="filter-controls">
+                <select id="phoneFileSort" class="sort-select" onchange="handlePhoneSort(this.value)">
+                  <option value="name_asc">Name (A-Z)</option>
+                  <option value="name_desc">Name (Z-A)</option>
+                  <option value="size_asc">Size (Smallest)</option>
+                  <option value="size_desc">Size (Largest)</option>
+                  <option value="date_desc">Last Modified (Newest)</option>
+                  <option value="date_asc">Last Modified (Oldest)</option>
+                </select>
+                <label class="toggle-hidden-btn">
+                  <input type="checkbox" id="showHiddenFiles" onchange="handleToggleHidden(this.checked)">
+                  <span>Hidden</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="breadcrumb" id="phoneBreadcrumb">
+              <span>Path: /</span>
+            </div>
+
+            <div id="uploadProgressContainer" class="upload-progress-container"></div>
+
+            <div id="phoneFileList" class="file-list-container">
+              <div class="empty-state service-disabled" style="display: none;">
+                <i data-feather="alert-triangle" class="warning-icon"></i>
+                <h4>WebDAV Service Disabled</h4>
+                <p>Please enable <strong>Direct File Access</strong> in PCLink Advanced Settings on your phone to browse files.</p>
+                <button class="btn btn-primary" onclick="refreshPhoneFiles()">
+                  <i data-feather="refresh-cw"></i> Retry Connection
+                </button>
+              </div>
+              <p>Loading files...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Batch Action Bar (Hidden by default) -->
+        <div id="batchActionBar" class="batch-action-bar">
+          <div class="selection-info">
+            <span id="selectedCount">0</span> items selected
+          </div>
+          <div class="batch-actions">
+            <button class="btn btn-sm btn-danger" id="batchDeleteBtn" onclick="deleteSelectedItems()">
+              <i data-feather="trash-2"></i> Delete
+            </button>
+            <button class="btn btn-sm btn-primary" onclick="downloadSelectedItems()">
+              <i data-feather="download"></i> Download
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="clearSelection()">
+              Cancel
+            </button>
+          </div>
+        </div>
+
         <div class="tab-content" id="services">
           <div class="card">
             <h3><i data-feather="grid"></i> Services Center</h3>
-            <p>Granularly enable or disable specific API features for security and customization.</p>
+            <p>
+              Granularly enable or disable specific API features for security
+              and customization.
+            </p>
             <div id="servicesGrid" class="services-grid">
               <div class="loading-state">
                 <i data-feather="loader" class="spinner"></i>

@@ -25,6 +25,7 @@ from ..web_ui.router import create_web_ui_router
 
 # --- API Router Imports ---
 from .file_browser import router as file_browser_router
+from .phone_file_router import router as phone_file_router
 
 # UPDATED: Import from the new transfers package
 from .transfer_router import upload_router, download_router, restore_sessions_startup, cleanup_stale_sessions
@@ -64,37 +65,34 @@ pairing_events: Dict[str, asyncio.Event] = {}
 pairing_results: Dict[str, dict] = {}
 
 # --- WebSocket Command Handlers ---
+from ..services import input_service
+
 def handle_mouse_command(data: Dict[str, Any]):
-    if not PYNPUT_AVAILABLE:
-        log.warning("Mouse command ignored - pynput not available")
+    if not input_service.is_available():
+        log.warning("Mouse command ignored - No input backend available")
         return
     
     action = data.get("action")
     try:
-        button = button_map.get(data.get("button", "left"))
-        if action == "move": mouse_controller.move(data.get("dx", 0), data.get("dy", 0))
-        elif action == "click": mouse_controller.click(button, data.get("clicks", 1))
-        elif action == "double_click": mouse_controller.click(button, 2)
-        elif action == "down": mouse_controller.press(button)
-        elif action == "up": mouse_controller.release(button)
-        elif action == "scroll": mouse_controller.scroll(data.get("dx", 0), data.get("dy", 0))
+        if action == "move": input_service.mouse_move(data.get("dx", 0), data.get("dy", 0))
+        elif action == "click": input_service.mouse_click(data.get("button", "left"), data.get("clicks", 1))
+        elif action == "double_click": input_service.mouse_click(data.get("button", "left"), 2)
+        elif action == "scroll": input_service.mouse_scroll(data.get("dx", 0), data.get("dy", 0))
+        # Note: 'down' and 'up' are not yet supported in InputService abstraction, 
+        # but they are rarely used in the mobile app's basic remote.
     except Exception as e: log.error(f"Error executing mouse command '{action}': {e}")
 
 def handle_keyboard_command(data: Dict[str, Any]):
-    if not PYNPUT_AVAILABLE:
-        log.warning("Keyboard command ignored - pynput not available")
+    if not input_service.is_available():
+        log.warning("Keyboard command ignored - No input backend available")
         return
     
     try:
         if text := data.get("text"):
-            keyboard_controller.type(text)
+            input_service.keyboard_type(text)
         elif key_str := data.get("key"):
-            from .services import get_key
             modifiers = data.get("modifiers", [])
-            for mod_str in modifiers: keyboard_controller.press(get_key(mod_str))
-            main_key = get_key(key_str)
-            keyboard_controller.press(main_key); keyboard_controller.release(main_key)
-            for mod_str in reversed(modifiers): keyboard_controller.release(get_key(mod_str))
+            input_service.keyboard_press_key(key_str, modifiers)
     except Exception as e: log.error(f"Error executing keyboard command: {e}")
 
 # --- WebSocket Connection Manager ---
@@ -143,6 +141,13 @@ class ConnectionManager:
             if device_id in self.device_connections:
                 del self.device_connections[device_id]
 
+    async def send_to_device(self, device_id: str, message: Dict[str, Any]):
+        """Send a message to a specific device."""
+        if ws_list := self.device_connections.get(device_id):
+            for socket in ws_list:
+                try: await socket.send_json(message)
+                except Exception: pass
+
     async def broadcast(self, message: Dict[str, Any]):
         for connection in self.active_connections[:]:
             try: await connection.send_json(message)
@@ -160,6 +165,10 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     
     mobile_manager = ConnectionManager()
     ui_manager = ConnectionManager()
+    
+    # Expose managers to state for access in routers
+    app.state.mobile_manager = mobile_manager
+    app.state.ui_manager = ui_manager
     
     server_api_key = validate_api_key(api_key)
     controller = controller_instance
@@ -236,6 +245,7 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     app.include_router(upload_router, prefix="/files/upload", tags=["Uploads"], dependencies=MOBILE_API)
     app.include_router(download_router, prefix="/files/download", tags=["Downloads"], dependencies=MOBILE_API)
     app.include_router(file_browser_router, prefix="/files", tags=["Files"], dependencies=MOBILE_API)
+    app.include_router(phone_file_router, prefix="/phone/files", tags=["Phone Files"], dependencies=MOBILE_API)
     
     app.include_router(system_router, prefix="/system", tags=["System"], dependencies=MOBILE_API)
     app.include_router(media_streaming_router, prefix="/files", tags=["Streaming"], dependencies=MOBILE_API)

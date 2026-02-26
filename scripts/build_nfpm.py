@@ -71,6 +71,7 @@ class NFPMBuilder:
             self.staging_dir / "usr" / "share" / "man" / "man1",
             self.staging_dir / "usr" / "lib" / "systemd" / "user",
             self.staging_dir / "etc" / "sudoers.d",
+            self.staging_dir / "etc" / "udev" / "rules.d",
         ]
         
         for dir_path in dirs:
@@ -170,6 +171,7 @@ exit $EXIT_CODE
             ("xyz.bytedz.PCLink.desktop", "usr/share/applications/xyz.bytedz.PCLink.desktop"),
             ("src/pclink/assets/icon.png", "usr/share/icons/hicolor/256x256/apps/xyz.bytedz.PCLink.png"),
             ("scripts/linux/pclink.service.template", "usr/lib/systemd/user/pclink.service"),
+            ("scripts/linux/99-uinput.rules", "etc/udev/rules.d/99-uinput.rules"),
         ]
         
         for src_rel, dst_rel in resources:
@@ -314,6 +316,22 @@ case "$1" in
             if [ -f "/etc/sudoers.d/pclink" ]; then
                 chmod 440 /etc/sudoers.d/pclink
             fi
+            
+            # --- Wayland Input Setup (uinput) ---
+            log "Setting up uinput permissions for Wayland..."
+            # Create input group if it doesn't exist
+            if ! getent group input >/dev/null; then
+                groupadd -r input || true
+            fi
+            
+            # Ensure udev rules are applied
+            if [ -f "/etc/udev/rules.d/99-uinput.rules" ]; then
+                chmod 644 /etc/udev/rules.d/99-uinput.rules
+                command -v udevadm >/dev/null 2>&1 && udevadm control --reload-rules && udevadm trigger --attr-match=subsystem=misc || true
+            fi
+            
+            # Load uinput module
+            command -v modprobe >/dev/null 2>&1 && modprobe uinput || true
         fi
 
         # --- System Updates ---
@@ -541,6 +559,7 @@ exit 0
                         "libayatana-appindicator-gtk3",
                         "wl-clipboard",
                         "gnome-screenshot",
+                        "grim",
                     ]
                 }
             },
@@ -558,6 +577,11 @@ exit 0
                     "src": "build/nfpm/staging/etc/sudoers.d/pclink", 
                     "dst": "/etc/sudoers.d/pclink",
                     "file_info": {"mode": 0o440}
+                },
+                {
+                    "src": "build/nfpm/staging/etc/udev/rules.d/99-uinput.rules",
+                    "dst": "/etc/udev/rules.d/99-uinput.rules",
+                    "file_info": {"mode": 0o644}
                 },
                 # Include documentation files
                 {"src": "build/nfpm/staging/usr/share/doc/pclink", "dst": "/usr/share/doc/pclink"},

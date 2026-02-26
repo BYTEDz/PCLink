@@ -13,6 +13,17 @@ class PCLinkWebUI {
         this.notificationSettings = this.loadNotificationSettings();
         this.serverStartTime = Date.now();
         this.lastDeviceActivity = null;
+        this.currentPhonePath = '/';
+        this.phoneNavHistory = ['/'];
+        this.phoneHistoryIndex = 0;
+        this.phoneSearchQuery = '';
+        this.phoneSortMode = 'name_asc';
+        this.phoneShowHidden = false;
+        this.phoneSelectedItems = new Set();
+        this.phoneFileItems = [];
+        this.phoneIsReadOnly = false;
+        this.isUploading = false;
+        this.currentPhoneDeviceId = null; // Track selected device for file browsing
         this.init();
     }
 
@@ -38,7 +49,7 @@ class PCLinkWebUI {
             if (activeTab === 'dashboard') {
                 this.updateActivity();
                 this.updateServerStatus();
-            } else if (activeTab === 'devices') {
+            } else if (activeTab === 'devices' || activeTab === 'phone-files') {
                 this.loadDevices();
             } else if (activeTab === 'logs') {
                 this.loadLogs();
@@ -175,6 +186,10 @@ class PCLinkWebUI {
                 break;
             case 'services':
                 await this.loadServices();
+                break;
+            case 'phone-files':
+                await this.loadDevices();
+                await this.loadPhoneFiles(this.currentPhonePath);
                 break;
         }
     }
@@ -349,6 +364,7 @@ class PCLinkWebUI {
                 const result = await response.json();
                 this.devices = result.devices || [];
                 this.displayDevices();
+                this.updatePhoneDeviceSelector();
                 this.updateDeviceCount();
             }
             await this.loadPendingRequests();
@@ -429,6 +445,8 @@ class PCLinkWebUI {
 
     displayDevices() {
         const deviceListElement = document.getElementById('deviceList');
+        if (!deviceListElement) return;
+
         if (this.devices.length === 0) {
             deviceListElement.innerHTML = '<p>No mobile devices connected</p>';
             return;
@@ -447,6 +465,41 @@ class PCLinkWebUI {
                 <button class="btn btn-sm btn-secondary" onclick="revokeDevice('${device.id}')">Revoke Access</button>
             </div>
         `).join('');
+    }
+
+    updatePhoneDeviceSelector() {
+        const selector = document.getElementById('phoneDeviceSelector');
+        if (!selector) return;
+        
+        // Save current selection to restore state
+        const currentSelection = this.currentPhoneDeviceId;
+        
+        // Reset options
+        selector.innerHTML = '<option value="">Select Device...</option>';
+        
+        this.devices.forEach(device => {
+            const option = document.createElement('option');
+            option.value = device.id;
+            // Show status indicator emoji?
+            option.textContent = `${device.name} (${device.ip})`;
+            if (device.id === currentSelection) {
+                option.selected = true;
+            }
+            selector.appendChild(option);
+        });
+        
+        // Auto-select first device if none selected and devices exist
+        if (!this.currentPhoneDeviceId && this.devices.length > 0) {
+            this.currentPhoneDeviceId = this.devices[0].id;
+            selector.value = this.currentPhoneDeviceId;
+        }
+    }
+
+    async handlePhoneDeviceChange(deviceId) {
+        console.log('Phone device changed to:', deviceId);
+        this.currentPhoneDeviceId = deviceId;
+        this.currentPhonePath = '/'; // Reset path when switching devices
+        await this.loadPhoneFiles('/');
     }
 
     updateDeviceCount() {
@@ -669,6 +722,271 @@ class PCLinkWebUI {
             this.loadServices();
         }
     }
+
+    async loadPhoneFiles(path) {
+        const listContainer = document.getElementById('phoneFileList');
+        const breadcrumb = document.getElementById('phoneBreadcrumb');
+        const backBtn = document.getElementById('phoneBackBtn');
+        const forwardBtn = document.getElementById('phoneForwardBtn');
+        
+        if (breadcrumb) breadcrumb.innerHTML = `<span>Path: ${path}</span>`;
+        if (backBtn) backBtn.disabled = this.phoneHistoryIndex <= 0;
+        if (forwardBtn) forwardBtn.disabled = this.phoneHistoryIndex >= this.phoneNavHistory.length - 1;
+        
+            const cleanPath = path.startsWith('/') ? path : '/' + path;
+            const container = document.getElementById('phoneFileList');
+            const disabledState = container.querySelector('.service-disabled');
+            
+            try {
+                let url = `/phone/files/.browse${cleanPath}`;
+                if (this.currentPhoneDeviceId) {
+                    url += `?device_id=${encodeURIComponent(this.currentPhoneDeviceId)}`;
+                }
+                
+                const response = await fetch(url, {
+                    headers: this.getHeaders()
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    this.phoneFileItems = data.items || [];
+                    this.phoneIsReadOnly = data.readOnly || false;
+                    if (disabledState) disabledState.style.display = 'none';
+                    this.updatePhoneUIPermissions();
+                    this.displayPhoneFiles();
+                } else if (response.status === 502 || response.status === 404) {
+                    // 502/404 from proxy usually means phone is offline or service is off
+                    container.innerHTML = ''; // Clear previous content
+                    if (disabledState) {
+                        disabledState.style.display = 'block';
+                        container.appendChild(disabledState);
+                    } else {
+                        container.innerHTML = `<p class="error">Failed to load files: ${response.statusText}</p>`;
+                    }
+                } else {
+                    container.innerHTML = `<p class="error">Failed to load files: ${response.statusText}</p>`;
+                }
+            } catch (error) {
+                console.error('Connection error:', error);
+                if (disabledState) {
+                    disabledState.style.display = 'block';
+                    container.innerHTML = ''; 
+                    container.appendChild(disabledState);
+                } else {
+                    container.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+                }
+            }
+    }
+
+    displayPhoneFiles() {
+        const listContainer = document.getElementById('phoneFileList');
+        
+        // 1. Filter
+        let filtered = this.phoneFileItems.filter(item => {
+            // Hidden filter
+            if (!this.phoneShowHidden && item.name.startsWith('.')) return false;
+            // Search filter
+            if (this.phoneSearchQuery && !item.name.toLowerCase().includes(this.phoneSearchQuery.toLowerCase())) return false;
+            return true;
+        });
+
+        // 2. Sort
+        filtered.sort((a, b) => {
+            // Folders always first
+            if (a.isDir && !b.isDir) return -1;
+            if (!a.isDir && b.isDir) return 1;
+
+            const [field, direction] = this.phoneSortMode.split('_');
+            let comparison = 0;
+
+            switch (field) {
+                case 'name':
+                    comparison = a.name.localeCompare(b.name);
+                    break;
+                case 'size':
+                    comparison = (a.size || 0) - (b.size || 0);
+                    break;
+                case 'date':
+                    comparison = new Date(a.modified) - new Date(b.modified);
+                    break;
+            }
+
+            return direction === 'asc' ? comparison : -comparison;
+        });
+
+        if (filtered.length === 0) {
+            listContainer.innerHTML = '<div class="empty-state"><i data-feather="inbox"></i><p>No matching files</p></div>';
+            if (window.feather) feather.replace();
+            return;
+        }
+
+        listContainer.innerHTML = filtered.map(item => {
+            const isSelected = this.phoneSelectedItems.has(item.path);
+            return `
+                <div class="file-item ${item.isDir ? 'directory' : 'file'}" onclick="handleFileItemClick(event, '${item.path}', ${item.isDir})">
+                    <input type="checkbox" class="file-select-checkbox" ${isSelected ? 'checked' : ''} 
+                           onclick="event.stopPropagation(); toggleItemSelection('${item.path}')">
+                    <div class="file-icon">
+                        <i data-feather="${item.isDir ? 'folder' : 'file'}"></i>
+                    </div>
+                    <div class="file-info">
+                        <span class="file-name">${item.name}</span>
+                        <span class="file-meta">${item.isDir ? 'Directory' : this.formatFileSize(item.size)} • ${new Date(item.modified).toLocaleString()}</span>
+                    </div>
+                    <div class="file-actions">
+                        ${!item.isDir ? `<i data-feather="download" title="Download" onclick="event.stopPropagation(); downloadPhoneFile('${item.path}')"></i>` : `<i data-feather="chevron-right"></i>`}
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        if (window.feather) feather.replace();
+    }
+
+    updatePhoneUIPermissions() {
+        const uploadBtn = document.getElementById('phoneUploadBtn');
+        const deleteBtn = document.getElementById('batchDeleteBtn');
+        const badge = document.getElementById('phoneReadOnlyBadge');
+        
+        if (uploadBtn) {
+            uploadBtn.style.display = this.phoneIsReadOnly ? 'none' : 'flex';
+        }
+        if (deleteBtn) {
+            deleteBtn.style.display = this.phoneIsReadOnly ? 'none' : 'flex';
+        }
+        if (badge) {
+            badge.style.display = this.phoneIsReadOnly ? 'inline-flex' : 'none';
+        }
+    }
+
+    async uploadFile(file) {
+        const container = document.getElementById('uploadProgressContainer');
+        const uploadId = 'up-' + Math.random().toString(36).substr(2, 9);
+        
+        const itemHtml = `
+            <div id="${uploadId}" class="upload-item">
+                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <span>📤 ${file.name}</span>
+                    <span class="progress-text">0%</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" style="width: 0%"></div>
+                </div>
+            </div>
+        `;
+        container.insertAdjacentHTML('afterbegin', itemHtml);
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const cleanBasePath = this.currentPhonePath.endsWith('/') ? this.currentPhonePath : this.currentPhonePath + '/';
+            const fileName = file.name;
+            const cleanFullPath = (cleanBasePath + fileName).startsWith('/') ? (cleanBasePath + fileName) : '/' + (cleanBasePath + fileName);
+            
+            console.log(`[Upload] Starting upload of ${file.name} to ${cleanFullPath}`);
+
+            const xhr = new XMLHttpRequest();
+            let url = `/phone/files${cleanFullPath}`;
+            if (this.currentPhoneDeviceId) {
+                url += `?device_id=${encodeURIComponent(this.currentPhoneDeviceId)}`;
+            }
+            xhr.open('PUT', url, true);
+            
+            // Add API key if present
+            if (this.apiKey) {
+                xhr.setRequestHeader('X-API-Key', this.apiKey);
+            }
+
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    const el = document.getElementById(uploadId);
+                    if (el) {
+                        el.querySelector('.progress-bar-fill').style.width = percent + '%';
+                        el.querySelector('.progress-text').textContent = percent + '%';
+                    }
+                }
+            };
+
+            const promise = new Promise((resolve, reject) => {
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) resolve();
+                    else reject(new Error(`Upload failed: ${xhr.statusText}`));
+                };
+                xhr.onerror = () => reject(new Error('Network error'));
+            });
+
+            xhr.send(file); 
+            await promise;
+
+            const el = document.getElementById(uploadId);
+            if (el) {
+                el.style.opacity = '0.5';
+                setTimeout(() => el.remove(), 2000);
+            }
+            this.showToast('Success', `Uploaded ${file.name}`);
+        } catch (error) {
+            console.error('Upload failed:', error);
+            const el = document.getElementById(uploadId);
+            if (el) el.style.color = 'var(--danger-color)';
+            this.showToast('Error', `Failed to upload ${file.name}`, 'error');
+        }
+    }
+
+    async deletePhoneItems(paths) {
+        if (!confirm(`Are you sure you want to delete ${paths.length} item(s)?`)) return;
+
+        let successCount = 0;
+        for (const path of paths) {
+            try {
+                const cleanPath = path.startsWith('/') ? path : '/' + path;
+                let url = `/phone/files${cleanPath}`;
+                if (this.currentPhoneDeviceId) {
+                    url += `?device_id=${encodeURIComponent(this.currentPhoneDeviceId)}`;
+                }
+                const response = await fetch(url, {
+                    method: 'DELETE',
+                    headers: this.getHeaders()
+                });
+                if (response.ok) successCount++;
+            } catch (error) {
+                console.error(`Failed to delete ${path}:`, error);
+            }
+        }
+
+        if (successCount > 0) {
+            this.showToast('Success', `Deleted ${successCount} item(s)`);
+            this.phoneSelectedItems.clear();
+            this.updateBatchActionBar();
+            this.loadPhoneFiles(this.currentPhonePath);
+        } else {
+            this.showToast('Error', 'Deletion failed', 'error');
+        }
+    }
+
+    updateBatchActionBar() {
+        const bar = document.getElementById('batchActionBar');
+        const count = document.getElementById('selectedCount');
+        if (!bar || !count) return;
+
+        const selectedCount = this.phoneSelectedItems.size;
+        count.textContent = selectedCount;
+
+        if (selectedCount > 0) {
+            bar.classList.add('active');
+        } else {
+            bar.classList.remove('active');
+        }
+    }
+
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
 }
 
 // Global functions for HTML onclick attributes
@@ -773,6 +1091,161 @@ async function toggleService(serviceId, enabled) {
         await window.pclinkUI.toggleService(serviceId, enabled);
     }
 }
+
+// Phone File Navigation
+window.navigatePhone = (path) => {
+    if (window.pclinkUI) {
+        // Handle history
+        if (path !== window.pclinkUI.currentPhonePath) {
+            // Remove any forward history if we're at a branch
+            window.pclinkUI.phoneNavHistory = window.pclinkUI.phoneNavHistory.slice(0, window.pclinkUI.phoneHistoryIndex + 1);
+            window.pclinkUI.phoneNavHistory.push(path);
+            window.pclinkUI.phoneHistoryIndex = window.pclinkUI.phoneNavHistory.length - 1;
+        }
+        
+        window.pclinkUI.currentPhonePath = path;
+        window.pclinkUI.phoneSelectedItems.clear();
+        window.pclinkUI.updateBatchActionBar();
+        window.pclinkUI.loadPhoneFiles(path);
+    }
+};
+
+window.refreshPhoneFiles = () => {
+    if (window.pclinkUI) {
+        window.pclinkUI.loadPhoneFiles(window.pclinkUI.currentPhonePath);
+    }
+};
+
+window.goBackPhoneFiles = () => {
+    if (window.pclinkUI && window.pclinkUI.phoneHistoryIndex > 0) {
+        window.pclinkUI.phoneHistoryIndex--;
+        const path = window.pclinkUI.phoneNavHistory[window.pclinkUI.phoneHistoryIndex];
+        window.pclinkUI.currentPhonePath = path;
+        window.pclinkUI.loadPhoneFiles(path);
+    }
+};
+
+window.goForwardPhoneFiles = () => {
+    if (window.pclinkUI && window.pclinkUI.phoneHistoryIndex < window.pclinkUI.phoneNavHistory.length - 1) {
+        window.pclinkUI.phoneHistoryIndex++;
+        const path = window.pclinkUI.phoneNavHistory[window.pclinkUI.phoneHistoryIndex];
+        window.pclinkUI.currentPhonePath = path;
+        window.pclinkUI.loadPhoneFiles(path);
+    }
+};
+
+// Selection & Actions
+window.toggleItemSelection = (path) => {
+    if (window.pclinkUI) {
+        if (window.pclinkUI.phoneSelectedItems.has(path)) {
+            window.pclinkUI.phoneSelectedItems.delete(path);
+        } else {
+            window.pclinkUI.phoneSelectedItems.add(path);
+        }
+        window.pclinkUI.updateBatchActionBar();
+        window.pclinkUI.displayPhoneFiles();
+    }
+};
+
+window.clearSelection = () => {
+    if (window.pclinkUI) {
+        window.pclinkUI.phoneSelectedItems.clear();
+        window.pclinkUI.updateBatchActionBar();
+        window.pclinkUI.displayPhoneFiles();
+    }
+};
+
+window.handleFileItemClick = (event, path, isDir) => {
+    // If clicking the item with Ctrl/Meta, toggle selection
+    if (event.ctrlKey || event.metaKey) {
+        toggleItemSelection(path);
+    } else if (isDir) {
+        navigatePhone(path);
+    } else {
+        // Non-directory single click = toggle selection for now, or could do nothing
+        toggleItemSelection(path);
+    }
+};
+
+// Filtering & Sorting
+window.handlePhoneSearch = (query) => {
+    if (window.pclinkUI) {
+        window.pclinkUI.phoneSearchQuery = query;
+        window.pclinkUI.displayPhoneFiles();
+    }
+};
+
+window.handlePhoneSort = (mode) => {
+    if (window.pclinkUI) {
+        window.pclinkUI.phoneSortMode = mode;
+        window.pclinkUI.displayPhoneFiles();
+    }
+};
+
+window.handleToggleHidden = (show) => {
+    if (window.pclinkUI) {
+        window.pclinkUI.phoneShowHidden = show;
+        window.pclinkUI.displayPhoneFiles();
+    }
+};
+
+// Upload & Delete
+window.triggerUpload = () => {
+    document.getElementById('phoneUploadInput').click();
+};
+
+window.handlePhoneUpload = async (input) => {
+    if (!input.files || input.files.length === 0) return;
+    if (window.pclinkUI) {
+        for (const file of input.files) {
+            await window.pclinkUI.uploadFile(file);
+        }
+        window.refreshPhoneFiles();
+        input.value = ''; // Reset input
+    }
+};
+
+window.deleteSelectedItems = () => {
+    if (window.pclinkUI) {
+        const paths = Array.from(window.pclinkUI.phoneSelectedItems);
+        window.pclinkUI.deletePhoneItems(paths);
+    }
+};
+
+window.downloadSelectedItems = () => {
+    if (window.pclinkUI) {
+        const paths = Array.from(window.pclinkUI.phoneSelectedItems);
+        // Sequential download (browsers handle this by triggering multiple saves or pops)
+        paths.forEach(path => {
+            const cleanPath = path.startsWith('/') ? path : '/' + path;
+            const link = document.createElement('a');
+            let url = `/phone/files${cleanPath}`;
+            if (window.pclinkUI?.currentPhoneDeviceId) {
+                url += `?device_id=${encodeURIComponent(window.pclinkUI.currentPhoneDeviceId)}`;
+            }
+            link.href = url;
+            link.download = path.split('/').pop();
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+    }
+};
+
+window.downloadPhoneFile = (path) => {
+    // Generate an absolute URL for download
+    let url = `/phone/files${path.startsWith('/') ? path : '/' + path}`;
+    if (window.pclinkUI?.currentPhoneDeviceId) {
+        url += `?device_id=${encodeURIComponent(window.pclinkUI.currentPhoneDeviceId)}`;
+    }
+    window.location.href = url;
+};
+
+window.handlePhoneDeviceChange = (deviceId) => {
+    if (window.pclinkUI) {
+        window.pclinkUI.handlePhoneDeviceChange(deviceId);
+    }
+};
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {

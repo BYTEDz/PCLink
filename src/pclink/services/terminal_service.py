@@ -115,17 +115,24 @@ class TerminalService:
             log.error(f"Windows terminal failed: {e}")
             raise
 
-    async def run_unix_terminal(self, websocket: Any):
+    async def run_unix_terminal(self, websocket: Any, shell_type: str = "bash"):
         """Bridging Unix/Linux terminal I/O via PTY over WebSocket."""
-        shell = os.environ.get("SHELL", "bash")
+        # Compatibility: If client is old or Windows-style, "cmd" means default shell on Unix
+        shell = shell_type
+        if not shell or shell in ["default", "cmd"]:
+            shell = os.environ.get("SHELL", "bash")
+            
         master_fd = None
         try:
             master_fd, slave_fd = pty.openpty()
+            env = os.environ.copy()
+            env.setdefault("TERM", "xterm-256color")
             process = await asyncio.create_subprocess_exec(
                 shell,
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=slave_fd,
+                env=env,
                 preexec_fn=os.setsid
             )
             os.close(slave_fd)

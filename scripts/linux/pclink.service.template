@@ -12,16 +12,18 @@ Restart=on-failure
 RestartSec=5
 User=%i
 Group=%i
-Environment=DISPLAY=:0
+# Environment variables (passed from session or defaults)
 Environment=XDG_RUNTIME_DIR=/run/user/%i
 Environment=HOME=%h
+# DBus is usually required for desktop integration; the path below is standard on systemd
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%i/bus
 
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/.config/pclink %h/.local/share/pclink
+ReadWritePaths=%h/.config/pclink %h/.local/share/pclink %h/.cache/pclink
 
 [Install]
 WantedBy=default.target

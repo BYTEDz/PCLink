@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-02-15
+
+# 🚀 v3.4.0 Release Notes
+
+## ✨ New Features & Improvements
+
+### 🖥 Terminal & Input Enhancements
+
+- Set `TERM` environment variable to `xterm-256color` for improved terminal compatibility.
+- Added support for client-specified shells on Unix systems, with improved compatibility for `cmd` as the default.
+- Implemented Wayland-compatible input control using `evdev` and `uinput`, with automatic fallback to X11 (`pynput`) where needed.
+
+### 📱 Phone File Explorer (Web UI)
+
+- Introduced a new Phone File Explorer to browse and manage mobile device storage.
+- Added path breadcrumbs and folder history navigation.
+- File upload support with visual progress indicators.
+- Bulk file operations (download/delete multiple files at once).
+- Search and sorting options for easier file management.
+- Device selection support for managing multiple connected phones.
+- Connection status alerts and read-only mode indicators.
+
+### 🛠 System & API Updates
+
+- Exposed `server_id` in system information and API responses for better identification and debugging.
+
+## [3.3.1] - 2026-02-09
+
+Improved
+
+- Optimized temperature monitoring on Windows to reduce system overhead.
+- Enhanced compatibility with third-party hardware monitoring tools for better temperature detection.
+
 ## [3.3.0] - 2026-02-09
 
 ### Added
