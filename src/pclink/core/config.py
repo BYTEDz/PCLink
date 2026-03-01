@@ -24,7 +24,7 @@ DEFAULT_SETTINGS = {
     
     # Core settings
     "allow_terminal_access": False,
-    "allow_extensions": False,  # Extensions disabled by default for security
+    "allow_extensions": True,
     "allow_insecure_shell": False,
     "server_port": constants.DEFAULT_PORT,
     "auto_start": False,
@@ -40,7 +40,7 @@ DEFAULT_SETTINGS = {
         "media": True,
         "terminal": False, # Terminal access disabled by default for security
         "macros": True,
-        "extensions": False, # Tied to allow_extensions, but can be toggled here too
+        "extensions": True,
         "applications": True,
         "utils": True,
     }

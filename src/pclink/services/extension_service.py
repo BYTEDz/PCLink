@@ -19,6 +19,14 @@ class ExtensionService:
 
     def list_extensions(self) -> Dict:
         enabled_globally = config_manager.get("allow_extensions", False)
+        
+        # SELF-HEALING: If we have zero loaded exts but files on disk, try discovery again
+        # This handles 'fresh boot' cases where startup load might have been too early
+        try:
+            if not self.manager.extensions and self.manager.extensions_path.exists() and any(self.manager.extensions_path.iterdir()):
+                 self.manager.discover_extensions()
+        except: pass
+
         discovered = self.manager.discover_extensions()
         all_exts = []
 
@@ -39,10 +47,19 @@ class ExtensionService:
                         if ext:
                             all_exts.append(ext.metadata.dict())
                             continue
+                        else:
+                            log.warning(f"Extension '{eid}' loaded but not found in registry")
+                    else:
+                        log.warning(f"Extension '{eid}' failed to load")
                 
+                # Fallback: ensure dashboard_widgets is always present in raw meta
+                if 'dashboard_widgets' not in meta:
+                    meta['dashboard_widgets'] = []
                 meta['enabled'] = False if not ext else meta.get('enabled', True)
                 all_exts.append(meta)
-            except Exception: continue
+            except Exception as e:
+                log.error(f"Error processing extension '{eid}': {e}")
+                continue
         
         return {"extensions_enabled": enabled_globally, "extensions": all_exts}
 

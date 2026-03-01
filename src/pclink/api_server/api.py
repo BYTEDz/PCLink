@@ -260,19 +260,18 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     
     # --- Extension System ---
     extension_manager = ExtensionManager()
-    extension_manager.load_all_extensions()
     
+    # Enable dynamic mounting for extensions loaded now or later
+    extension_manager.app = app
+
     # Extension management (accessible by mobile app)
     app.include_router(mgmt_router, prefix="/api/extensions", dependencies=MOBILE_API)
     
     # Extension runtime (UI/Static) - Authenticated unique per extension ID
     app.include_router(runtime_router, prefix="/extensions", dependencies=MOBILE_API)
     
-    # Mount actual extension routes (dynamic)
-    mount_extension_routes(app, MOBILE_API)
-    
-    # Enable dynamic mounting for extensions loaded later (hot-loading)
-    extension_manager.app = app
+    # Load all enabled extensions at startup
+    extension_manager.load_all_extensions()
     
     app.state.allow_insecure_shell = allow_insecure_shell
     app.state.api_key = server_api_key
@@ -294,6 +293,12 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             parts = path.split("/")
             if len(parts) > 2:
                 extension_id = parts[2]
+                
+                # FORCE Re-check and re-mount on every access to /extensions/
+                # This handles desync after server restarts where the manager thinks it's mounted
+                # but the current FastAPI 'app' is new.
+                extension_manager.load_extension(extension_id)
+                
                 if not extension_manager.get_extension(extension_id):
                     # Hot-loading attempt: Check if it exists and is enabled on disk
                     manifest_path = extension_manager.extensions_path / extension_id / "extension.yaml"
