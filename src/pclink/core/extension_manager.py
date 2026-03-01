@@ -164,14 +164,49 @@ class ExtensionManager:
             
             metadata = ExtensionMetadata(**config)
             
-            # --- Platform Compatibility Check ---
-            import platform
-            current_platform = platform.system().lower()
+            # --- Platform & Architecture Compatibility Check ---
+            import platform as py_platform
+            current_platform = py_platform.system().lower()
             supported_platforms = [p.lower() for p in metadata.supported_platforms]
             
+            # Simple OS check
             if current_platform not in supported_platforms:
-                log.warning(f"Extension '{extension_id}' does not support platform '{current_platform}'. Skipping.")
+                log.warning(f"Extension '{extension_id}' does not support platform '{current_platform}'. skipping.")
                 return False
+            
+            # Architecture Check
+            current_arch = py_platform.machine().lower()
+            supported_archs = [a.lower() for a in metadata.supported_architectures]
+            # Handle aliases (amd64/x86_64, aarch64/arm64)
+            if current_arch == "x86_64" and "amd64" in supported_archs and "x86_64" not in supported_archs:
+                supported_archs.append("x86_64")
+            if current_arch == "amd64" and "x86_64" in supported_archs and "amd64" not in supported_archs:
+                supported_archs.append("amd64")
+            if current_arch == "aarch64" and "arm64" in supported_archs and "aarch64" not in supported_archs:
+                supported_archs.append("aarch64")
+            if current_arch == "arm64" and "aarch64" in supported_archs and "arm64" not in supported_archs:
+                supported_archs.append("arm64")
+
+            if current_arch not in supported_archs:
+                 log.warning(f"Extension '{extension_id}' does not support architecture '{current_arch}'. skipping.")
+                 return False
+
+            # Distro Check (Linux only)
+            if current_platform == "linux" and metadata.supported_distros:
+                os_distro = "unknown"
+                try:
+                    import distro
+                    os_distro = distro.id().lower()
+                except ImportError:
+                    if os.path.exists("/etc/os-release"):
+                        with open("/etc/os-release", "r") as f:
+                            import re as py_re
+                            m = py_re.search(r'^ID=["\']?(.+?)["\']?$', f.read(), py_re.M)
+                            if m: os_distro = m.group(1).lower()
+                
+                if os_distro not in [d.lower() for d in metadata.supported_distros]:
+                    log.warning(f"Extension '{extension_id}' does not support distro '{os_distro}'. skipping.")
+                    return False
             
             entry_point_path = extension_dir / metadata.entry_point
 

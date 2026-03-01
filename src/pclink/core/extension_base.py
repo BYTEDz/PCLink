@@ -35,6 +35,8 @@ class ExtensionMetadata(BaseModel):
     permissions: List[str] = []
     enabled: bool = True
     supported_platforms: List[str] = ["windows", "linux", "darwin"]
+    supported_architectures: List[str] = ["x86_64", "amd64", "arm64", "aarch64"]
+    supported_distros: List[str] = [] # Optional: e.g. ["arch", "ubuntu"]
     icon: Optional[str] = None
     theme_aware_icon: bool = False
     category: str = "Utility"
