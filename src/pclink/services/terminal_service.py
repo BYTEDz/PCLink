@@ -80,8 +80,9 @@ class TerminalService:
                 bufsize=0
             )
             
-            msg = f"\r\n[PCLink Terminal] Connected to {'PowerShell' if 'power' in shell_type else 'Command Prompt'}\r\n"
-            await websocket.send_text(msg)
+            # Remove initial connected message as per user request
+            # msg = f"\r\n[PCLink Terminal] Connected to {'PowerShell' if 'power' in shell_type else 'Command Prompt'}\r\n"
+            # await websocket.send_text(msg)
             
             loop = asyncio.get_event_loop()
 
