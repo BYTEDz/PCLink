@@ -294,13 +294,8 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             if len(parts) > 2:
                 extension_id = parts[2]
                 
-                # FORCE Re-check and re-mount on every access to /extensions/
-                # This handles desync after server restarts where the manager thinks it's mounted
-                # but the current FastAPI 'app' is new.
-                extension_manager.load_extension(extension_id)
-                
                 if not extension_manager.get_extension(extension_id):
-                    # Hot-loading attempt: Check if it exists and is enabled on disk
+                    # Extension not in memory — attempt a single hot-load if enabled on disk
                     manifest_path = extension_manager.extensions_path / extension_id / "extension.yaml"
                     if manifest_path.exists():
                         try:
@@ -309,8 +304,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                                 config = yaml.safe_load(f)
                             if config.get('enabled', True):
                                 log.info(f"Hot-loading requested extension on-demand: {extension_id}")
+                                # Clear cooldown for on-demand loading
+                                extension_manager.failed_extensions.pop(extension_id, None)
                                 if extension_manager.load_extension(extension_id):
-                                    # Successfully loaded, allow the request to proceed
                                     return await call_next(request)
                         except Exception as e:
                             log.error(f"Failed to hot-load extension {extension_id} on request: {e}")

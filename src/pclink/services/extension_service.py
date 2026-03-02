@@ -55,7 +55,8 @@ class ExtensionService:
                 # Fallback: ensure dashboard_widgets is always present in raw meta
                 if 'dashboard_widgets' not in meta:
                     meta['dashboard_widgets'] = []
-                meta['enabled'] = False if not ext else meta.get('enabled', True)
+                # Use manifest state for 'enabled' to keep UI in sync with user intent
+                meta['enabled'] = meta.get('enabled', True)
                 all_exts.append(meta)
             except Exception as e:
                 log.error(f"Error processing extension '{eid}': {e}")
