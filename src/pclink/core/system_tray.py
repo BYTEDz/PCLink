@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .utils import resource_path
 from .windows_notifier import WindowsNotifier
+from .linux_notifier import LinuxNotifier
 
 TRAY_AVAILABLE = False
 IMPORT_ERROR = ""
@@ -62,6 +63,8 @@ class SystemTrayManager:
         self.notifier = None
         if sys.platform == "win32":
             self.notifier = WindowsNotifier()
+        elif sys.platform.startswith('linux'):
+            self.notifier = LinuxNotifier()
         self.running = False
         self.use_linux_native = False
 
@@ -263,8 +266,8 @@ class SystemTrayManager:
             log.error(f"Error hiding tray icon: {e}")
 
     def show_notification(self, title, message):
-        # 1. Try Windows Notifier (highest priority on Windows)
-        if sys.platform == "win32" and self.notifier and self.notifier.is_available():
+        # 1. Try Native Notifiers (Windows/Linux)
+        if self.notifier and self.notifier.is_available():
             if self.notifier.show(title, message):
                 return
 
