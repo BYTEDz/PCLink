@@ -140,6 +140,7 @@ jobs:
         with:
           arch: aarch64
           distro: ubuntu22.04
+          user: root
           githubToken: ${{ github.token }}
           setup: |
             apt-get update
