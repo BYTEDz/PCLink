@@ -142,23 +142,22 @@ jobs:
           distro: ubuntu22.04
           dockerRunArgs: |
             --user root
-          install: |
-            python3
-            python3-pip
-            python3-venv
-            wget
-            build-essential
-            rpm
-            dpkg-dev
           run: |
+            # Native ARM64 setup
+            apt-get update
+            apt-get install -y python3 python3-pip python3-venv wget build-essential rpm dpkg-dev
+
+            # Python dependencies
             python3 -m pip install --upgrade pip
             pip install wheel setuptools build pyyaml
+
             # Install NFPM for arm64
             NFPM_VERSION="2.40.0"
             wget "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_arm64.deb"
             dpkg -i nfpm_${NFPM_VERSION}_arm64.deb
             rm nfpm_${NFPM_VERSION}_arm64.deb
-            # Build using the native-ish environment
+
+            # Build the package
             python3 scripts/build.py --format nfpm --arch arm64
 
       - name: Verify build outputs
