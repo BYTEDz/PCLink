@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0-beta.1] - 2026-03-05
+
+Added
+
+- Windows service functionality and Arch Linux package support.
+- Support for Wayland-based input control and native Linux notifications.
+- Mobile-optimized file explorer for browsing and managing phone storage.
+- Dynamic extension system featuring dashboard widgets and compatibility validation.
+- Heartbeat and status monitoring API endpoints.
+- Concurrent chunk uploads and resumable file transfer sessions.
+- Multi-architecture build support for Linux distributions.
+
+Improved
+
+- System tray reliability on headless Linux environments.
+- Web interface with responsive navigation, toast notifications, and update alerts.
+- Windows hardware monitoring efficiency and audio device management.
+- Terminal service performance with full color support and custom shell selection.
+- File transfer performance through optimized buffering and parallel processing.
+
+Fixed
+
+- Issues with file downloads and notification settings in the web interface.
+- Threading stability for volume control on Windows systems.
+- Connectivity and discovery errors on specific network interfaces.
+
+Removed
+
+- Automatic connection messages in terminal sessions to reduce clutter.
+
 ## [3.4.0] - 2026-02-15
 
 # 🚀 v3.4.0 Release Notes
