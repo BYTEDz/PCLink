@@ -140,11 +140,16 @@ jobs:
         with:
           arch: aarch64
           distro: ubuntu22.04
-          user: root
-          githubToken: ${{ github.token }}
-          setup: |
-            apt-get update
-            apt-get install -y python3 python3-pip python3-venv wget build-essential rpm dpkg-dev
+          dockerRunArgs: |
+            --user root
+          install: |
+            python3
+            python3-pip
+            python3-venv
+            wget
+            build-essential
+            rpm
+            dpkg-dev
           run: |
             python3 -m pip install --upgrade pip
             pip install wheel setuptools build pyyaml
