@@ -20,6 +20,8 @@ class UICapabilities(BaseModel):
     allow_fullscreen: bool = False
     allow_touchpad_overlay: bool = False
     allow_keyboard: bool = False
+    allow_mouse: bool = False
+    allow_rotate: bool = False
     prevent_sleep: bool = False
     orientation: Optional[str] = "auto"  # auto, follow_system, landscape, portrait
 
