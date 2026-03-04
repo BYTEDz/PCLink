@@ -101,94 +101,75 @@ jobs:
           compression-level: 0
 
   build-linux:
-    name: Build Linux Packages
-    runs-on: ubuntu-22.04
+    name: Build Linux Packages (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Set up QEMU
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
 
-      - name: Install minimal Python build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          # Only install what's needed for NFPM packaging
-          pip install wheel setuptools build pyyaml
-
-      - name: Install NFPM dependencies
+      - name: Build Packaging Environment
+        if: matrix.arch == 'amd64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential dpkg-dev rpm
+          sudo apt-get install -y build-essential dpkg-dev rpm python3-pip python3-venv wget
+          python3 -m pip install --upgrade pip
+          pip install wheel setuptools build pyyaml
 
-      - name: Install NFPM
+      - name: Install NFPM (amd64)
+        if: matrix.arch == 'amd64'
         run: |
-          # Install nfpm from GitHub releases
           NFPM_VERSION="2.40.0"
-          echo "Installing NFPM version $NFPM_VERSION..."
-          wget -O nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_amd64.deb"
-          sudo dpkg -i nfpm.deb || {
-            echo "Failed to install nfpm via dpkg, trying alternative method..."
-            # Alternative: install via go
-            sudo apt-get install -y golang-go
-            go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
-            sudo cp ~/go/bin/nfpm /usr/local/bin/
-          }
-          rm -f nfpm.deb
+          wget "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_amd64.deb"
+          sudo dpkg -i nfpm_${NFPM_VERSION}_amd64.deb
+          rm nfpm_${NFPM_VERSION}_amd64.deb
 
+      - name: Build Package (amd64)
+        if: matrix.arch == 'amd64'
+        run: python3 scripts/build.py --format nfpm --arch amd64
 
+      - name: Build Linux Package (arm64 via QEMU)
+        if: matrix.arch == 'arm64'
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: aarch64
+          distro: ubuntu22.04
+          githubToken: ${{ github.token }}
+          setup: |
+            apt-get update
+            apt-get install -y python3 python3-pip python3-venv wget build-essential rpm dpkg-dev
+          run: |
+            python3 -m pip install --upgrade pip
+            pip install wheel setuptools build pyyaml
+            # Install NFPM for arm64
+            NFPM_VERSION="2.40.0"
+            wget "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_arm64.deb"
+            dpkg -i nfpm_${NFPM_VERSION}_arm64.deb
+            rm nfpm_${NFPM_VERSION}_arm64.deb
+            # Build using the native-ish environment
+            python3 scripts/build.py --format nfpm --arch arm64
 
-      - name: Verify build environment
+      - name: Verify build outputs
         run: |
-          echo "NFPM version:"
-          nfpm --version
-          echo "Python version:"
-          python --version
-          echo "Build tools:"
-          dpkg --version
-
-      - name: Clean previous build artifacts
-        run: |
-          echo "Cleaning previous build artifacts..."
-          rm -rf build/ dist/ releases/ || true
-          rm -f nfpm.yaml || true
-
-
-
-      - name: Build Linux packages with NFPM
-        run: python scripts/build.py --format nfpm
-
-      - name: Verify Linux build outputs
-        run: |
-          echo "Build artifacts:"
+          echo "Build artifacts for ${{ matrix.arch }}:"
           if [ -d "releases" ]; then
             ls -la releases/
             find releases/ -name "*.deb" -o -name "*.rpm"
-            
-            # Verify package contents
-            DEB_FILE=$(find releases/ -name "*.deb" | head -1)
-            if [ -n "$DEB_FILE" ]; then
-              echo "Checking package contents in $DEB_FILE:"
-              dpkg-deb -c "$DEB_FILE" | head -20
-              echo "Checking for PCLink files:"
-              dpkg-deb -c "$DEB_FILE" | grep -E "(pclink|usr/lib/pclink)" || echo "PCLink files not found in expected location"
-            fi
-            
-            RPM_FILE=$(find releases/ -name "*.rpm" | head -1)
-            if [ -n "$RPM_FILE" ]; then
-              echo "Checking RPM package contents in $RPM_FILE:"
-              rpm -qlp "$RPM_FILE" | head -20
-            fi
           else
             echo "No releases directory found"
+            exit 1
           fi
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PCLink-Linux
+          name: PCLink-Linux-${{ matrix.arch }}
           path: releases/
           compression-level: 0
 
