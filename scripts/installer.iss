@@ -26,6 +26,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "registerservice"; Description: "Register PCLink as a Windows service (starts on boot)"; GroupDescription: "Additional options:"; Flags: unchecked
 
 [Files]
 ; This will grab the entire contents of the one-dir build output.
@@ -37,4 +38,10 @@ Name: "{group}\{cm:UninstallProgram,PCLink}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\PCLink"; Filename: "{app}\__EXECUTABLE_NAME__"; Tasks: desktopicon
 
 [Run]
+Filename: "{app}\python\python.exe"; Parameters: """{app}\scripts\windows\pclink_service.py"" install"; StatusMsg: "Registering PCLink Service..."; Tasks: registerservice; Flags: runhidden
+Filename: "{app}\python\python.exe"; Parameters: """{app}\scripts\windows\pclink_service.py"" start"; StatusMsg: "Starting PCLink Service..."; Tasks: registerservice; Flags: runhidden
 Filename: "{app}\__EXECUTABLE_NAME__"; Description: "{cm:LaunchProgram,PCLink}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "{app}\python\python.exe"; Parameters: """{app}\scripts\windows\pclink_service.py"" stop"; RunOnceId: "StopService"; Flags: runhidden
+Filename: "{app}\python\python.exe"; Parameters: """{app}\scripts\windows\pclink_service.py"" remove"; RunOnceId: "RemoveService"; Flags: runhidden

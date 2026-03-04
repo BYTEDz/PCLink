@@ -25,7 +25,7 @@ except ImportError:
     VERSION = "2.3.0"
 
 class NFPMBuilder:
-    def __init__(self):
+    def __init__(self, architecture: str = "amd64"):
         self.root_dir = Path.cwd()
         self.build_dir = self.root_dir / "build" / "nfpm"
         self.releases_dir = self.root_dir / "releases"
@@ -33,7 +33,7 @@ class NFPMBuilder:
         self.staging_dir = self.build_dir / "staging"
         self.nfpm_config_path = self.root_dir / "nfpm.yaml"
         
-        # Package metadata (extracted from pyproject.toml logic)
+        # Package metadata (architecture is now configurable)
         self.metadata = {
             "name": self.package_name,
             "version": VERSION,
@@ -41,7 +41,7 @@ class NFPMBuilder:
             "maintainer": "Azhar Zouhir <support@bytedz.com>",
             "homepage": "https://github.com/BYTEDz/PCLink",
             "license": "AGPL-3.0-or-later",
-            "architecture": "amd64",
+            "architecture": architecture,
         }
         
     def verify_python_environment(self):
@@ -625,8 +625,13 @@ exit 0
             return False
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="PCLink NFPM Package Pre-Builder")
+    parser.add_argument("--arch", default="amd64", help="Architecture for the package (e.g., amd64, arm64, armhf)")
+    args = parser.parse_args()
+
     try:
-        builder = NFPMBuilder()
+        builder = NFPMBuilder(architecture=args.arch)
         success = builder.build_all()
         sys.exit(0 if success else 1)
     except Exception as e:
