@@ -28,7 +28,7 @@ def hide_console_window():
     This should be called as early as possible in the application startup
     to prevent the black console window from flashing briefly.
     """
-    if not (sys.platform == "win32" and getattr(sys, "frozen", False)):
+    if sys.platform != "win32":
         return
 
     try:

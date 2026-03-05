@@ -440,7 +440,7 @@ class _WindowsStartupManager(_StartupManager):
             ]
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=15,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                creationflags=subprocess.CREATE_NO_WINDOW | 0x08000000
             )
             if result.returncode == 0:
                 log.info(f"Added '{app_name}' to Task Scheduler")

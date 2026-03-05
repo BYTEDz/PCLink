@@ -51,12 +51,23 @@ def _start_server_process():
             'stderr': subprocess.DEVNULL,
         }
 
+        executable = sys.executable
         if sys.platform == "win32":
-            kwargs['creationflags'] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            # Prefer pythonw.exe to avoid console window if running from source
+            if not getattr(sys, 'frozen', False):
+                pythonw = Path(executable).parent / "pythonw.exe"
+                if pythonw.exists():
+                    executable = str(pythonw)
+            
+            # Use CREATE_NO_WINDOW (0x08000000) to prevent console flash
+            # Also use DETACHED_PROCESS and CREATE_NEW_PROCESS_GROUP for a clean background state
+            kwargs['creationflags'] = subprocess.DETACHED_PROCESS | \
+                                      subprocess.CREATE_NEW_PROCESS_GROUP | \
+                                      0x08000000
         else:
             kwargs['start_new_session'] = True
 
-        subprocess.Popen([sys.executable, launcher_path], **kwargs)
+        subprocess.Popen([executable, launcher_path], **kwargs)
         
         click.echo("Waiting for PCLink to initialize...")
         for _ in range(5):

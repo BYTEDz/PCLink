@@ -139,7 +139,8 @@ class PortChecker:
         try:
             # Check firewall status using netsh
             cmd = ['netsh', 'advfirewall', 'show', 'allprofiles', 'state']
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            # Use CREATE_NO_WINDOW (0x08000000) to avoid console flash on Windows
+            process = subprocess.run(cmd, capture_output=True, text=True, timeout=10, creationflags=0x08000000)
             
             if process.returncode == 0:
                 output = process.stdout

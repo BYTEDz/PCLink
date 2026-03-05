@@ -14,30 +14,40 @@ log = logging.getLogger(__name__)
 NOTIFY_AVAILABLE = False
 USE_GI_NOTIFY = False
 
-try:
-    import gi
+# Early exit if not on Linux to avoid running Linux-specific checks
+if sys.platform.startswith("linux"):
     try:
-        gi.require_version('Notify', '0.7')
-        from gi.repository import Notify
-        Notify.init("PCLink")
-        NOTIFY_AVAILABLE = True
-        USE_GI_NOTIFY = True
-        log.info("Linux Notify (libnotify via gi) initialized.")
-    except (ImportError, ValueError) as e:
-        log.warning(f"gi.repository.Notify not available: {e}. Falling back to notify-send.")
-        # Check if notify-send exists
-        if subprocess.run(["which", "notify-send"], capture_output=True).returncode == 0:
+        import gi
+        try:
+            gi.require_version('Notify', '0.7')
+            from gi.repository import Notify
+            Notify.init("PCLink")
             NOTIFY_AVAILABLE = True
-            log.info("notify-send found. Using it as fallback.")
-        else:
-            log.warning("notify-send not found. Native Linux notifications will be disabled.")
-except ImportError:
-    # If gi is not available at all
-    if subprocess.run(["which", "notify-send"], capture_output=True).returncode == 0:
-        NOTIFY_AVAILABLE = True
-        log.info("notify-send found. Using it as fallback (gi not available).")
-    else:
-        log.warning("gi not available and notify-send not found. Native Linux notifications disabled.")
+            USE_GI_NOTIFY = True
+            log.info("Linux Notify (libnotify via gi) initialized.")
+        except (ImportError, ValueError) as e:
+            log.warning(f"gi.repository.Notify not available: {e}. Falling back to notify-send.")
+            # Check if notify-send exists
+            try:
+                if subprocess.run(["which", "notify-send"], capture_output=True).returncode == 0:
+                    NOTIFY_AVAILABLE = True
+                    log.info("notify-send found. Using it as fallback.")
+                else:
+                    log.warning("notify-send not found. Native Linux notifications will be disabled.")
+            except Exception:
+                log.warning("Could not check for notify-send. Native Linux notifications will be disabled.")
+    except ImportError:
+        # If gi is not available at all
+        try:
+            if subprocess.run(["which", "notify-send"], capture_output=True).returncode == 0:
+                NOTIFY_AVAILABLE = True
+                log.info("notify-send found. Using it as fallback (gi not available).")
+            else:
+                log.warning("gi not available and notify-send not found. Native Linux notifications disabled.")
+        except Exception:
+            log.warning("gi not available and could not check for notify-send. Native Linux notifications disabled.")
+else:
+    log.debug("Not on Linux, Skipping Linux notification initialization.")
 
 
 class LinuxNotifier:
@@ -54,12 +64,15 @@ class LinuxNotifier:
 
     def _ensure_dbus_env(self):
         """Try to fix DBUS_SESSION_BUS_ADDRESS if missing."""
-        if "DBUS_SESSION_BUS_ADDRESS" not in os.environ:
-            uid = os.getuid()
-            dbus_path = f"/run/user/{uid}/bus"
-            if os.path.exists(dbus_path):
-                os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_path}"
-                log.debug(f"Set DBUS_SESSION_BUS_ADDRESS to {os.environ['DBUS_SESSION_BUS_ADDRESS']}")
+        if sys.platform.startswith("linux") and "DBUS_SESSION_BUS_ADDRESS" not in os.environ:
+            try:
+                uid = os.getuid()
+                dbus_path = f"/run/user/{uid}/bus"
+                if os.path.exists(dbus_path):
+                    os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_path}"
+                    log.debug(f"Set DBUS_SESSION_BUS_ADDRESS to {os.environ['DBUS_SESSION_BUS_ADDRESS']}")
+            except (AttributeError, Exception) as e:
+                log.debug(f"Could not fix DBUS_SESSION_BUS_ADDRESS: {e}")
 
     def is_available(self) -> bool:
         """Checks if any notification method is available."""
