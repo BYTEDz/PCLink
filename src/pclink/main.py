@@ -13,6 +13,8 @@ from .core.logging import setup_logging
 from .core.server_controller import ServerController
 from .core.singleton import PCLinkSingleton
 from .core.system_tray import SystemTrayManager
+from .core.windows_notifier import WindowsNotifier
+from .core.linux_notifier import LinuxNotifier
 from .core.utils import run_preflight_checks
 from .services import macro_service
 from .core.version import __app_name__, __version__
@@ -69,7 +71,17 @@ def main() -> int:
             if tray_manager:
                 tray_manager.show_notification(title, message)
             else:
-                log.info(f"NOTIFICATION (Headless): {title} - {message}")
+                # Use a standalone notifier if tray is disabled
+                fallback_notifier = None
+                if sys.platform == "win32":
+                    fallback_notifier = WindowsNotifier()
+                elif sys.platform.startswith("linux"):
+                    fallback_notifier = LinuxNotifier()
+                
+                if fallback_notifier and fallback_notifier.is_available():
+                    fallback_notifier.show(title, message)
+                else:
+                    log.info(f"NOTIFICATION (Headless): {title} - {message}")
         
         macro_service.set_notification_handler(macro_notification_handler)
 

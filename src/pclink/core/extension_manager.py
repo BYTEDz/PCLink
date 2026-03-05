@@ -5,12 +5,13 @@ import importlib.util
 import logging
 import os
 import sys
+import time
 import yaml
 import zipfile
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Set, Type
 from pclink.core.extension_base import ExtensionBase, ExtensionMetadata
 from pclink.core.extension_context import ExtensionContext
 from pclink.core.version import __version__ as PCLINK_VERSION
@@ -49,10 +50,15 @@ class ExtensionManager:
             self.extensions_path = constants.APP_DATA_PATH / "extensions"
             self.extensions_path.mkdir(parents=True, exist_ok=True)
             self.extensions: Dict[str, ExtensionBase] = {}
-            self.app = None  # Reference to FastAPI app for dynamic routing
+            self._app = None  # Reference to FastAPI app for dynamic routing
+            self._mounted_extensions: Set[str] = set() # Changed type hint
             self.logs: Dict[str, List[str]] = {}
             self.initialized = True
             self.safe_mode = False
+            
+            # Registry of extensions that failed to load to avoid infinite retry loops
+            self.failed_extensions: Dict[str, float] = {} # extension_id -> last_fail_timestamp
+            self.LOAD_RETRY_COOLDOWN = 60.0 # seconds
             
             # Safe Mode crash tracking
             self._crash_file = constants.APP_DATA_PATH / ".extension_crashes"
@@ -64,6 +70,19 @@ class ExtensionManager:
                 m = ModuleType("pclink.extensions")
                 m.__path__ = [] # Mark as package
                 sys.modules["pclink.extensions"] = m
+
+    @property
+    def app(self):
+        return self._app
+
+    @app.setter
+    def app(self, value):
+        self._app = value
+        # FORCE re-mounting for all loaded extensions when app changes
+        if hasattr(self, '_mounted_extensions'):
+            self._mounted_extensions.clear()
+        if value:
+            log.info("New FastAPI app assigned to ExtensionManager. Dynamic Mounting Cache cleared.")
 
     def _check_safe_mode(self):
         """Check if safe mode should be entered due to repeated crashes."""
@@ -120,6 +139,30 @@ class ExtensionManager:
         """Loads a specific extension by its directory name (extension_id)."""
         from ..core.config import config_manager
         
+        # Check if already loaded
+        if extension_id in self.extensions:
+            # If loaded but NOT mounted yet, mount it now
+            if self.app and extension_id not in self._mounted_extensions:
+                log.info(f"Dynamically mounting routes for already-loaded extension: {extension_id}")
+                try:
+                    self.app.include_router(
+                        self.extensions[extension_id].get_routes(),
+                        prefix=f"/extensions/{extension_id}",
+                        tags=[f"extension-{extension_id}"]
+                    )
+                    self._mounted_extensions.add(extension_id)
+                except Exception as e:
+                    log.error(f"Failed to mount router for {extension_id}: {e}")
+            return True
+
+        # Check for cooldown if it failed recently
+        last_fail = self.failed_extensions.get(extension_id, 0)
+        if time.time() - last_fail < self.LOAD_RETRY_COOLDOWN:
+            log.debug(f"Skipping load attempt for '{extension_id}' (in cooldown after failure)")
+            return False
+
+        log.info(f"Loading extension: {extension_id}")
+
         # Check if extensions are globally enabled
         if not config_manager.get("allow_extensions", False):
             log.warning(f"Attempted to load extension '{extension_id}' while extensions are globally disabled.")
@@ -130,27 +173,62 @@ class ExtensionManager:
 
         try:
             with open(manifest_path, 'r', encoding='utf-8') as f:
-                manifest_data = yaml.safe_dump(yaml.safe_load(f)) # Roundtrip to validate
-                f.seek(0)
                 config = yaml.safe_load(f)
             
             metadata = ExtensionMetadata(**config)
             
-            # --- Platform Compatibility Check ---
-            import platform
-            current_platform = platform.system().lower()
+            # --- Platform & Architecture Compatibility Check ---
+            import platform as py_platform
+            current_platform = py_platform.system().lower()
             supported_platforms = [p.lower() for p in metadata.supported_platforms]
             
+            # Simple OS check
             if current_platform not in supported_platforms:
-                log.warning(f"Extension '{extension_id}' does not support platform '{current_platform}'. Supported: {metadata.supported_platforms}. Skipping.")
+                log.warning(f"Extension '{extension_id}' does not support platform '{current_platform}'. skipping.")
+                self.failed_extensions[extension_id] = time.time()
                 return False
             
-            # Re-verify permissions on load to ensure valid state.
+            # Architecture Check
+            current_arch = py_platform.machine().lower()
+            supported_archs = [a.lower() for a in metadata.supported_architectures]
+            # Handle aliases (amd64/x86_64, aarch64/arm64)
+            if current_arch == "x86_64" and "amd64" in supported_archs and "x86_64" not in supported_archs:
+                supported_archs.append("x86_64")
+            if current_arch == "amd64" and "x86_64" in supported_archs and "amd64" not in supported_archs:
+                supported_archs.append("amd64")
+            if current_arch == "aarch64" and "arm64" in supported_archs and "aarch64" not in supported_archs:
+                supported_archs.append("aarch64")
+            if current_arch == "arm64" and "aarch64" in supported_archs and "arm64" not in supported_archs:
+                supported_archs.append("arm64")
+
+            if current_arch not in supported_archs:
+                 log.warning(f"Extension '{extension_id}' does not support architecture '{current_arch}'. skipping.")
+                 self.failed_extensions[extension_id] = time.time()
+                 return False
+
+            # Distro Check (Linux only)
+            if current_platform == "linux" and metadata.supported_distros:
+                os_distro = "unknown"
+                try:
+                    import distro
+                    os_distro = distro.id().lower()
+                except ImportError:
+                    if os.path.exists("/etc/os-release"):
+                        with open("/etc/os-release", "r") as f:
+                            import re as py_re
+                            m = py_re.search(r'^ID=["\']?(.+?)["\']?$', f.read(), py_re.M)
+                            if m: os_distro = m.group(1).lower()
+                
+                if os_distro not in [d.lower() for d in metadata.supported_distros]:
+                    log.warning(f"Extension '{extension_id}' does not support distro '{os_distro}'. skipping.")
+                    self.failed_extensions[extension_id] = time.time()
+                    return False
             
             entry_point_path = extension_dir / metadata.entry_point
 
             if not entry_point_path.exists():
                 log.error(f"Entry point {metadata.entry_point} not found for extension {extension_id}")
+                self.failed_extensions[extension_id] = time.time()
                 return False
 
             # Add extension lib directory to sys.path for dependency isolation
@@ -169,10 +247,8 @@ class ExtensionManager:
             extension_class: Optional[Type[ExtensionBase]] = getattr(module, 'Extension', None)
             if not extension_class:
                 log.error(f"No 'Extension' class found in {entry_point_path}")
+                self.failed_extensions[extension_id] = time.time()
                 return False
-
-            # Create Secure Context
-            context = ExtensionContext(metadata)
 
             # Instantiate extension with Context if supported
             import inspect
@@ -182,6 +258,8 @@ class ExtensionManager:
             # Check if 'context' is a supported parameter or if it accepts **kwargs
             supports_context = "context" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
             
+            context = ExtensionContext(metadata) # Always create context
+
             if supports_context:
                 extension_instance = extension_class(metadata=metadata, extension_path=extension_dir, config=config, context=context)
             else:
@@ -199,20 +277,33 @@ class ExtensionManager:
                 # Dynamic Mounting: If app is available, mount routes immediately
                 if self.app:
                     log.info(f"Dynamically mounting routes for extension: {extension_id}")
-                    # New Standard
-                    self.app.include_router(
-                        extension_instance.get_routes(),
-                        prefix=f"/extensions/{extension_id}",
-                        tags=[f"extension-{extension_id}"]
-                    )
+                    try:
+                        self.app.include_router(
+                            extension_instance.get_routes(),
+                            prefix=f"/extensions/{extension_id}",
+                            tags=[f"extension-{extension_id}"]
+                        )
+                        self._mounted_extensions.add(extension_id)
+                    except Exception as e:
+                        log.error(f"Failed to mount router for {extension_id}: {e}")
 
                 log.info(f"Successfully loaded extension: {metadata.display_name} ({metadata.version})")
+                self.failed_extensions.pop(extension_id, None) # Clear failure on success
                 return True
             else:
                 log.error(f"Extension '{extension_id}' initialize() returned False")
+                self.failed_extensions[extension_id] = time.time()
                 return False
 
+        except ValueError as e:
+            self.failed_extensions[extension_id] = time.time()
+            if "filedescriptor out of range" in str(e):
+                log.error(f"System limit reached: Too many open files or connections. Extension '{extension_id}' cannot use select().")
+            else:
+                log.exception(f"Critical error loading extension '{extension_id}': {e}")
+            return False
         except Exception as e:
+            self.failed_extensions[extension_id] = time.time()
             log.exception(f"Critical error loading extension '{extension_id}': {e}")
             return False
 
@@ -430,7 +521,12 @@ class ExtensionManager:
             log.info(f"Extension {extension_id} {'enabled' if enabled else 'disabled'}")
             
             if enabled:
-                return self.load_extension(extension_id)
+                # Clear any previous failure cooldown — user explicitly wants this ON
+                self.failed_extensions.pop(extension_id, None)
+                # Try to load, but return True anyway because the manifest was updated.
+                # If load fails, the user can see logs or try again later.
+                self.load_extension(extension_id)
+                return True
             else:
                 self.unload_extension(extension_id)
                 return True

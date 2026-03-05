@@ -11,14 +11,15 @@ from pathlib import Path
 
 from .utils import resource_path
 from .windows_notifier import WindowsNotifier
+from .linux_notifier import LinuxNotifier
 
 TRAY_AVAILABLE = False
 IMPORT_ERROR = ""
 try:
     import pystray
-
     TRAY_AVAILABLE = True
-except ImportError as e:
+except (ImportError, Exception) as e:
+    # Catching Exception because pystray backends (like Xlib) can raise errors on import if no display is found
     IMPORT_ERROR = str(e)
 
 LINUX_NATIVE_TRAY_AVAILABLE = False
@@ -27,26 +28,32 @@ AppIndicator3 = None  # Will be set to whichever library is available
 
 try:
     if sys.platform.startswith('linux'):
-        import gi
-        gi.require_version('Gtk', '3.0')
-        from gi.repository import Gtk, GLib
-        
-        # Try AppIndicator3 first (Ubuntu, Linux Mint)
-        try:
-            gi.require_version('AppIndicator3', '0.1')
-            from gi.repository import AppIndicator3 as _AppIndicator
-            AppIndicator3 = _AppIndicator
-            LINUX_NATIVE_TRAY_AVAILABLE = True
-        except (ImportError, ValueError):
-            # Fallback to AyatanaAppIndicator3 (Fedora, modern distros)
+        # Only try to import Gtk/AppIndicator if we have a display
+        # This prevents crashes on headless systems
+        has_display = os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')
+        if has_display:
+            import gi
+            gi.require_version('Gtk', '3.0')
+            from gi.repository import Gtk, GLib
+            
+            # Try AppIndicator3 first (Ubuntu, Linux Mint)
             try:
-                gi.require_version('AyatanaAppIndicator3', '0.1')
-                from gi.repository import AyatanaAppIndicator3 as _AppIndicator
+                gi.require_version('AppIndicator3', '0.1')
+                from gi.repository import AppIndicator3 as _AppIndicator
                 AppIndicator3 = _AppIndicator
                 LINUX_NATIVE_TRAY_AVAILABLE = True
-            except (ImportError, ValueError) as e:
-                LINUX_TRAY_ERROR = f"{e} - Try: sudo dnf install libayatana-appindicator-gtk3 (Fedora) or sudo apt install gir1.2-appindicator3-0.1 (Ubuntu)"
-except (ImportError, ValueError) as e:
+            except (ImportError, ValueError):
+                # Fallback to AyatanaAppIndicator3 (Fedora, modern distros)
+                try:
+                    gi.require_version('AyatanaAppIndicator3', '0.1')
+                    from gi.repository import AyatanaAppIndicator3 as _AppIndicator
+                    AppIndicator3 = _AppIndicator
+                    LINUX_NATIVE_TRAY_AVAILABLE = True
+                except (ImportError, ValueError) as e:
+                    LINUX_TRAY_ERROR = f"{e} - Try: sudo dnf install libayatana-appindicator-gtk3 (Fedora) or sudo apt install gir1.2-appindicator3-0.1 (Ubuntu)"
+        else:
+            LINUX_TRAY_ERROR = "No display detected (DISPLAY or WAYLAND_DISPLAY not set). Headless mode."
+except (ImportError, ValueError, Exception) as e:
     LINUX_TRAY_ERROR = f"{e} - Try: sudo dnf install python3-gobject gtk3 (Fedora) or sudo apt install python3-gi gir1.2-gtk-3.0 (Ubuntu)"
 
 log = logging.getLogger(__name__)
@@ -62,6 +69,8 @@ class SystemTrayManager:
         self.notifier = None
         if sys.platform == "win32":
             self.notifier = WindowsNotifier()
+        elif sys.platform.startswith('linux'):
+            self.notifier = LinuxNotifier()
         self.running = False
         self.use_linux_native = False
 
@@ -263,8 +272,8 @@ class SystemTrayManager:
             log.error(f"Error hiding tray icon: {e}")
 
     def show_notification(self, title, message):
-        # 1. Try Windows Notifier (highest priority on Windows)
-        if sys.platform == "win32" and self.notifier and self.notifier.is_available():
+        # 1. Try Native Notifiers (Windows/Linux)
+        if self.notifier and self.notifier.is_available():
             if self.notifier.show(title, message):
                 return
 

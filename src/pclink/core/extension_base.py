@@ -8,6 +8,23 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+class ExtensionWidgetModel(BaseModel):
+    id: str
+    display_name: str
+    ui_entry: str  # Path to the widget HTML file
+    width: int = 1 # 1: normal, 2: wide
+    height: int = 1 # 1: normal, 2: tall
+    refresh_ms: int = 0 # 0 means handled by widget JS
+
+class UICapabilities(BaseModel):
+    allow_fullscreen: bool = False
+    allow_touchpad_overlay: bool = False
+    allow_keyboard: bool = False
+    allow_mouse: bool = False
+    allow_rotate: bool = False
+    prevent_sleep: bool = False
+    orientation: Optional[str] = "auto"  # auto, follow_system, landscape, portrait
+
 class ExtensionMetadata(BaseModel):
     name: str
     display_name: str
@@ -20,10 +37,14 @@ class ExtensionMetadata(BaseModel):
     permissions: List[str] = []
     enabled: bool = True
     supported_platforms: List[str] = ["windows", "linux", "darwin"]
+    supported_architectures: List[str] = ["x86_64", "amd64", "arm64", "aarch64"]
+    supported_distros: List[str] = [] # Optional: e.g. ["arch", "ubuntu"]
     icon: Optional[str] = None
     theme_aware_icon: bool = False
     category: str = "Utility"
     min_server_version: str = "1.0.0"
+    ui_capabilities: UICapabilities = UICapabilities()
+    dashboard_widgets: List[ExtensionWidgetModel] = []
 
 class ExtensionBase(ABC):
     def __init__(self, metadata: ExtensionMetadata, extension_path: Path, config: Dict, context=None):

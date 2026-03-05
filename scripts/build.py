@@ -384,6 +384,18 @@ VSVersionInfo(
         
         cmd.append(MAIN_SCRIPT)
         self._run_command(cmd)
+        
+        # Copy Windows service scripts to distribution directory
+        dist_scripts_dir = self.dist_dir / name / "scripts" / "windows"
+        dist_scripts_dir.mkdir(parents=True, exist_ok=True)
+        
+        windows_scripts_src = self.root_dir / "scripts" / "windows"
+        if windows_scripts_src.exists():
+            print(f"[INFO] Copying Windows service scripts to {dist_scripts_dir}")
+            for item in windows_scripts_src.iterdir():
+                if item.is_file():
+                    shutil.copy2(item, dist_scripts_dir)
+        
         print("[OK] PyInstaller build successful.")
 
     def package(self, build_name: str, package_name: str, onefile: bool):
@@ -457,6 +469,7 @@ def main():
     parser.add_argument("--format", default="portable", choices=["portable", "installer", "onefile", "nfpm", "wheel"], help="Output format.")
     parser.add_argument("--clean", action="store_true", help="Clean build directories before starting.")
     parser.add_argument("--debug", action="store_true", help="Create a debug build with console.")
+    parser.add_argument("--arch", help="Target architecture for Linux packages (e.g., amd64, arm64, armhf). Default: auto-detect.")
     args = parser.parse_args()
 
     try:
@@ -483,6 +496,24 @@ def main():
         builder.releases_dir.mkdir(parents=True, exist_ok=True)
 
         os_name = "windows" if builder.platform == "windows" else builder.platform
+        
+        # Architecture mapping for NFPM
+        arch_mapping = {
+            "x86_64": "amd64",
+            "amd64": "amd64",
+            "aarch64": "arm64",
+            "arm64": "arm64",
+            "armv7l": "armhf",
+        }
+        
+        # Priority: Command line argument > Mapped system architecture > system architecture
+        if args.arch:
+            nfpm_arch = args.arch
+            print(f"[INFO] Using explicitly provided target architecture: {nfpm_arch}")
+        else:
+            nfpm_arch = arch_mapping.get(builder.arch, builder.arch)
+            print(f"[INFO] Auto-detected architecture: {builder.arch} (mapped to {nfpm_arch})")
+        
         base_name = f"{APP_NAME}-{builder.version}-{os_name}-{builder.arch}"
         internal_build_name = "PCLink-build"
 
@@ -524,7 +555,7 @@ def main():
             sys.path.insert(0, str(Path(__file__).parent))
             from build_nfpm import NFPMBuilder
             
-            nfpm_builder = NFPMBuilder()
+            nfpm_builder = NFPMBuilder(architecture=nfpm_arch)
             
             # Step 2: Run NFPM Pre-packaging using the shared logic
             nfpm_builder.clean()

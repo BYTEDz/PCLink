@@ -260,19 +260,18 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
     
     # --- Extension System ---
     extension_manager = ExtensionManager()
-    extension_manager.load_all_extensions()
     
+    # Enable dynamic mounting for extensions loaded now or later
+    extension_manager.app = app
+
     # Extension management (accessible by mobile app)
     app.include_router(mgmt_router, prefix="/api/extensions", dependencies=MOBILE_API)
     
     # Extension runtime (UI/Static) - Authenticated unique per extension ID
     app.include_router(runtime_router, prefix="/extensions", dependencies=MOBILE_API)
     
-    # Mount actual extension routes (dynamic)
-    mount_extension_routes(app, MOBILE_API)
-    
-    # Enable dynamic mounting for extensions loaded later (hot-loading)
-    extension_manager.app = app
+    # Load all enabled extensions at startup
+    extension_manager.load_all_extensions()
     
     app.state.allow_insecure_shell = allow_insecure_shell
     app.state.api_key = server_api_key
@@ -294,8 +293,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
             parts = path.split("/")
             if len(parts) > 2:
                 extension_id = parts[2]
+                
                 if not extension_manager.get_extension(extension_id):
-                    # Hot-loading attempt: Check if it exists and is enabled on disk
+                    # Extension not in memory — attempt a single hot-load if enabled on disk
                     manifest_path = extension_manager.extensions_path / extension_id / "extension.yaml"
                     if manifest_path.exists():
                         try:
@@ -304,8 +304,9 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                                 config = yaml.safe_load(f)
                             if config.get('enabled', True):
                                 log.info(f"Hot-loading requested extension on-demand: {extension_id}")
+                                # Clear cooldown for on-demand loading
+                                extension_manager.failed_extensions.pop(extension_id, None)
                                 if extension_manager.load_extension(extension_id):
-                                    # Successfully loaded, allow the request to proceed
                                     return await call_next(request)
                         except Exception as e:
                             log.error(f"Failed to hot-load extension {extension_id} on request: {e}")

@@ -193,7 +193,36 @@ class SystemService:
                         temps['cpu_temp_celsius'] = raw_temps['package_id_0'][0].current
             except Exception: pass
 
-        os_name = f"{platform.system()} {platform.release()}"
+        # OS Details
+        os_family = platform.system()
+        os_release = platform.release()
+        os_name = f"{os_family} {os_release}"
+        os_distro = "unknown"
+        machine_arch = platform.machine()
+        
+        if os_family == "Linux":
+            # Try to get distro name on Linux
+            try:
+                import distro
+                os_distro = distro.id()
+                os_name = f"{distro.name()} {distro.version()}"
+            except ImportError:
+                # Fallback to manual parsing if 'distro' package is missing
+                if os.path.exists("/etc/os-release"):
+                    with open("/etc/os-release", "r") as f:
+                        content = f.read()
+                        name_match = re.search(r'^NAME=["\']?(.+?)["\']?$', content, re.M)
+                        version_match = re.search(r'^VERSION_ID=["\']?(.+?)["\']?$', content, re.M)
+                        id_match = re.search(r'^ID=["\']?(.+?)["\']?$', content, re.M)
+                        if id_match: os_distro = id_match.group(1).lower()
+                        if name_match:
+                            os_name = name_match.group(1)
+                            if version_match: os_name += f" {version_match.group(1)}"
+            except Exception:
+                pass
+        
+        if os_family == "Windows":
+            os_distro = "windows"
         if platform.system() == "Windows":
             try:
                 ver = sys.getwindowsversion()
@@ -270,6 +299,11 @@ class SystemService:
         
         return {
             "os": os_name,
+            "os_family": os_family.lower(),
+            "os_distro": os_distro,
+            "os_kernel": os_release,
+            "arch": machine_arch,
+            "python_version": platform.python_version(),
             "hostname": socket.gethostname(),
             "server_id": DiscoveryService.generate_server_id(), # Added
             "uptime_seconds": int(uptime),

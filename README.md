@@ -36,6 +36,36 @@ Featuring a high-performance FastAPI backend, a responsive Web UI, and an extens
 
 ---
 
+## 🛠️ Advanced Installation & Services
+
+### Arch Linux (PKGBUILD)
+
+PCLink can be built and installed on Arch Linux using the provided `PKGBUILD`:
+
+1.  Clone this repository.
+2.  Navigate to the root directory.
+3.  Run `makepkg -si` to build and install the package and its dependencies.
+
+### Windows Service
+
+To run PCLink as a background service that starts automatically with Windows:
+
+1.  Open a terminal with **Administrator privileges**.
+2.  Navigate to the PCLink root directory.
+3.  Install the service:
+    ```bash
+    python scripts/windows/pclink_service.py install
+    ```
+4.  Start the service:
+    ```bash
+    python scripts/windows/pclink_service.py start
+    ```
+5.  To manage the service, use `scripts/windows/pclink_service.py` with `stop`, `remove`, or `restart`.
+
+---
+
+---
+
 ## 🛡️ Security & Antivirus Notice
 
 PCLink provides powerful system integration (remote input, screen capture, terminal access, and extension support), which can occasionally trigger **False Positive** alerts (e.g., `Wacatac.B!ml`) from some Antivirus software like Windows Defender.

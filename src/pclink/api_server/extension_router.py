@@ -13,6 +13,7 @@ from ..services.extension_service import extension_service
 mgmt_router = APIRouter(tags=["extension-management"])
 runtime_router = APIRouter(tags=["extension-runtime"])
 
+@mgmt_router.get("/")
 @mgmt_router.get("")
 async def list_extensions():
     return extension_service.list_extensions()
@@ -59,7 +60,29 @@ async def get_ui(extension_id: str, token: str = Query(None)):
     if not ext: raise HTTPException(404, "Not found")
     ui_p = ext.extension_path / ext.metadata.ui_entry
     if not ui_p.exists(): raise HTTPException(404, "UI missing")
-    res = FileResponse(ui_p)
+    res = FileResponse(ui_p, media_type="text/html")
+    res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    res.headers["Pragma"] = "no-cache"
+    if token: res.set_cookie("pclink_device_token", token, max_age=3600, httponly=True, samesite="lax", path="/")
+    return res
+
+@runtime_router.get("/{extension_id}/widget/{widget_id}")
+async def get_widget_ui(extension_id: str, widget_id: str, token: str = Query(None)):
+    ext = extension_service.manager.get_extension(extension_id)
+    if not ext: raise HTTPException(404, "Extension not found")
+    
+    # Find the widget in metadata
+    widget = next((w for w in ext.metadata.dashboard_widgets if w.id == widget_id), None)
+    if not widget: raise HTTPException(404, "Widget not found")
+    
+    ui_p = (ext.extension_path / widget.ui_entry).resolve()
+    # Security: Ensure it's inside the extension path
+    if not str(ui_p).startswith(str(ext.extension_path.resolve())): raise HTTPException(403)
+    if not ui_p.exists(): raise HTTPException(404, "Widget UI missing")
+    
+    res = FileResponse(ui_p, media_type="text/html")
+    res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    res.headers["Pragma"] = "no-cache"
     if token: res.set_cookie("pclink_device_token", token, max_age=3600, httponly=True, samesite="lax", path="/")
     return res
 
@@ -82,4 +105,10 @@ async def get_static(extension_id: str, file_path: str):
 
 def mount_extension_routes(app, dependencies=None):
     for eid, ext in extension_service.manager.extensions.items():
-        app.include_router(ext.get_routes(), prefix=f"/extensions/{eid}", tags=[f"ext-{eid}"], dependencies=dependencies)
+        if eid not in extension_service.manager._mounted_extensions:
+            try:
+                app.include_router(ext.get_routes(), prefix=f"/extensions/{eid}", tags=[f"ext-{eid}"], dependencies=dependencies)
+                extension_service.manager._mounted_extensions.add(eid)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Error mounting {eid} on startup: {e}")

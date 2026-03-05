@@ -59,10 +59,34 @@ def run_preflight_checks() -> bool:
         constants.initialize_app_directories()
         migrate_legacy_data()
         generate_self_signed_cert(constants.CERT_FILE, constants.KEY_FILE)
+        
+        # Optimize system limits
+        if sys.platform == "linux":
+            increase_open_files_limit()
+            
         return True
     except Exception as e:
         log.error(f"Preflight checks failed: {e}")
         return False
+
+
+def increase_open_files_limit(target: int = 4096):
+    """
+    Increases the maximum number of open file descriptors for the current process.
+    Required for extensions using select() when many connections are active.
+    """
+    if sys.platform != "linux":
+        return
+
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft < target:
+            new_soft = min(target, hard)
+            resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+            log.info(f"🚀 Increased open files limit: {soft} -> {new_soft}")
+    except Exception as e:
+        log.warning(f"⚠️ Could not increase open files limit: {e}")
 
 
 def migrate_legacy_data():

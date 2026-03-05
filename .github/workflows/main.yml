@@ -101,8 +101,15 @@ jobs:
           compression-level: 0
 
   build-linux:
-    name: Build Linux Packages
-    runs-on: ubuntu-22.04
+    name: Build Linux Packages (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            os: ubuntu-latest
+          - arch: arm64
+            os: ubuntu-24.04-arm64
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -111,84 +118,46 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
-      - name: Install minimal Python build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          # Only install what's needed for NFPM packaging
-          pip install wheel setuptools build pyyaml
-
-      - name: Install NFPM dependencies
+      - name: Install Packaging Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential dpkg-dev rpm
+          sudo apt-get install -y build-essential dpkg-dev rpm python3-pip python3-venv wget
+          python3 -m pip install --upgrade pip
+          pip install wheel setuptools build pyyaml
 
       - name: Install NFPM
         run: |
-          # Install nfpm from GitHub releases
           NFPM_VERSION="2.40.0"
-          echo "Installing NFPM version $NFPM_VERSION..."
-          wget -O nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_amd64.deb"
-          sudo dpkg -i nfpm.deb || {
-            echo "Failed to install nfpm via dpkg, trying alternative method..."
-            # Alternative: install via go
-            sudo apt-get install -y golang-go
-            go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
-            sudo cp ~/go/bin/nfpm /usr/local/bin/
-          }
-          rm -f nfpm.deb
+          # Determine correct NFPM binary based on matrix arch
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            NFPM_ARCH="arm64"
+          else
+            NFPM_ARCH="amd64"
+          fi
+          wget "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_${NFPM_ARCH}.deb"
+          sudo dpkg -i nfpm_${NFPM_VERSION}_${NFPM_ARCH}.deb
+          rm nfpm_${NFPM_VERSION}_${NFPM_ARCH}.deb
 
+      - name: Build Package (${{ matrix.arch }})
+        run: python3 scripts/build.py --format nfpm --arch ${{ matrix.arch }}
 
-
-      - name: Verify build environment
+      - name: Verify build outputs
         run: |
-          echo "NFPM version:"
-          nfpm --version
-          echo "Python version:"
-          python --version
-          echo "Build tools:"
-          dpkg --version
-
-      - name: Clean previous build artifacts
-        run: |
-          echo "Cleaning previous build artifacts..."
-          rm -rf build/ dist/ releases/ || true
-          rm -f nfpm.yaml || true
-
-
-
-      - name: Build Linux packages with NFPM
-        run: python scripts/build.py --format nfpm
-
-      - name: Verify Linux build outputs
-        run: |
-          echo "Build artifacts:"
+          echo "Build artifacts for ${{ matrix.arch }}:"
           if [ -d "releases" ]; then
             ls -la releases/
             find releases/ -name "*.deb" -o -name "*.rpm"
-            
-            # Verify package contents
-            DEB_FILE=$(find releases/ -name "*.deb" | head -1)
-            if [ -n "$DEB_FILE" ]; then
-              echo "Checking package contents in $DEB_FILE:"
-              dpkg-deb -c "$DEB_FILE" | head -20
-              echo "Checking for PCLink files:"
-              dpkg-deb -c "$DEB_FILE" | grep -E "(pclink|usr/lib/pclink)" || echo "PCLink files not found in expected location"
-            fi
-            
-            RPM_FILE=$(find releases/ -name "*.rpm" | head -1)
-            if [ -n "$RPM_FILE" ]; then
-              echo "Checking RPM package contents in $RPM_FILE:"
-              rpm -qlp "$RPM_FILE" | head -20
-            fi
           else
             echo "No releases directory found"
+            exit 1
           fi
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PCLink-Linux
+          name: PCLink-Linux-${{ matrix.arch }}
           path: releases/
           compression-level: 0
 
@@ -196,7 +165,7 @@ jobs:
     name: Publish GitHub Release
     needs: [build-windows, build-linux, build-wheel]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') # ONLY publish when a version tag is pushed
     permissions:
       contents: write
     steps:
@@ -240,13 +209,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Detect if this is a pre-release (contains beta, alpha, rc, or a hyphen)
+          PRERELEASE_FLAG=""
+          if [[ "$TAG" =~ [0-9]+\.[0-9]+\.[0-9]+-.* ]] || [[ "$TAG" =~ (beta|alpha|rc) ]]; then
+            echo "Detected Pre-release version"
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
           # Delete existing release if it exists (for re-uploads)
           gh release delete "$TAG" --yes || true
 
-          # Create new release
+          # Create new release with correct flags
           gh release create "$TAG" ./artifacts/*/* SHA256SUMS.txt \
             --title "Release $TAG" \
-            --notes-file RELEASE_NOTES.md
+            --notes-file RELEASE_NOTES.md \
+            $PRERELEASE_FLAG
 
   publish-winget:
     name: Publish to WinGet
