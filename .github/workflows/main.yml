@@ -109,7 +109,7 @@ jobs:
           - arch: amd64
             os: ubuntu-latest
           - arch: arm64
-            os: ubuntu-24.04-arm64
+            os: ubuntu-24.04-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
