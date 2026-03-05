@@ -38,10 +38,10 @@ Name: "{group}\{cm:UninstallProgram,PCLink}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\PCLink"; Filename: "{app}\__EXECUTABLE_NAME__"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\python\python.exe"; Parameters: """{app}\scripts\windows\pclink_service.py"" install"; StatusMsg: "Registering PCLink Service..."; Tasks: registerservice; Flags: runhidden
-Filename: "{app}\python\python.exe"; Parameters: """{app}\scripts\windows\pclink_service.py"" start"; StatusMsg: "Starting PCLink Service..."; Tasks: registerservice; Flags: runhidden
+Filename: "{app}\PCLinkService.exe"; Parameters: "install"; StatusMsg: "Registering PCLink Service..."; Tasks: registerservice; Flags: runhidden
+Filename: "{app}\PCLinkService.exe"; Parameters: "start"; StatusMsg: "Starting PCLink Service..."; Tasks: registerservice; Flags: runhidden
 Filename: "{app}\__EXECUTABLE_NAME__"; Description: "{cm:LaunchProgram,PCLink}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{app}\python\python.exe"; Parameters: """{app}\scripts\windows\pclink_service.py"" stop"; RunOnceId: "StopService"; Flags: runhidden
-Filename: "{app}\python\python.exe"; Parameters: """{app}\scripts\windows\pclink_service.py"" remove"; RunOnceId: "RemoveService"; Flags: runhidden
+Filename: "{app}\PCLinkService.exe"; Parameters: "stop"; RunOnceId: "StopService"; Flags: runhidden
+Filename: "{app}\PCLinkService.exe"; Parameters: "remove"; RunOnceId: "RemoveService"; Flags: runhidden

@@ -13,15 +13,24 @@ if %errorLevel% neq 0 (
 
 set "SCRIPT_DIR=%~dp0"
 set "PCLINK_SERVICE_PY=%SCRIPT_DIR%pclink_service.py"
+set "PCLINK_SERVICE_EXE=%SCRIPT_DIR%..\..\PCLinkService.exe"
 
 echo [INFO] Stopping PCLink Service...
-python "%PCLINK_SERVICE_PY%" stop
+if exist "%PCLINK_SERVICE_EXE%" (
+    "%PCLINK_SERVICE_EXE%" stop
+) else (
+    python "%PCLINK_SERVICE_PY%" stop
+)
 if %errorLevel% neq 0 (
     echo [WARNING] Service might not be running or failed to stop.
 )
 
 echo [INFO] Uninstalling PCLink Service...
-python "%PCLINK_SERVICE_PY%" remove
+if exist "%PCLINK_SERVICE_EXE%" (
+    "%PCLINK_SERVICE_EXE%" remove
+) else (
+    python "%PCLINK_SERVICE_PY%" remove
+)
 if %errorLevel% neq 0 (
     echo [ERROR] Failed to remove service.
     pause

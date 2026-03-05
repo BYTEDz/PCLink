@@ -13,9 +13,14 @@ if %errorLevel% neq 0 (
 
 set "SCRIPT_DIR=%~dp0"
 set "PCLINK_SERVICE_PY=%SCRIPT_DIR%pclink_service.py"
+set "PCLINK_SERVICE_EXE=%SCRIPT_DIR%..\..\PCLinkService.exe"
 
 echo [INFO] Installing PCLink Service...
-python "%PCLINK_SERVICE_PY%" install
+if exist "%PCLINK_SERVICE_EXE%" (
+    "%PCLINK_SERVICE_EXE%" install
+) else (
+    python "%PCLINK_SERVICE_PY%" install
+)
 if %errorLevel% neq 0 (
     echo [ERROR] Failed to install service.
     pause
@@ -23,7 +28,11 @@ if %errorLevel% neq 0 (
 )
 
 echo [INFO] Starting PCLink Service...
-python "%PCLINK_SERVICE_PY%" start
+if exist "%PCLINK_SERVICE_EXE%" (
+    "%PCLINK_SERVICE_EXE%" start
+) else (
+    python "%PCLINK_SERVICE_PY%" start
+)
 if %errorLevel% neq 0 (
     echo [ERROR] Failed to start service.
     pause

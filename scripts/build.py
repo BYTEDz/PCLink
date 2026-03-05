@@ -89,6 +89,7 @@ HIDDEN_IMPORTS = [
     # Windows-specific (conditional)
     "win32api", "win32con", "win32gui", "win32process", "win32security", 
     "win32event", "win32file", "win32com.client", "pythoncom", "pycaw",
+    "win32service", "win32serviceutil", "servicemanager", "win32timezone",
     
 
     
@@ -384,6 +385,45 @@ VSVersionInfo(
         
         cmd.append(MAIN_SCRIPT)
         self._run_command(cmd)
+
+        # For Windows installers, also build the Service executable if on Windows
+        if self.platform == "windows" and name == APP_NAME:
+            print("[BUILD] Building Windows Service executable...")
+            service_name = "PCLinkService"
+            service_script = self.root_dir / "scripts" / "windows" / "pclink_service.py"
+            
+            if service_script.exists():
+                service_cmd = [
+                    sys.executable, "-m", "PyInstaller", "--noconfirm", f"--name={service_name}",
+                    f"--distpath={self.dist_dir}", f"--workpath={self.build_dir}",
+                    f"--specpath={self.build_dir}",
+                    "--paths=src",
+                    "--noupx",
+                    "--onefile" if onefile else "--onedir",
+                    "--console", # Service usually has a console or handles it internally
+                ]
+                
+                # Add version info if available
+                # service_cmd.append(f"--version-file={version_file}")
+                
+                for imp in HIDDEN_IMPORTS:
+                    service_cmd.append(f"--hidden-import={imp}")
+                
+                service_cmd.append(str(service_script))
+                self._run_command(service_cmd)
+                
+                # If in onedir mode, we want the PCLinkService.exe and its dependencies 
+                # to be in the SAME directory as PCLink.exe to share DLLs.
+                # However, PyInstaller outputs to dist/PCLinkService.
+                # In onedir mode, we should copy the .exe to the PCLink folder.
+                if not onefile:
+                    src_exe = self.dist_dir / service_name / f"{service_name}.exe"
+                    dest_exe = self.dist_dir / name / f"{service_name}.exe"
+                    if src_exe.exists():
+                        print(f"[INFO] Copying {service_name}.exe to {dest_exe}")
+                        shutil.copy2(src_exe, dest_exe)
+            else:
+                print(f"[WARNING] Service script not found: {service_script}")
         
         # Copy Windows service scripts to distribution directory
         dist_scripts_dir = self.dist_dir / name / "scripts" / "windows"
