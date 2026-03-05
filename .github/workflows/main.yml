@@ -102,63 +102,46 @@ jobs:
 
   build-linux:
     name: Build Linux Packages (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            os: ubuntu-latest
+          - arch: arm64
+            os: ubuntu-24.04-arm64
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        if: matrix.arch == 'arm64'
-        uses: docker/setup-qemu-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
 
-      - name: Build Packaging Environment
-        if: matrix.arch == 'amd64'
+      - name: Install Packaging Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential dpkg-dev rpm python3-pip python3-venv wget
           python3 -m pip install --upgrade pip
           pip install wheel setuptools build pyyaml
 
-      - name: Install NFPM (amd64)
-        if: matrix.arch == 'amd64'
+      - name: Install NFPM
         run: |
           NFPM_VERSION="2.40.0"
-          wget "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_amd64.deb"
-          sudo dpkg -i nfpm_${NFPM_VERSION}_amd64.deb
-          rm nfpm_${NFPM_VERSION}_amd64.deb
+          # Determine correct NFPM binary based on matrix arch
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            NFPM_ARCH="arm64"
+          else
+            NFPM_ARCH="amd64"
+          fi
+          wget "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_${NFPM_ARCH}.deb"
+          sudo dpkg -i nfpm_${NFPM_VERSION}_${NFPM_ARCH}.deb
+          rm nfpm_${NFPM_VERSION}_${NFPM_ARCH}.deb
 
-      - name: Build Package (amd64)
-        if: matrix.arch == 'amd64'
-        run: python3 scripts/build.py --format nfpm --arch amd64
-
-      - name: Build Linux Package (arm64 via QEMU)
-        if: matrix.arch == 'arm64'
-        uses: uraimo/run-on-arch-action@v2
-        with:
-          arch: aarch64
-          distro: ubuntu22.04
-          dockerRunArgs: |
-            --user root
-          run: |
-            # Native ARM64 setup
-            apt-get update
-            apt-get install -y python3 python3-pip python3-venv wget build-essential rpm dpkg-dev
-
-            # Python dependencies
-            python3 -m pip install --upgrade pip
-            pip install wheel setuptools build pyyaml
-
-            # Install NFPM for arm64
-            NFPM_VERSION="2.40.0"
-            wget "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_arm64.deb"
-            dpkg -i nfpm_${NFPM_VERSION}_arm64.deb
-            rm nfpm_${NFPM_VERSION}_arm64.deb
-
-            # Build the package
-            python3 scripts/build.py --format nfpm --arch arm64
+      - name: Build Package (${{ matrix.arch }})
+        run: python3 scripts/build.py --format nfpm --arch ${{ matrix.arch }}
 
       - name: Verify build outputs
         run: |
@@ -182,7 +165,7 @@ jobs:
     name: Publish GitHub Release
     needs: [build-windows, build-linux, build-wheel]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') # ONLY publish when a version tag is pushed
     permissions:
       contents: write
     steps:
@@ -226,13 +209,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Detect if this is a pre-release (contains beta, alpha, rc, or a hyphen)
+          PRERELEASE_FLAG=""
+          if [[ "$TAG" =~ [0-9]+\.[0-9]+\.[0-9]+-.* ]] || [[ "$TAG" =~ (beta|alpha|rc) ]]; then
+            echo "Detected Pre-release version"
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
           # Delete existing release if it exists (for re-uploads)
           gh release delete "$TAG" --yes || true
 
-          # Create new release
+          # Create new release with correct flags
           gh release create "$TAG" ./artifacts/*/* SHA256SUMS.txt \
             --title "Release $TAG" \
-            --notes-file RELEASE_NOTES.md
+            --notes-file RELEASE_NOTES.md \
+            $PRERELEASE_FLAG
 
   publish-winget:
     name: Publish to WinGet
