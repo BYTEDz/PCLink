@@ -5,6 +5,7 @@
 import os
 import shutil
 import tempfile
+import urllib.request
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
@@ -28,6 +29,23 @@ async def install_extension(file: UploadFile = File(...)):
         if extension_service.install(tmp_p): return {"status": "success"}
         raise HTTPException(400, "Install failed")
     except PermissionError as e: raise HTTPException(403, str(e))
+    finally:
+        if tmp_p.exists(): os.unlink(tmp_p)
+
+@mgmt_router.post("/install/url")
+async def install_extension_from_url(url: str = Query(...)):
+    if not url.startswith("http"): raise HTTPException(400, "Invalid URL")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+        tmp_p = Path(tmp.name)
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=30) as response, open(tmp_p, 'wb') as out_file:
+            shutil.copyfileobj(response, out_file)
+            
+        if extension_service.install(tmp_p): return {"status": "success"}
+        raise HTTPException(400, "Install failed")
+    except Exception as e: 
+        raise HTTPException(400, f"Download or install failed: {str(e)}")
     finally:
         if tmp_p.exists(): os.unlink(tmp_p)
 
