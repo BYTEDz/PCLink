@@ -561,6 +561,12 @@ exit 0
                         "gnome-screenshot",
                         "grim",
                     ]
+                },
+                "archlinux": {
+                   "depends": [
+                       "python",
+                       "python-pip",
+                   ],
                 }
             },
             

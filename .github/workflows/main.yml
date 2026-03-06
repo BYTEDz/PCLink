@@ -109,7 +109,7 @@ jobs:
           - arch: amd64
             os: ubuntu-latest
           - arch: arm64
-            os: ubuntu-24.04-arm64
+            os: ubuntu-24.04-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -148,7 +148,7 @@ jobs:
           echo "Build artifacts for ${{ matrix.arch }}:"
           if [ -d "releases" ]; then
             ls -la releases/
-            find releases/ -name "*.deb" -o -name "*.rpm"
+            find releases/ -name "*.deb" -o -name "*.rpm" -o -name "*.pkg.tar.zst"
           else
             echo "No releases directory found"
             exit 1
@@ -205,6 +205,10 @@ jobs:
           echo "$NOTES" > RELEASE_NOTES.md
           echo "TAG=$TAG" >> $GITHUB_ENV
 
+      - name: Generate Dynamic PKGBUILD
+        run: |
+          python scripts/generate_pkgbuild.py --output artifacts/PKGBUILD
+
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -220,7 +224,7 @@ jobs:
           gh release delete "$TAG" --yes || true
 
           # Create new release with correct flags
-          gh release create "$TAG" ./artifacts/*/* SHA256SUMS.txt \
+          gh release create "$TAG" ./artifacts/*/* ./artifacts/PKGBUILD SHA256SUMS.txt \
             --title "Release $TAG" \
             --notes-file RELEASE_NOTES.md \
             $PRERELEASE_FLAG

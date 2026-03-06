@@ -384,18 +384,7 @@ VSVersionInfo(
         
         cmd.append(MAIN_SCRIPT)
         self._run_command(cmd)
-        
-        # Copy Windows service scripts to distribution directory
-        dist_scripts_dir = self.dist_dir / name / "scripts" / "windows"
-        dist_scripts_dir.mkdir(parents=True, exist_ok=True)
-        
-        windows_scripts_src = self.root_dir / "scripts" / "windows"
-        if windows_scripts_src.exists():
-            print(f"[INFO] Copying Windows service scripts to {dist_scripts_dir}")
-            for item in windows_scripts_src.iterdir():
-                if item.is_file():
-                    shutil.copy2(item, dist_scripts_dir)
-        
+
         print("[OK] PyInstaller build successful.")
 
     def package(self, build_name: str, package_name: str, onefile: bool):
@@ -572,7 +561,7 @@ def main():
                 raise BuildError("`nfpm` command not found. Please install nfpm to build packages.")
 
             # Define formats and build packages
-            package_formats = ["deb", "rpm"]
+            package_formats = ["deb", "rpm", "archlinux"]
             for fmt in package_formats:
                 print(f"--- Building {fmt.upper()} package ---")
                 cmd = [

@@ -1,6 +1,6 @@
 # Maintainer: AZHAR ZOUHIR <support@bytedz.com>
 pkgname=pclink
-pkgver=3.4.0
+pkgver=3.5.0
 pkgrel=1
 pkgdesc="Cross-platform desktop app for secure remote PC control and management"
 arch=('any')

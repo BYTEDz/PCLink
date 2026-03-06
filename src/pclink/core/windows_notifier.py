@@ -2,6 +2,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
+import sys
 import html
 from pathlib import Path
 from .constants import APP_AUMID
@@ -9,13 +10,17 @@ from .utils import resource_path # Import our robust path helper
 
 log = logging.getLogger(__name__)
 
-try:
-    from winrt.windows.data.xml.dom import XmlDocument
-    from winrt.windows.ui.notifications import ToastNotification, ToastNotificationManager
-    notifier = ToastNotificationManager.create_toast_notifier(APP_AUMID)
-    WINSDK_AVAILABLE = True
-except (ImportError, RuntimeError, TypeError) as e:
-    log.warning(f"Could not initialize Windows Notifier. Native notifications will be disabled. Error: {e}")
+if sys.platform == "win32":
+    try:
+        from winrt.windows.data.xml.dom import XmlDocument
+        from winrt.windows.ui.notifications import ToastNotification, ToastNotificationManager
+        notifier = ToastNotificationManager.create_toast_notifier(APP_AUMID)
+        WINSDK_AVAILABLE = True
+    except (ImportError, RuntimeError, TypeError) as e:
+        log.warning(f"Could not initialize Windows Notifier. Native notifications will be disabled. Error: {e}")
+        notifier = None
+        WINSDK_AVAILABLE = False
+else:
     notifier = None
     WINSDK_AVAILABLE = False
 

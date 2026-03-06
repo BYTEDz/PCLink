@@ -23,7 +23,12 @@ class StartupManager:
         else:
             # Running from source
             self.executable = sys.executable
-            self.args = "-m pclink" 
+            if self.system == "Windows":
+                # Prefer pythonw.exe for windowless operation on startup
+                pythonw = Path(self.executable).parent / "pythonw.exe"
+                if pythonw.exists():
+                    self.executable = str(pythonw)
+            self.args = "-m pclink"
 
     def is_enabled(self) -> bool:
         if self.system == "Windows":
