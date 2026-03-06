@@ -563,7 +563,6 @@ exit 0
                     ]
                 },
                 "archlinux": {
-                   "pkgname": "pclink-bin",
                    "depends": [
                        "python",
                        "python-pip",
