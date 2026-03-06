@@ -561,6 +561,13 @@ exit 0
                         "gnome-screenshot",
                         "grim",
                     ]
+                },
+                "archlinux": {
+                   "pkgname": "pclink-bin",
+                   "depends": [
+                       "python",
+                       "python-pip",
+                   ],
                 }
             },
             

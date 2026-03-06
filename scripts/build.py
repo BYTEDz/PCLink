@@ -561,7 +561,7 @@ def main():
                 raise BuildError("`nfpm` command not found. Please install nfpm to build packages.")
 
             # Define formats and build packages
-            package_formats = ["deb", "rpm"]
+            package_formats = ["deb", "rpm", "archlinux"]
             for fmt in package_formats:
                 print(f"--- Building {fmt.upper()} package ---")
                 cmd = [
