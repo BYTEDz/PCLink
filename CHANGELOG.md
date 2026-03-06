@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-03-06
+
+# 🚀 v3.5.0 Release Notes
+
+## ✨ New Features & Improvements
+
+### 🐧 Linux Support Enhancements
+
+- Added multi-architecture Linux packages (ARM64 and AMD64) for broader compatibility.
+- Implemented native Linux notifications using `libnotify` and `notify-send`.
+- Added Arch Linux packaging support via `PKGBUILD`.
+
+### 🧩 Extension & System Improvements
+
+- Added architecture and distribution compatibility validation for extensions.
+- Expanded system information reporting to include kernel version, distribution, and architecture.
+- Implemented automatic detection and flagging of GitHub pre-releases.
+
+### ⚡ Stability & Background Execution
+
+- Improved Windows background execution using windowless processes to prevent console flashes.
+- Enhanced extension loading stability with retry cooldowns and optimized system file limits.
+- Improved Linux system tray reliability with automatic headless environment detection.
+- Enhanced Windows Task Scheduler integration for automatic background startup.
+
+## 🐛 Bug Fixes
+
+- Fixed resource exhaustion errors when extensions attempted to use system selectors under heavy load.
+- Fixed potential crashes on headless Linux systems during system tray initialization.
+
+## 🧹 Cleanup
+
+- Removed the initial connection status message from terminal sessions.
+
 ## [3.5.0-beta.4] - 2026-03-05
 
 - No changes documented
