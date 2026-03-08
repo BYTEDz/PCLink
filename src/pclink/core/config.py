@@ -30,19 +30,35 @@ DEFAULT_SETTINGS = {
     "auto_start": False,
     "auto_open_webui": True,
     "transfer_cleanup_threshold": 7,
+    
+    # Default permissions assigned to a new device upon pairing
+    "default_device_permissions": [
+        "files_browse", "files_download", "files_upload",
+        "info", "mouse", "keyboard", "media", "volume",
+        "apps", "clipboard", "screenshot", "utils", "macros"
+    ],
 
     # Services (API features that can be enabled/disabled)
     "services": {
-        "files": True,
-        "system": True,
+        "files_browse": True,
+        "files_download": True,
+        "files_upload": True,
+        "files_delete": True,
+        "processes": True,
+        "power": True,
         "info": True,
-        "input": True,
+        "mouse": True,
+        "keyboard": True,
         "media": True,
-        "terminal": False, # Terminal access disabled by default for security
+        "volume": True,
+        "terminal": False,
         "macros": True,
         "extensions": True,
-        "applications": True,
-        "utils": True,
+        "apps": True,
+        "clipboard": True,
+        "screenshot": True,
+        "command": False,
+        "wol": True,
     }
 }
 

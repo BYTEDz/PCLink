@@ -51,7 +51,7 @@ class ExtensionManager:
             self.extensions_path.mkdir(parents=True, exist_ok=True)
             self.extensions: Dict[str, ExtensionBase] = {}
             self._app = None  # Reference to FastAPI app for dynamic routing
-            self._mounted_extensions: Set[str] = set() # Changed type hint
+            self._mounted_extensions: Set[str] = set()
             self.logs: Dict[str, List[str]] = {}
             self.initialized = True
             self.safe_mode = False

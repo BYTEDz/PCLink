@@ -22,16 +22,25 @@ async def get_services():
     
     # Enrich with descriptions and icons for the UI
     service_info = {
-        "files": {"title": "File Management", "icon": "file-text", "description": "Browse, upload, and download files."},
-        "system": {"title": "System Control", "icon": "cpu", "description": "Manage processes, applications, and system power."},
-        "info": {"title": "System Info", "icon": "info", "description": "Retrieve hardware and software info. (Basic version info is always shared for connectivity)"},
-        "input": {"title": "Remote Input", "icon": "mouse-pointer", "description": "Remote control of mouse and keyboard."},
-        "media": {"title": "Media Control", "icon": "play-circle", "description": "Control media playback and streaming."},
-        "terminal": {"title": "Remote Terminal", "icon": "terminal", "description": "Direct shell access to your system."},
-        "macros": {"title": "Macros", "icon": "command", "description": "Automate repetitive tasks with custom macros."},
-        "extensions": {"title": "Extensions", "icon": "package", "description": "Third-party extension system functionality."},
-        "applications": {"title": "Applications", "icon": "grid", "description": "View and launch installed system applications."},
-        "utils": {"title": "Utility Tools", "icon": "tool", "description": "Screen capture and clipboard management."},
+        "files_browse": {"title": "File Browser", "icon": "folder", "description": "Browse system files and view thumbnails."},
+        "files_download": {"title": "File Download", "icon": "download", "description": "Download files to the connected device."},
+        "files_upload": {"title": "File Upload", "icon": "upload", "description": "Upload files from the connected device."},
+        "files_delete": {"title": "File Deletion", "icon": "trash-2", "description": "Delete files and folders on the system."},
+        "processes": {"title": "Processes", "icon": "activity", "description": "View and manage running system processes."},
+        "power": {"title": "Power Control", "icon": "power", "description": "Shutdown, restart, or lock the system."},
+        "info": {"title": "System Status", "icon": "info", "description": "Monitor battery and hardware status."},
+        "mouse": {"title": "Remote Mouse", "icon": "mouse-pointer", "description": "Control system cursor and clicks."},
+        "keyboard": {"title": "Remote Type", "icon": "type", "description": "Send keyboard inputs and shortcuts."},
+        "media": {"title": "Media Control", "icon": "play-circle", "description": "Control playback and see media info."},
+        "volume": {"title": "System Volume", "icon": "volume-2", "description": "Adjust master volume and mute status."},
+        "terminal": {"title": "Terminal", "icon": "terminal", "description": "Direct shell access (High Risk)."},
+        "macros": {"title": "Macros", "icon": "zap", "description": "Execute automated task scripts."},
+        "extensions": {"title": "Extensions", "icon": "package", "description": "Manage and run server extensions."},
+        "apps": {"title": "Applications", "icon": "grid", "description": "View and launch installed applications."},
+        "clipboard": {"title": "Clipboard", "icon": "clipboard", "description": "Read and write system clipboard."},
+        "screenshot": {"title": "Screen Capture", "icon": "camera", "description": "Capture system screen snapshots."},
+        "command": {"title": "Shell Command", "icon": "hash", "description": "Run detached shell commands."},
+        "wol": {"title": "Wake-on-LAN", "icon": "wifi", "description": "Check WOL status and MAC address."},
     }
     
     result = []

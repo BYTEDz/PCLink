@@ -88,13 +88,17 @@ async def proxy_webdav(request: Request, path: str):
                     continue
                 raise
         
-        if not resp:
-            raise HTTPException(status_code=502, detail="Failed to receive response from phone")
+        if resp is None:
+            raise HTTPException(status_code=502, detail="No response received from phone")
 
         # Exclude hop-by-hop headers from response
         excluded_response_headers = {"content-encoding", "content-length", "transfer-encoding", "connection"}
         resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in excluded_response_headers}
         
+        # Log non-success status for debugging
+        if resp.status_code >= 400:
+            log.warning(f"Phone responded with error {resp.status_code}: {resp.text[:200]}")
+
         # StreamingResponse ONLY for GET (file downloads) to maintain efficiency
         if method == "GET" and resp.status_code < 400:
              def generate():
@@ -115,6 +119,8 @@ async def proxy_webdav(request: Request, path: str):
         finally:
             resp.close()
 
+    except HTTPException:
+        raise
     except requests.RequestException as e:
         log.error(f"Failed to proxy WebDAV request to {url}: {e}")
         raise HTTPException(status_code=502, detail=f"Failed to communicate with phone. Error: {str(e)}")
