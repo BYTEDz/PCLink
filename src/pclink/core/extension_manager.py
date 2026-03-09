@@ -234,7 +234,7 @@ class ExtensionManager:
             # Add extension lib directory to sys.path for dependency isolation
             lib_path = extension_dir / "lib"
             if lib_path.exists() and str(lib_path) not in sys.path:
-                sys.path.insert(0, str(lib_path))
+                sys.path.append(str(lib_path))
 
             # Dynamic import
             module_name = f"pclink.extensions.{extension_id.replace('-', '_')}"
@@ -428,6 +428,13 @@ class ExtensionManager:
             
             target_dir.mkdir(parents=True)
             with zipfile.ZipFile(bundle_path, 'r') as zip_ref:
+                target_resolved = target_dir.resolve()
+                for member in zip_ref.infolist():
+                    extracted_path = (target_dir / member.filename).resolve()
+                    if not extracted_path.is_relative_to(target_resolved):
+                        log.error(f"Security violation: Zip slip attempt blocked for '{member.filename}'")
+                        shutil.rmtree(target_dir, ignore_errors=True)
+                        return False
                 zip_ref.extractall(target_dir)
 
             # --- Security: Check for dangerous permissions ---
@@ -477,7 +484,7 @@ class ExtensionManager:
         target_dir = (self.extensions_path / extension_id).resolve()
         
         # Security: Verify path resides within extensions root.
-        if not str(target_dir).startswith(str(self.extensions_path.resolve())):
+        if not target_dir.is_relative_to(self.extensions_path.resolve()):
             log.error(f"Security violation: Attempted to delete outside extensions path: {target_dir}")
             return False
 
