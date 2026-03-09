@@ -2,6 +2,8 @@ import logging
 import asyncio
 import anyio
 import requests
+import xml.etree.ElementTree as ET
+from urllib.parse import unquote
 from typing import Optional, Tuple
 from fastapi import APIRouter, Request, Response, HTTPException
 from fastapi.responses import StreamingResponse
@@ -41,8 +43,19 @@ async def proxy_webdav(request: Request, path: str):
         log.warning("Proxy failed: No active phone connected")
         raise HTTPException(status_code=404, detail="No active phone connected")
         
-    url = f"http://{phone_ip}:38081/{path}"
+    # Handle the .browse magic path for JSON listing compatibility
+    is_browse = False
+    actual_path = path
     method = request.method
+    
+    if path.startswith(".browse"):
+        is_browse = True
+        actual_path = path[7:] # Remove ".browse" prefix
+        if not actual_path.startswith("/"):
+            actual_path = "/" + actual_path
+        method = "PROPFIND"
+
+    url = f"http://{phone_ip}:38081/{actual_path.lstrip('/')}"
     log.info(f"Proxying WebDAV: {method} {url} (DeviceID={device_id})")
     
     # Proper WebDAV Auth: Basic Auth using (pclink / device_id)
@@ -51,6 +64,9 @@ async def proxy_webdav(request: Request, path: str):
     # Clean up headers to avoid conflicts
     excluded_request_headers = {"host", "content-length", "authorization", "connection"}
     headers = {k: v for k, v in request.headers.items() if k.lower() not in excluded_request_headers}
+
+    if is_browse:
+        headers["Depth"] = request.headers.get("Depth", "1")
 
     if api_key:
         headers["x-pclink-token"] = api_key
@@ -69,7 +85,7 @@ async def proxy_webdav(request: Request, path: str):
                 url=url,
                 headers=headers,
                 data=body,
-                params=request.query_params,
+                params={k: v for k, v in request.query_params.items() if k != "device_id"},
                 auth=auth,
                 stream=True,
                 timeout=current_timeout
@@ -91,6 +107,57 @@ async def proxy_webdav(request: Request, path: str):
         if resp is None:
             raise HTTPException(status_code=502, detail="No response received from phone")
 
+        # Handle JSON translation for browsing
+        if is_browse and resp.status_code == 207:
+            try:
+                items = []
+                # Simple XML parsing for WebDAV response
+                root = ET.fromstring(resp.content)
+                ns = {'D': 'DAV:'}
+                
+                for response in root.findall('D:response', ns):
+                    href_el = response.find('D:href', ns)
+                    if href_el is None: continue
+                    href = href_el.text
+                    
+                    prop = response.find('D:propstat/D:prop', ns)
+                    if prop is None: continue
+                    
+                    displayname_el = prop.find('D:displayname', ns)
+                    name = displayname_el.text if (displayname_el is not None and displayname_el.text) else href.rstrip('/').split('/')[-1]
+                    
+                    resourcetype = prop.find('D:resourcetype', ns)
+                    is_dir = resourcetype is not None and resourcetype.find('D:collection', ns) is not None
+                    
+                    size_el = prop.find('D:getcontentlength', ns)
+                    size = int(size_el.text) if size_el is not None else 0
+                    
+                    modified_el = prop.find('D:getlastmodified', ns)
+                    modified = modified_el.text if modified_el is not None else ""
+                    
+                    # Store clean path
+                    clean_path = unquote(href)
+                    
+                    items.append({
+                        "name": unquote(name),
+                        "path": clean_path,
+                        "isDir": is_dir,
+                        "size": size,
+                        "modified": modified
+                    })
+                
+                # Filter out the parent directory itself from results and sort
+                # In WebDAV Depth:1 returns the resource itself too
+                normalized_actual = actual_path.rstrip('/')
+                if not normalized_actual: normalized_actual = "/"
+                
+                final_items = [it for it in items if unquote(it["path"]).rstrip('/') != normalized_actual]
+                
+                return {"items": final_items, "path": actual_path}
+            except Exception as e:
+                log.error(f"Failed to parse WebDAV XML: {e}")
+                # Don't fail the whole request if parsing fails, just fallback to raw response
+        
         # Exclude hop-by-hop headers from response
         excluded_response_headers = {"content-encoding", "content-length", "transfer-encoding", "connection"}
         resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in excluded_response_headers}
@@ -127,3 +194,4 @@ async def proxy_webdav(request: Request, path: str):
     except Exception as e:
         log.error(f"Unexpected error in proxy_webdav: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
