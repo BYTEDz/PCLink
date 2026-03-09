@@ -1,4 +1,4 @@
-arch: arm64
+arch: amd64
 contents:
 - dst: /usr/lib/pclink
   src: build/nfpm/staging/usr/lib/pclink
@@ -49,6 +49,10 @@ license: AGPL-3.0-or-later
 maintainer: Azhar Zouhir <support@bytedz.com>
 name: pclink
 overrides:
+  archlinux:
+    depends:
+    - python
+    - python-pip
   rpm:
     depends:
     - python3 >= 3.8
@@ -79,4 +83,4 @@ scripts:
   postremove: build/nfpm/scripts/postrm
   preremove: build/nfpm/scripts/prerm
 section: net
-version: 3.4.0
+version: 3.5.0

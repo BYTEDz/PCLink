@@ -1,1162 +1,453 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PCLink Control Panel</title>
-    <link rel="stylesheet" href="/ui/static/style.css?v=32" />
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PCLink Control Panel</title>
+  
+  <script>
+    const originalWarn = console.warn;
+    console.warn = (...args) => { if (typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return; originalWarn(...args); };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+  
+  <link rel="stylesheet" href="/ui/static/style.css" />
+  <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg" />
+  <link rel="icon" type="image/x-icon" href="/ui/assets/icon.ico" />
+</head>
+<body class="bg-base-300">
 
-    <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg" />
-    <link rel="icon" type="image/x-icon" href="/ui/assets/icon.ico" />
-  </head>
-
-  <body>
-    <header class="main-header">
-      <div class="header-container">
-        <div class="header-brand">
-          <div class="brand-logo">
-            <img
-              src="/ui/assets/pclink.svg"
-              width="30"
-              height="30"
-              alt="PCLink Logo"
-            />
-          </div>
-          <div class="brand-text">
-            <h1>PCLink</h1>
-            <span class="brand-subtitle">Control Panel</span>
-          </div>
+<div class="drawer lg:drawer-open">
+  <input id="main-drawer" type="checkbox" class="drawer-toggle" />
+  
+  <div class="drawer-content flex flex-col h-screen overflow-hidden">
+    <header class="navbar bg-base-100 border-b border-base-300 px-4 shrink-0 shadow-sm z-10">
+      <div class="flex-none lg:hidden">
+        <label for="main-drawer" class="btn btn-square btn-ghost"><i data-feather="menu"></i></label>
+      </div>
+      <div class="flex-1 gap-3">
+        <div class="bg-primary p-1.5 rounded-lg lg:hidden">
+          <img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" alt="Logo" />
         </div>
-
-        <div class="header-actions">
-          <div class="status-badge" id="serverStatusBadge">
-            <span class="status-dot online"></span>
-            <span id="serverStatusText">Online</span>
-          </div>
-          <button
-            class="action-btn logout-btn"
-            onclick="logout()"
-            title="Logout"
-          >
-            <i data-feather="log-out"></i>
-            <span>Logout</span>
-          </button>
+        <div>
+          <h1 class="text-xl font-black leading-none">PCLink</h1>
+          <span class="text-xs opacity-50 uppercase font-black tracking-widest">Control Panel</span>
         </div>
+      </div>
+      <div class="flex-none gap-2">
+        <div class="badge badge-outline gap-2 py-3 px-3 border-base-300" id="serverStatusBadge">
+          <span class="status-dot online w-2 h-2 rounded-full bg-success"></span>
+          <span id="serverStatusText" class="text-sm font-black uppercase tracking-wider">Online</span>
+        </div>
+        <button class="btn btn-ghost btn-sm text-error ml-2" onclick="logout()" title="Logout"><i data-feather="log-out"></i></button>
       </div>
     </header>
 
-    <div class="app-layout">
-      <aside class="sidebar">
-        <nav class="sidebar-nav">
-          <button class="nav-item active" data-tab="dashboard">
-            <i data-feather="home"></i>
-            <span>Dashboard</span>
-          </button>
-          <button class="nav-item" data-tab="devices">
-            <i data-feather="smartphone"></i>
-            <span>Devices</span>
-          </button>
-          <button class="nav-item" data-tab="pairing">
-            <i data-feather="link"></i>
-            <span>Pairing</span>
-          </button>
-          <button class="nav-item" data-tab="phone-files">
-            <i data-feather="folder"></i>
-            <span>Phone Files</span>
-          </button>
-          <button class="nav-item" data-tab="services">
-            <i data-feather="grid"></i>
-            <span>Services</span>
-          </button>
-          <button class="nav-item" data-tab="settings">
-            <i data-feather="settings"></i>
-            <span>Settings</span>
-          </button>
-          <button class="nav-item" data-tab="logs">
-            <i data-feather="terminal"></i>
-            <span>Logs</span>
-          </button>
-          <button class="nav-item" data-tab="guide">
-            <i data-feather="book-open"></i>
-            <span>Guide</span>
-          </button>
-          <button class="nav-item" data-tab="about">
-            <i data-feather="help-circle"></i>
-            <span>About</span>
-          </button>
-        </nav>
-
-        <div class="sidebar-footer">
-          <a
-            href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink"
-            target="_blank"
-            class="play-store-card"
-          >
-            <div class="play-store-icon">
-              <i data-feather="download"></i>
-            </div>
-            <div class="play-store-text">
-              <span>Get Companion App</span>
-              <small>Google Play Store</small>
-            </div>
-          </a>
+    <main class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-base-200">
+      
+      <div id="updateBanner" class="alert alert-info shadow-lg mb-6 hidden">
+        <i data-feather="download"></i>
+        <div>
+          <h3 class="font-bold">New Update Available!</h3>
+          <div class="text-sm" id="updateVersion">Version X.X.X is ready</div>
         </div>
-      </aside>
-
-      <main class="main-content">
-        <div id="updateBanner" class="update-banner" style="display: none">
-          <div class="update-content">
-            <div class="update-header">
-              <i data-feather="download" class="update-icon"></i>
-              <div class="update-title">
-                <strong>New Update Available!</strong>
-                <span id="updateVersion">Version X.X.X is now available</span>
-              </div>
-              <button
-                class="btn-icon"
-                onclick="dismissUpdate()"
-                title="Dismiss"
-              >
-                <i data-feather="x"></i>
-              </button>
-            </div>
-            <div
-              id="updateReleaseNotes"
-              class="update-release-notes"
-              style="display: none"
-            >
-              <div class="release-notes-content" id="releaseNotesContent"></div>
-            </div>
-            <div class="update-actions">
-              <button class="btn btn-sm btn-primary" onclick="downloadUpdate()">
-                <i data-feather="download"></i> Download Update
-              </button>
-              <button
-                class="btn btn-sm btn-secondary"
-                id="toggleReleaseNotes"
-                onclick="toggleReleaseNotes()"
-                style="display: none"
-              >
-                <i data-feather="chevron-down"></i>
-                <span id="toggleNotesText">Show Release Notes</span>
-              </button>
-              <a
-                id="viewFullReleaseLink"
-                class="btn btn-sm"
-                href="#"
-                target="_blank"
-                style="display: none"
-              >
-                <i data-feather="external-link"></i> View Full Release
-              </a>
-            </div>
-          </div>
-        </div>
-
-        <div class="tab-content active" id="dashboard">
-          <div class="card">
-            <div class="server-controls">
-              <h4><i data-feather="power"></i> Server Control</h4>
-              <div class="control-buttons">
-                <button
-                  class="btn btn-success"
-                  id="startServerBtn"
-                  onclick="startRemoteServer()"
-                  title="Start Remote API Server"
-                >
-                  <i data-feather="play"></i>
-                  Start
-                </button>
-                <button
-                  class="btn btn-warning"
-                  id="stopServerBtn"
-                  onclick="stopRemoteServer()"
-                  title="Stop Remote API Server"
-                >
-                  <i data-feather="pause"></i>
-                  Stop
-                </button>
-                <button
-                  class="btn btn-primary"
-                  id="restartServerBtn"
-                  onclick="restartRemoteServer()"
-                  title="Restart Remote API Server"
-                >
-                  <i data-feather="refresh-cw"></i>
-                  Restart
-                </button>
-                <button
-                  class="btn btn-danger"
-                  id="shutdownServerBtn"
-                  onclick="shutdownServer()"
-                  title="Shutdown PCLink Server"
-                >
-                  <i data-feather="power"></i>
-                  Shutdown
-                </button>
-              </div>
-            </div>
-
-            <div class="status-metrics">
-              <div class="metric">
-                <div class="metric-icon"><i data-feather="globe"></i></div>
-                <div class="metric-content">
-                  <span class="metric-label">Server Address</span>
-                  <span class="metric-value" id="hostIP">Loading...</span>
-                </div>
-              </div>
-              <div class="metric">
-                <div class="metric-icon"><i data-feather="hash"></i></div>
-                <div class="metric-content">
-                  <span class="metric-label">Port</span>
-                  <span class="metric-value" id="serverPort">38080</span>
-                </div>
-              </div>
-              <div class="metric">
-                <div class="metric-icon"><i data-feather="tag"></i></div>
-                <div class="metric-content">
-                  <span class="metric-label">Version</span>
-                  <span class="metric-value" id="serverVersion"
-                    >Loading...</span
-                  >
-                </div>
-              </div>
-              <div class="metric">
-                <div class="metric-icon"><i data-feather="smartphone"></i></div>
-                <div class="metric-content">
-                  <span class="metric-label">Connected Devices</span>
-                  <span class="metric-value" id="dashboardDeviceCount">0</span>
-                </div>
-              </div>
-              <div class="metric">
-                <div class="metric-icon"><i data-feather="clock"></i></div>
-                <div class="metric-content">
-                  <span class="metric-label">Uptime</span>
-                  <span class="metric-value" id="serverUptime"
-                    >Just started</span
-                  >
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="tab-content" id="pairing">
-          <div class="card">
-            <h3><i data-feather="smartphone"></i> Pair New Device</h3>
-            <p>
-              Use your client device to scan the QR code below and connect to
-              this PCLink server.
-            </p>
-            <div class="pairing-section">
-              <div
-                style="
-                  display: flex;
-                  gap: 10px;
-                  justify-content: center;
-                  margin-bottom: 20px;
-                "
-              >
-                <button
-                  class="btn btn-primary btn-large"
-                  onclick="generateQRCode()"
-                >
-                  <i data-feather="square"></i> Generate Pairing QR Code
-                </button>
-                <button
-                  class="btn btn-secondary"
-                  onclick="regenerateQRCode()"
-                  title="Regenerate QR Code"
-                >
-                  <i data-feather="refresh-cw"></i> Regenerate
-                </button>
-              </div>
-              <div id="qrCodeDisplay" class="qr-display"></div>
-            </div>
-            <div class="pairing-instructions">
-              <h4>Instructions:</h4>
-              <ol>
-                <li>Install the PCLink companion app on your device</li>
-                <li>Click "Generate Pairing QR Code" above</li>
-                <li>
-                  Scan the QR code with the companion app (or manually enter the
-                  connection details if QR code is unavailable)
-                </li>
-                <li>Approve the pairing request when prompted</li>
-              </ol>
-              <div
-                style="
-                  margin-top: 15px;
-                  padding: 15px;
-                  background: var(--surface-color);
-                  border-radius: 8px;
-                  border-left: 4px solid var(--warning-color);
-                "
-              >
-                <p
-                  style="
-                    margin: 0 0 10px 0;
-                    font-size: 14px;
-                    color: var(--text-secondary);
-                  "
-                >
-                  <strong>💡 Scanning Tips:</strong>
-                </p>
-                <ul
-                  style="
-                    margin: 0;
-                    padding-left: 20px;
-                    font-size: 13px;
-                    color: var(--text-secondary);
-                    line-height: 1.5;
-                  "
-                >
-                  <li>Hold your device 6-12 inches from the screen</li>
-                  <li>
-                    <strong>Disable dark mode browser extensions</strong> (like
-                    Dark Reader) for this website
-                  </li>
-                  <li>Ensure good lighting and steady hands</li>
-                  <li>Use the "Manual Entry Data" button if scanning fails</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="tab-content" id="devices">
-          <div class="card">
-            <h3><i data-feather="smartphone"></i> Connected Client Devices</h3>
-            <div class="device-toolbar">
-              <button class="btn btn-sm" onclick="refreshDevices()">
-                <i data-feather="refresh-cw"></i> Refresh
-              </button>
-              <button
-                class="btn btn-sm btn-danger"
-                onclick="removeAllDevices()"
-              >
-                <i data-feather="trash-2"></i> Remove All
-              </button>
-              <span class="device-count"
-                >Devices: <span id="deviceCount">0</span></span
-              >
-            </div>
-            <div id="deviceList" class="device-list">
-              <p>Loading devices...</p>
-            </div>
-          </div>
-          <div class="card">
-            <h3><i data-feather="clock"></i> Pending Pairing Requests</h3>
-            <div id="pendingRequests" class="pending-requests">
-              <p>No pending requests</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="tab-content" id="settings">
-          <div class="card">
-            <h3><i data-feather="settings"></i> Server Configuration</h3>
-            <div class="settings-form">
-              <div class="form-group">
-                <label>Server Port:</label>
-                <input
-                  type="number"
-                  id="serverPortInput"
-                  min="1024"
-                  max="65535"
-                  readonly
-                />
-                <small>Restart required to change port</small>
-              </div>
-              <div class="form-group" id="autoStartGroup">
-                <label>
-                  <input type="checkbox" id="autoStartCheckbox" />
-                  Start PCLink with system
-                </label>
-              </div>
-              <div class="form-group">
-                <label>
-                  <input type="checkbox" id="autoOpenWebUI" checked />
-                  <i data-feather="link"></i> Auto-open web UI on server start
-                </label>
-              </div>
-              <div class="form-group">
-                <label>API Key:</label>
-                <input type="text" id="apiKeyDisplay" readonly />
-                <button
-                  class="btn btn-sm btn-secondary"
-                  onclick="regenerateApiKey()"
-                >
-                  <i data-feather="refresh-cw"></i> Regenerate
-                </button>
-              </div>
-              <button class="btn btn-primary" onclick="saveSettings()">
-                <i data-feather="save"></i> Save Settings
-              </button>
-            </div>
-          </div>
-
-          <div class="card">
-            <h3><i data-feather="lock"></i> Security</h3>
-            <div class="settings-form">
-              <div class="form-group">
-                <label>Change Web UI Password:</label>
-                <input
-                  type="password"
-                  id="currentPassword"
-                  placeholder="Current password"
-                />
-              </div>
-              <div class="form-group">
-                <input
-                  type="password"
-                  id="newPassword"
-                  placeholder="New password (min 8 characters)"
-                />
-              </div>
-              <div class="form-group">
-                <input
-                  type="password"
-                  id="confirmNewPassword"
-                  placeholder="Confirm new password"
-                />
-              </div>
-              <button class="btn btn-secondary" onclick="changePassword()">
-                <i data-feather="key"></i> Change Password
-              </button>
-            </div>
-          </div>
-
-          <div class="card">
-            <h3><i data-feather="bell"></i> Notification Settings</h3>
-            <div class="settings-form">
-              <div class="form-group">
-                <label>
-                  <input type="checkbox" id="notifyDeviceConnect" checked />
-                  <i data-feather="wifi"></i> Device Connected
-                </label>
-                <small>Show notification when a client device connects</small>
-              </div>
-              <div class="form-group">
-                <label>
-                  <input type="checkbox" id="notifyDeviceDisconnect" checked />
-                  <i data-feather="wifi"></i> Device Disconnected
-                </label>
-                <small
-                  >Show notification when a client device disconnects</small
-                >
-              </div>
-              <div class="form-group">
-                <label>
-                  <input type="checkbox" id="notifyPairingRequest" checked />
-                  <i data-feather="user"></i> Pairing Requests
-                </label>
-                <small
-                  >Show notification when a new device requests pairing</small
-                >
-              </div>
-              <div class="form-group">
-                <label>
-                  <input type="checkbox" id="notifyUpdates" checked />
-                  <i data-feather="download"></i> Update Notifications
-                </label>
-                <small>Show notification when updates are available</small>
-              </div>
-              <button
-                class="btn btn-secondary"
-                onclick="saveNotificationSettings()"
-              >
-                <i data-feather="bell"></i> Save Notification Settings
-              </button>
-            </div>
-          </div>
-
-          <div class="card">
-            <h3><i data-feather="trash-2"></i> Transfer Management</h3>
-            <div class="settings-form">
-              <div class="form-group">
-                <label>Session Cleanup Threshold (Days):</label>
-                <input
-                  type="number"
-                  id="cleanupThresholdInput"
-                  min="0"
-                  max="365"
-                />
-                <small
-                  >Partial uploads (.part) and download sessions older than this
-                  will be automatically cleaned up.</small
-                >
-              </div>
-              <div class="form-group" id="cleanupStatusGroup">
-                <p id="cleanupStatusText">Checking for stale sessions...</p>
-              </div>
-              <div style="display: flex; gap: 10px">
-                <button
-                  class="btn btn-primary"
-                  onclick="saveTransferSettings()"
-                >
-                  <i data-feather="save"></i> Save Threshold
-                </button>
-                <button class="btn btn-warning" onclick="executeCleanup()">
-                  <i data-feather="trash-2"></i> Clean Up Now
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="tab-content" id="phone-files">
-          <div class="card">
-            <div class="file-browser-header">
-              <h3>
-                <i data-feather="smartphone"></i>
-                <span>Phone File Explorer</span>
-                <span id="phoneReadOnlyBadge" class="status-badge warning" style="display: none;">
-                  <i data-feather="lock"></i> Read-Only
-                </span>
-              </h3>
-              <div class="file-browser-actions">
-                <select id="phoneDeviceSelector" class="device-select" style="max-width: 200px; margin-right: 10px;" onchange="handlePhoneDeviceChange(this.value)">
-                  <option value="">Select Device...</option>
-                </select>
-                <button
-                  class="btn btn-sm"
-                  onclick="goBackPhoneFiles()"
-                  id="phoneBackBtn"
-                  disabled
-                  title="Back"
-                >
-                  <i data-feather="arrow-left"></i>
-                </button>
-                <button
-                  class="btn btn-sm"
-                  onclick="goForwardPhoneFiles()"
-                  id="phoneForwardBtn"
-                  disabled
-                  title="Forward"
-                >
-                  <i data-feather="arrow-right"></i>
-                </button>
-                <button class="btn btn-sm" onclick="refreshPhoneFiles()" title="Refresh">
-                  <i data-feather="refresh-cw"></i>
-                </button>
-                <button class="btn btn-sm btn-primary" id="phoneUploadBtn" onclick="triggerUpload()" title="Upload Files">
-                  <i data-feather="upload"></i>
-                  <span>Upload</span>
-                </button>
-                <input type="file" id="phoneUploadInput" class="hidden-file-input" multiple onchange="handlePhoneUpload(this)">
-              </div>
-            </div>
-
-            <div class="file-browser-controls">
-              <div class="search-wrapper">
-                <i data-feather="search"></i>
-                <input type="text" id="phoneFileSearch" class="search-input" placeholder="Search files..." oninput="handlePhoneSearch(this.value)">
-              </div>
-              <div class="filter-controls">
-                <select id="phoneFileSort" class="sort-select" onchange="handlePhoneSort(this.value)">
-                  <option value="name_asc">Name (A-Z)</option>
-                  <option value="name_desc">Name (Z-A)</option>
-                  <option value="size_asc">Size (Smallest)</option>
-                  <option value="size_desc">Size (Largest)</option>
-                  <option value="date_desc">Last Modified (Newest)</option>
-                  <option value="date_asc">Last Modified (Oldest)</option>
-                </select>
-                <label class="toggle-hidden-btn">
-                  <input type="checkbox" id="showHiddenFiles" onchange="handleToggleHidden(this.checked)">
-                  <span>Hidden</span>
-                </label>
-              </div>
-            </div>
-
-            <div class="breadcrumb" id="phoneBreadcrumb">
-              <span>Path: /</span>
-            </div>
-
-            <div id="uploadProgressContainer" class="upload-progress-container"></div>
-
-            <div id="phoneFileList" class="file-list-container">
-              <div class="empty-state service-disabled" style="display: none;">
-                <i data-feather="alert-triangle" class="warning-icon"></i>
-                <h4>WebDAV Service Disabled</h4>
-                <p>Please enable <strong>Direct File Access</strong> in PCLink Advanced Settings on your phone to browse files.</p>
-                <button class="btn btn-primary" onclick="refreshPhoneFiles()">
-                  <i data-feather="refresh-cw"></i> Retry Connection
-                </button>
-              </div>
-              <p>Loading files...</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Batch Action Bar (Hidden by default) -->
-        <div id="batchActionBar" class="batch-action-bar">
-          <div class="selection-info">
-            <span id="selectedCount">0</span> items selected
-          </div>
-          <div class="batch-actions">
-            <button class="btn btn-sm btn-danger" id="batchDeleteBtn" onclick="deleteSelectedItems()">
-              <i data-feather="trash-2"></i> Delete
-            </button>
-            <button class="btn btn-sm btn-primary" onclick="downloadSelectedItems()">
-              <i data-feather="download"></i> Download
-            </button>
-            <button class="btn btn-sm btn-secondary" onclick="clearSelection()">
-              Cancel
-            </button>
-          </div>
-        </div>
-
-        <div class="tab-content" id="services">
-          <div class="card">
-            <h3><i data-feather="grid"></i> Services Center</h3>
-            <p>
-              Granularly enable or disable specific API features for security
-              and customization.
-            </p>
-            <div id="servicesGrid" class="services-grid">
-              <div class="loading-state">
-                <i data-feather="loader" class="spinner"></i>
-                <p>Loading services...</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="tab-content" id="logs">
-          <div class="card">
-            <h3><i data-feather="file-text"></i> Server Logs</h3>
-            <div class="log-toolbar">
-              <button class="btn btn-sm" onclick="refreshLogs()">
-                <i data-feather="refresh-cw"></i> Refresh
-              </button>
-              <button class="btn btn-sm btn-secondary" onclick="clearLogs()">
-                <i data-feather="trash-2"></i> Clear
-              </button>
-              <button
-                class="btn btn-sm"
-                id="autoRefreshToggle"
-                onclick="toggleAutoRefresh()"
-              >
-                <i data-feather="pause"></i> Auto-refresh: ON
-              </button>
-              <select id="logLevel">
-                <option value="all">All Levels</option>
-                <option value="error">Errors Only</option>
-                <option value="warning">Warnings & Errors</option>
-                <option value="info">Info & Above</option>
-              </select>
-            </div>
-            <div id="logContainer" class="log-container">
-              <pre id="logContent">Loading logs...</pre>
-            </div>
-          </div>
-        </div>
-
-        <div class="tab-content" id="guide">
-          <div class="card">
-            <h3><i data-feather="tool"></i> Connection Troubleshooting</h3>
-            <p>
-              Having trouble connecting? Use these diagnostics to resolve common
-              issues.
-            </p>
-
-            <details class="guide-details" open>
-              <summary>
-                <i data-feather="check-square"></i> Common Issues Checklist
-              </summary>
-              <div class="guide-section">
-                <ul style="list-style: none; padding-left: 0">
-                  <li style="margin-bottom: 8px">
-                    <i
-                      data-feather="check"
-                      style="
-                        width: 16px;
-                        height: 16px;
-                        color: var(--success-color);
-                      "
-                    ></i>
-                    Server is running (check system tray/status above)
-                  </li>
-                  <li style="margin-bottom: 8px">
-                    <i
-                      data-feather="check"
-                      style="
-                        width: 16px;
-                        height: 16px;
-                        color: var(--success-color);
-                      "
-                    ></i>
-                    Firewall allows PCLink (see below)
-                  </li>
-                  <li style="margin-bottom: 8px">
-                    <i
-                      data-feather="check"
-                      style="
-                        width: 16px;
-                        height: 16px;
-                        color: var(--success-color);
-                      "
-                    ></i>
-                    Both devices on same WiFi/Network
-                  </li>
-                  <li style="margin-bottom: 8px">
-                    <i
-                      data-feather="check"
-                      style="
-                        width: 16px;
-                        height: 16px;
-                        color: var(--success-color);
-                      "
-                    ></i>
-                    No VPN active on either device
-                  </li>
-                  <li style="margin-bottom: 8px">
-                    <i
-                      data-feather="check"
-                      style="
-                        width: 16px;
-                        height: 16px;
-                        color: var(--success-color);
-                      "
-                    ></i>
-                    IP addresses in same subnet (e.g. 192.168.1.x)
-                  </li>
-                </ul>
-              </div>
-            </details>
-
-            <details class="guide-details">
-              <summary>
-                <i data-feather="shield"></i> Firewall Configuration
-              </summary>
-              <div class="guide-section">
-                <p class="guide-note">
-                  Windows Firewall is the most common cause of connection
-                  issues. Ensure PCLink is allowed.
-                </p>
-
-                <div class="command-list">
-                  <div class="command-item" onclick="copyCommand(this)">
-                    <div class="command-header">
-                      <span class="command-desc"
-                        >Check if PCLink rule exists</span
-                      >
-                      <i data-feather="copy" class="copy-icon"></i>
-                    </div>
-                    <code
-                      >netsh advfirewall firewall show rule name="PCLink"</code
-                    >
-                  </div>
-
-                  <div class="command-item" onclick="copyCommand(this)">
-                    <div class="command-header">
-                      <span class="command-desc"
-                        >Add Firewall Exception (Run as Admin)</span
-                      >
-                      <i data-feather="copy" class="copy-icon"></i>
-                    </div>
-                    <code
-                      >netsh advfirewall firewall add rule name="PCLink" dir=in
-                      action=allow program="C:\path\to\pclink.exe"
-                      enable=yes</code
-                    >
-                  </div>
-                </div>
-              </div>
-            </details>
-
-            <details class="guide-details">
-              <summary>
-                <i data-feather="wifi"></i> Network Requirements
-              </summary>
-              <div class="guide-section">
-                <p class="guide-note">
-                  Both devices must be on the same local network subnet.
-                </p>
-                <ul
-                  style="
-                    margin-top: 10px;
-                    padding-left: 20px;
-                    color: var(--text-secondary);
-                    margin-bottom: 20px;
-                  "
-                >
-                  <li>
-                    <strong>IP Ranges:</strong> Usually 192.168.x.x, 10.x.x.x,
-                    or 172.16.x.x
-                  </li>
-                  <li>
-                    <strong>VPN Warning:</strong> Disable VPNs as they route
-                    traffic through external servers.
-                  </li>
-                  <li>
-                    <strong>Router Isolation:</strong> Ensure "AP Isolation" is
-                    disabled on your router.
-                  </li>
-                </ul>
-
-                <div class="command-list">
-                  <div class="command-item" onclick="copyCommand(this)">
-                    <div class="command-header">
-                      <span class="command-desc"
-                        >Show Windows IP configuration</span
-                      >
-                      <i data-feather="copy" class="copy-icon"></i>
-                    </div>
-                    <code>ipconfig</code>
-                  </div>
-                </div>
-              </div>
-            </details>
-
-            <details class="guide-details">
-              <summary>
-                <i data-feather="activity"></i> Diagnostic Commands
-              </summary>
-              <div class="guide-section">
-                <p class="guide-note">
-                  Run these commands from another computer to test
-                  accessibility.
-                </p>
-
-                <div class="command-list">
-                  <div class="command-item" onclick="copyCommand(this)">
-                    <div class="command-header">
-                      <span class="command-desc"
-                        >Test server health endpoint</span
-                      >
-                      <i data-feather="copy" class="copy-icon"></i>
-                    </div>
-                    <code>curl -k https://SERVER_IP:PORT/health</code>
-                  </div>
-                  <div class="command-item" onclick="copyCommand(this)">
-                    <div class="command-header">
-                      <span class="command-desc"
-                        >Check if port is listening (on server)</span
-                      >
-                      <i data-feather="copy" class="copy-icon"></i>
-                    </div>
-                    <code>netstat -an | findstr :PORT</code>
-                  </div>
-                  <div class="command-item" onclick="copyCommand(this)">
-                    <div class="command-header">
-                      <span class="command-desc"
-                        >Test basic network connectivity</span
-                      >
-                      <i data-feather="copy" class="copy-icon"></i>
-                    </div>
-                    <code>ping SERVER_IP</code>
-                  </div>
-                </div>
-              </div>
-            </details>
-          </div>
-
-          <div class="card">
-            <h3><i data-feather="book-open"></i> PCLink Quick Start Guide</h3>
-            <p>
-              Use these commands to manage PCLink from the terminal. Click any
-              command to copy it.
-            </p>
-
-            <div class="guide-section">
-              <h4><i data-feather="play"></i> Basic Commands</h4>
-              <div class="command-list">
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc"
-                      >Start PCLink server in background</span
-                    >
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink start</code>
-                </div>
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc">Stop running PCLink server</span>
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink stop</code>
-                </div>
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc">Check if server is running</span>
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink status</code>
-                </div>
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc">Restart the server</span>
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink restart</code>
-                </div>
-              </div>
-            </div>
-
-            <div class="guide-section">
-              <h4><i data-feather="power"></i> Auto-Start at Boot</h4>
-              <p class="guide-note">
-                Configure PCLink to start automatically when you log in:
-              </p>
-              <div class="command-list">
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc"
-                      >Enable auto-start at system login</span
-                    >
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink startup enable</code>
-                </div>
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc"
-                      >Disable auto-start at system login</span
-                    >
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink startup disable</code>
-                </div>
-              </div>
-            </div>
-
-            <div class="guide-section">
-              <h4><i data-feather="info"></i> Other Commands</h4>
-              <div class="command-list">
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc">Show PCLink version</span>
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink --version</code>
-                </div>
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc"
-                      >Show all available commands</span
-                    >
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink --help</code>
-                </div>
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc"
-                      >Open PCLink web interface in browser</span
-                    >
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink webui</code>
-                </div>
-              </div>
-            </div>
-
-            <div class="guide-section">
-              <h4><i data-feather="smartphone"></i> Mobile Pairing</h4>
-              <p class="guide-note">Connect your mobile device to PCLink:</p>
-              <div class="command-list">
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc"
-                      >Display QR code and pairing info for mobile app</span
-                    >
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink pair</code>
-                </div>
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc"
-                      >Display connection QR code in terminal</span
-                    >
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink qr</code>
-                </div>
-              </div>
-            </div>
-
-            <div class="guide-section">
-              <h4><i data-feather="file-text"></i> Logs & Debugging</h4>
-              <p class="guide-note">View logs and troubleshoot issues:</p>
-              <div class="command-list">
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc"
-                      >Display the application log file</span
-                    >
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink logs</code>
-                </div>
-                <div class="command-item" onclick="copyCommand(this)">
-                  <div class="command-header">
-                    <span class="command-desc"
-                      >Follow logs in real-time (like tail -f)</span
-                    >
-                    <i data-feather="copy" class="copy-icon"></i>
-                  </div>
-                  <code>pclink logs -f</code>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="tab-content" id="about">
-          <div class="card">
-            <div class="about-header">
-              <div class="status-icon-large">
-                <img
-                  src="/ui/assets/pclink.svg"
-                  width="50"
-                  height="50"
-                  alt="PCLink Logo"
-                />
-              </div>
-              <div class="about-title">
-                <h2>PCLink</h2>
-                <p class="about-tagline">
-                  Secure remote PC control from any device
-                </p>
-              </div>
-            </div>
-
-            <div class="about-content">
-              <div class="about-section">
-                <h3><i data-feather="info"></i> About PCLink</h3>
-                <p>
-                  Cross-platform desktop app for secure remote PC control and
-                  management, featuring a lightweight built-in WebUI and API for
-                  local or remote access. It consists of this open-source
-                  desktop server and companion apps for various platforms
-                  including iOS and Android.
-                </p>
-              </div>
-
-              <div class="about-section">
-                <h3><i data-feather="package"></i> Product Links</h3>
-                <div class="about-links">
-                  <a
-                    href="https://bytedz.com/products/pclink/"
-                    target="_blank"
-                    class="about-link"
-                  >
-                    <i data-feather="link"></i>
-                    <span>PCLink Website</span>
-                  </a>
-                  <a
-                    href="https://github.com/BYTEDz/PCLink"
-                    target="_blank"
-                    class="about-link"
-                  >
-                    <i data-feather="github"></i>
-                    <span>GitHub Repository</span>
-                  </a>
-                  <a
-                    href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink"
-                    target="_blank"
-                    class="about-link"
-                  >
-                    <i data-feather="smartphone"></i>
-                    <span>Mobile App</span>
-                  </a>
-                </div>
-              </div>
-
-              <div class="about-section">
-                <h3><i data-feather="file-text"></i> Legal</h3>
-                <div class="about-links">
-                  <a
-                    href="https://bytedz.com/legal/?doc=terms"
-                    target="_blank"
-                    class="about-link"
-                  >
-                    <i data-feather="file-text"></i>
-                    <span>Terms of Service</span>
-                  </a>
-                  <a
-                    href="https://bytedz.com/legal/?doc=privacy"
-                    target="_blank"
-                    class="about-link"
-                  >
-                    <i data-feather="shield"></i>
-                    <span>Privacy Policy</span>
-                  </a>
-                  <a
-                    href="https://bytedz.com/legal/?doc=pclink-privacy"
-                    target="_blank"
-                    class="about-link"
-                  >
-                    <i data-feather="lock"></i>
-                    <span>PCLink Privacy</span>
-                  </a>
-                </div>
-              </div>
-
-              <div class="about-section">
-                <h3><i data-feather="users"></i> Connect</h3>
-                <div class="about-links">
-                  <a
-                    href="https://github.com/AzharZouhir"
-                    target="_blank"
-                    class="about-link"
-                  >
-                    <i data-feather="github"></i>
-                    <span>Developer GitHub</span>
-                  </a>
-                  <a
-                    href="https://github.com/AzharZouhir"
-                    target="_blank"
-                    class="about-link"
-                  >
-                    <i data-feather="users"></i>
-                    <span>Organization</span>
-                  </a>
-                </div>
-              </div>
-
-              <div class="about-footer">
-                <div class="about-copyright">
-                  <span>&copy; 2025 BYTEDz, Inc.</span>
-                </div>
-                <div class="about-tagline-bottom">
-                  🕊️ Free Palestine • 🇩🇿 Made with ❤️ in Algeria
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
-
-    <div id="pairingModal" class="modal">
-      <div class="modal-content">
-        <h3><i data-feather="smartphone"></i> New Pairing Request</h3>
-        <div id="pairingRequestInfo">
-          <p>Device: <span id="requestDeviceName">-</span></p>
-          <p>IP: <span id="requestDeviceIP">-</span></p>
-          <p>Platform: <span id="requestDevicePlatform">-</span></p>
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-primary" onclick="approvePairing()">
-            ✅ Approve
-          </button>
-          <button class="btn btn-secondary" onclick="denyPairing()">
-            ❌ Deny
-          </button>
+        <div class="flex-none gap-2">
+          <button class="btn btn-sm btn-primary text-white font-bold" onclick="downloadUpdate()">Update</button>
+          <button class="btn btn-sm btn-ghost" onclick="dismissUpdate()">Dismiss</button>
         </div>
       </div>
-    </div>
 
-    <script src="/ui/static/qrcode.min.js?v=20"></script>
-    <script src="/ui/static/feather.min.js?v=20"></script>
-    <script src="/ui/static/app.js?v=33"></script>
-    <script>
-      feather.replace();
-    </script>
-  </body>
+      <!-- Dashboard -->
+      <div class="tab-content active" id="dashboard">
+        <div class="grid grid-cols-1 gap-6">
+          <div class="card bg-base-100 shadow-sm border border-base-300">
+            <div class="card-body p-6">
+              <h2 class="card-title text-sm opacity-60 uppercase mb-4"><i data-feather="power" class="w-5 text-primary"></i> Server Control</h2>
+              <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <button class="btn btn-success text-white font-bold" onclick="startRemoteServer()"><i data-feather="play"></i> Start</button>
+                <button class="btn btn-warning text-black font-bold" onclick="stopRemoteServer()"><i data-feather="pause"></i> Stop</button>
+                <button class="btn btn-primary text-white font-bold" onclick="restartRemoteServer()"><i data-feather="refresh-cw"></i> Restart</button>
+                <button class="btn btn-error text-white font-bold" onclick="shutdownServer()"><i data-feather="power"></i> Shutdown</button>
+              </div>
+            </div>
+          </div>
+          <div class="stats stats-vertical lg:stats-horizontal shadow bg-base-100 border border-base-300">
+            <div class="stat"><div class="stat-figure text-primary"><i data-feather="globe" class="w-8 h-8"></i></div><div class="stat-title text-xs font-bold uppercase">Address</div><div class="stat-value text-lg break-all" id="hostIP">Loading...</div></div>
+            <div class="stat"><div class="stat-figure text-secondary"><i data-feather="smartphone" class="w-8 h-8"></i></div><div class="stat-title text-xs font-bold uppercase">Devices</div><div class="stat-value text-lg" id="dashboardDeviceCount">0</div><div class="stat-desc font-mono" id="serverPort">Port: 38080</div></div>
+            <div class="stat"><div class="stat-figure text-accent"><i data-feather="clock" class="w-8 h-8"></i></div><div class="stat-title text-xs font-bold uppercase">Uptime</div><div class="stat-value text-lg" id="serverUptime">Just now</div><div class="stat-desc font-bold text-success" id="serverVersion">vLoading</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Devices -->
+      <div class="tab-content" id="devices">
+        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+          <h3 class="text-2xl font-bold flex items-center">Client Fleet <span class="badge badge-primary ml-3 font-bold" id="deviceCount">0</span></h3>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-ghost border-base-300" onclick="refreshDevices()"><i data-feather="refresh-cw" class="w-4"></i> Refresh</button>
+            <button class="btn btn-sm btn-error btn-outline" onclick="removeAllDevices()"><i data-feather="trash-2" class="w-4"></i> Remove All</button>
+          </div>
+        </div>
+        <div id="deviceList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        <div class="divider my-8 font-bold text-xs uppercase opacity-30 tracking-widest text-primary">Pending Requests</div>
+        <div id="pendingRequests" class="grid grid-cols-1 gap-4"></div>
+      </div>
+
+      <!-- Pairing -->
+      <div class="tab-content" id="pairing">
+        <div class="card bg-base-100 shadow-sm border border-base-300 max-w-3xl mx-auto">
+          <div class="card-body items-center text-center font-bold">
+            <h3 class="text-2xl font-black"><i data-feather="smartphone" class="inline-block mr-2 text-primary"></i> Pair New Device</h3>
+            <p class="opacity-70 font-normal mb-6 text-sm">Scan this QR code with the PCLink app to link your device.</p>
+            <div class="flex flex-wrap gap-3 justify-center mb-6">
+              <button class="btn btn-primary text-white" onclick="generateQRCode()"><i data-feather="square"></i> Generate QR Code</button>
+              <button class="btn btn-ghost border-base-300" onclick="regenerateQRCode()"><i data-feather="refresh-cw"></i> Regenerate</button>
+            </div>
+            <div id="qrCodeDisplay" class="mb-8"></div>
+            <div class="bg-base-200 p-6 rounded-xl text-left w-full border border-base-300 font-normal">
+              <h4 class="font-bold mb-4 uppercase text-xs opacity-50 tracking-widest">Setup Guide</h4>
+              <ol class="list-decimal pl-5 space-y-2 opacity-80 text-sm">
+                <li>Install the PCLink companion app from your app store.</li>
+                <li>Press the button above to generate a secure code.</li>
+                <li>Scan the code and approve the request here.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phone Files -->
+      <div class="tab-content" id="phone-files">
+        <div class="card bg-base-100 shadow-sm border border-base-300 h-full">
+          <div class="p-4 border-b border-base-300 flex flex-col md:flex-row justify-between gap-4 md:items-center">
+            <h3 class="text-xl font-bold flex items-center gap-2">
+              <i data-feather="folder" class="text-primary"></i> Phone Files
+              <span id="phoneReadOnlyBadge" class="badge badge-warning hidden font-bold uppercase text-[10px]">Read-Only</span>
+            </h3>
+            <div class="flex flex-wrap gap-2 items-center">
+              <select id="phoneDeviceSelector" class="select select-bordered select-sm w-full max-w-[180px]" onchange="handlePhoneDeviceChange(this.value)">
+                <option value="">Select Device...</option>
+              </select>
+              <div class="join">
+                <button class="btn btn-sm join-item" onclick="goBackPhoneFiles()" id="phoneBackBtn" disabled><i data-feather="arrow-left"></i></button>
+                <button class="btn btn-sm join-item" onclick="goForwardPhoneFiles()" id="phoneForwardBtn" disabled><i data-feather="arrow-right"></i></button>
+                <button class="btn btn-sm join-item" onclick="refreshPhoneFiles()"><i data-feather="refresh-cw"></i></button>
+              </div>
+              <button class="btn btn-sm btn-primary text-white" id="phoneUploadBtn" onclick="triggerUpload()"><i data-feather="upload"></i> Upload</button>
+              <input type="file" id="phoneUploadInput" class="hidden" multiple onchange="handlePhoneUpload(this)">
+            </div>
+          </div>
+          <div class="bg-base-200 p-3 flex flex-wrap gap-3 items-center border-b border-base-300">
+            <div class="flex-1 relative min-w-[150px]">
+              <i data-feather="search" class="w-4 h-4 absolute left-3 top-2.5 opacity-50"></i>
+              <input type="text" id="phoneFileSearch" class="input input-sm input-bordered w-full pl-9" placeholder="Search..." oninput="handlePhoneSearch(this.value)">
+            </div>
+            <select id="phoneFileSort" class="select select-sm select-bordered" onchange="handlePhoneSort(this.value)">
+              <option value="name_asc">Name A-Z</option>
+              <option value="size_desc">Largest</option>
+              <option value="date_desc">Newest</option>
+            </select>
+            <label class="label cursor-pointer gap-2"><span class="label-text text-xs font-bold uppercase opacity-50">Hidden</span><input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="showHiddenFiles" onchange="handleToggleHidden(this.checked)"></label>
+          </div>
+          <div class="p-2">
+            <div id="phoneBreadcrumb" class="bg-base-300 p-2 rounded text-xs font-mono mb-2 truncate border border-base-300 opacity-60">Path: /</div>
+            <div id="uploadProgressContainer" class="space-y-2 mb-2"></div>
+            <div id="phoneFileList" class="file-list-container"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Access Control (Replaced Services) -->
+      <div class="tab-content" id="services">
+        <div class="mb-6"><h3 class="text-3xl font-black">Access Control</h3><p class="opacity-50 text-xs font-black uppercase tracking-widest">Manage Features & Policies</p></div>
+        
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
+            <!-- Global Kill Switches -->
+            <div class="card bg-base-100 shadow-sm border border-base-300">
+                <div class="card-body p-5">
+                    <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="alert-triangle" class="w-4"></i> Global Kill Switches</h3>
+                    <p class="text-sm opacity-60 mb-4">Disabling a service here turns it off for <strong>ALL</strong> devices, regardless of permissions.</p>
+                    <div id="globalServicesGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Default Policy -->
+            <div class="card bg-base-100 shadow-sm border border-base-300">
+                <div class="card-body p-5">
+                    <h3 class="card-title text-sm font-black uppercase text-primary tracking-widest mb-4"><i data-feather="shield" class="w-4"></i> New Device Policy</h3>
+                    <p class="text-sm opacity-60 mb-2">Permissions automatically granted to new devices upon pairing.</p>
+                    <div class="flex flex-wrap gap-1 mb-4 bg-base-200/50 p-2 rounded-lg border border-base-300/50">
+                        <span class="text-[9px] font-black uppercase opacity-30 mr-1 self-center">Templates:</span>
+                        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Admin', 'defaultPermsGrid')">Admin</button>
+                        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Viewer', 'defaultPermsGrid')">Viewer</button>
+                        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Media', 'defaultPermsGrid')">Media</button>
+                        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Remote', 'defaultPermsGrid')">Remote</button>
+                    </div>
+                    <div id="customPolicyTemplates" class="flex flex-wrap gap-1 mb-4"></div>
+                    <div id="defaultPermsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                    </div>
+                    <div class="card-actions justify-between items-center mt-4">
+                        <button class="btn btn-xs btn-outline btn-ghost font-bold text-xs opacity-40 hover:opacity-100" onclick="saveCurrentAsTemplate('defaultPermsGrid')">Save as Template</button>
+                        <button class="btn btn-sm btn-primary text-white font-bold" onclick="saveDefaultPermissions()">Save Policy</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div class="tab-content" id="settings">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <div class="flex flex-col gap-6">
+            <div class="card bg-base-100 shadow-sm border border-base-300">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-2"><i data-feather="monitor" class="w-4"></i> UI Theme</h3>
+                <select id="themeSelector" class="select select-sm select-bordered w-full" onchange="changeTheme(this.value)">
+                  <option value="system">System Auto</option>
+                  <optgroup label="Dark Modes">
+                    <option value="dark">PCLink Dark</option>
+                    <option value="dracula">Dracula</option>
+                    <option value="synthwave">Retro Future</option>
+                    <option value="black">Pure Black</option>
+                    <option value="luxury">Luxury Gold</option>
+                    <option value="business">Enterprise</option>
+                    <option value="night">Night Owl</option>
+                    <option value="dim">Dimmed</option>
+                  </optgroup>
+                  <optgroup label="Light Modes">
+                    <option value="light">PCLink Light</option>
+                    <option value="cupcake">Soft Pink</option>
+                    <option value="emerald">Nature Green</option>
+                    <option value="corporate">Office Blue</option>
+                    <option value="cyberpunk">Cyberpunk Yellow</option>
+                    <option value="winter">Winter Blue</option>
+                    <option value="nord">Nord Gray</option>
+                  </optgroup>
+                </select>
+              </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-sm border border-base-300">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="settings" class="w-4"></i> Server Configuration</h3>
+                <div class="form-control w-full mb-3">
+                  <label class="label py-1"><span class="label-text font-bold text-xs opacity-60">Port</span></label>
+                  <input type="number" id="serverPortInput" class="input input-sm input-bordered w-full font-bold" readonly />
+                </div>
+                <div class="form-control w-full mb-4">
+                  <label class="label py-1"><span class="label-text font-bold text-xs opacity-60">Access Key</span></label>
+                  <div class="join w-full">
+                    <input type="password" id="apiKeyDisplay" class="input input-sm input-bordered join-item w-full font-mono text-xs" readonly value="••••••••••••" />
+                    <button class="btn btn-sm btn-square btn-ghost border-base-300 border-y join-item" onclick="toggleApiKeyVisibility()"><i data-feather="eye" id="apiKeyEye"></i></button>
+                    <button class="btn btn-sm btn-square btn-ghost border-base-300 border-y join-item" onclick="copyApiKey()"><i data-feather="copy"></i></button>
+                    <button class="btn btn-sm btn-secondary join-item text-[10px] uppercase font-black" onclick="regenerateApiKey()">Regen</button>
+                  </div>
+                </div>
+                <div class="flex flex-col gap-2 mb-4">
+                  <label class="cursor-pointer flex items-center gap-3 bg-base-200 p-2 rounded-lg hover:bg-base-300 transition-colors">
+                    <input type="checkbox" id="autoStartCheckbox" class="toggle toggle-sm toggle-primary" />
+                    <span class="label-text font-bold text-xs">Start with system</span>
+                  </label>
+                </div>
+                <button class="btn btn-sm btn-primary w-full shadow-sm text-white font-bold uppercase" onclick="saveSettings()"><i data-feather="save" class="w-4"></i> Save Settings</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-6">
+            <div class="card bg-base-100 shadow-sm border border-base-300">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="lock" class="w-4"></i> Access Control</h3>
+                <div class="space-y-2 mb-4 font-bold">
+                  <input type="password" id="currentPassword" placeholder="Current Password" class="input input-sm input-bordered w-full text-xs" />
+                  <input type="password" id="newPassword" placeholder="New Password" class="input input-sm input-bordered w-full text-xs" />
+                  <input type="password" id="confirmNewPassword" placeholder="Confirm New" class="input input-sm input-bordered w-full text-xs" />
+                </div>
+                <button class="btn btn-sm btn-outline w-full uppercase text-xs" onclick="changePassword()"><i data-feather="key" class="w-4"></i> Change Password</button>
+              </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-sm border border-base-300 font-bold">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="bell" class="w-4"></i> Notifications</h3>
+                <div class="flex flex-col gap-2 mb-4">
+                  <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input type="checkbox" id="notifyDeviceConnect" class="checkbox checkbox-sm checkbox-primary" /><span>Device Connected</span></label>
+                  <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input type="checkbox" id="notifyDeviceDisconnect" class="checkbox checkbox-sm checkbox-primary" /><span>Device Disconnected</span></label>
+                  <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input type="checkbox" id="notifyPairingRequest" class="checkbox checkbox-sm checkbox-primary" /><span>Pairing Requests</span></label>
+                  <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input type="checkbox" id="notifyUpdates" class="checkbox checkbox-sm checkbox-primary" /><span>Update Available</span></label>
+                </div>
+                <button class="btn btn-sm btn-secondary w-full text-white font-bold" onclick="saveNotificationSettings()">Save Preferences</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logs -->
+      <div class="tab-content" id="logs">
+        <div class="card bg-base-100 shadow-sm border border-base-300 h-[calc(100vh-140px)] flex flex-col">
+          <div class="p-3 border-b border-base-300 flex flex-wrap justify-between items-center bg-base-200 gap-2">
+            <h3 class="font-bold flex items-center gap-2"><i data-feather="file-text" class="text-primary w-5"></i> System Logs</h3>
+            <div class="flex items-center gap-2">
+              <button class="btn btn-sm btn-ghost border-base-300" onclick="refreshLogs()"><i data-feather="refresh-cw" class="w-4"></i></button>
+              <button class="btn btn-sm btn-ghost border-base-300" onclick="clearLogs()"><i data-feather="trash-2" class="w-4"></i></button>
+              <button class="btn btn-sm btn-outline font-bold" id="autoRefreshToggle" onclick="toggleAutoRefresh()"><i data-feather="pause" class="w-4"></i> <span class="hidden sm:inline">Auto</span></button>
+            </div>
+          </div>
+          <div id="logContainer" class="flex-1 overflow-auto p-4 bg-[#0b1120] text-gray-300 log-container">
+            <pre id="logContent">Streaming logs...</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Guide -->
+      <div class="tab-content" id="guide">
+        <div class="max-w-4xl mx-auto space-y-4">
+          <h2 class="text-2xl font-black mb-6">Support</h2>
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+            <input type="checkbox" checked="checked" /> 
+            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="shield" class="text-primary w-5"></i> Firewall</div>
+            <div class="collapse-content space-y-4 pt-2">
+              <p class="text-xs opacity-70">Run these commands in CMD/Powershell as Admin if connection fails.</p>
+              <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer hover:border-primary border border-transparent" onclick="copyCommand(this)">
+                <pre data-prefix="$"><code>netsh advfirewall firewall show rule name="PCLink"</code></pre>
+              </div>
+              <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer hover:border-primary border border-transparent" onclick="copyCommand(this)">
+                <pre data-prefix="$" class="text-warning"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow program="C:\path\to\pclink.exe" enable=yes</code></pre>
+              </div>
+            </div>
+          </div>
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+            <input type="checkbox" /> 
+            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="wifi" class="text-primary w-5"></i> Network</div>
+            <div class="collapse-content space-y-4 pt-2">
+              <ul class="list-disc pl-5 space-y-2 text-sm opacity-80">
+                <li>Same WiFi required</li>
+                <li>Disable VPN while pairing</li>
+                <li>AP Isolation must be OFF</li>
+              </ul>
+              <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
+                <pre data-prefix="$"><code>ipconfig</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- About -->
+      <div class="tab-content" id="about">
+        <div class="card bg-base-100 shadow-sm border border-base-300 max-w-2xl mx-auto mt-10">
+          <div class="card-body items-center text-center py-10">
+            <div class="bg-primary p-5 rounded-3xl mb-4 shadow-lg">
+              <img src="/ui/assets/pclink.svg" class="w-14 h-14 icon-white" alt="Logo" />
+            </div>
+            <h2 class="text-3xl font-black tracking-tight">PCLink</h2>
+            <p class="opacity-60 font-bold uppercase tracking-widest text-[10px] mb-8">Node Control Panel</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 w-full mb-8 font-bold">
+              <a href="https://bytedz.com" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Website</a>
+              <a href="https://github.com/BYTEDz/PCLink" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">GitHub</a>
+              <a href="#" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Support</a>
+              <a href="#" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Legal</a>
+            </div>
+            <div class="divider opacity-10 my-2"></div>
+            <p class="text-[10px] font-black opacity-30 tracking-[0.3em] uppercase">© 2025 BYTEDZ, INC.</p>
+            <p class="text-[9px] uppercase tracking-widest opacity-40 mt-1 font-black">🕊️ Free Palestine • 🇩🇿 Made in Algeria</p>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <div class="drawer-side z-50">
+    <label for="main-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
+    <aside class="w-64 min-h-full bg-base-100 border-r border-base-300 flex flex-col">
+      <div class="p-6 flex items-center gap-3">
+        <div class="bg-primary p-2 rounded-lg shadow-md"><img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" /></div>
+        <h1 class="text-xl font-bold tracking-tighter">PCLink</h1>
+      </div>
+      <nav class="sidebar-nav menu flex-1 px-3 gap-1 font-bold">
+        <button class="nav-item active btn btn-ghost justify-start gap-3 w-full" data-tab="dashboard" onclick="closeDrawer()"><i data-feather="home" class="w-4"></i> Dashboard</button>
+        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="devices" onclick="closeDrawer()"><i data-feather="smartphone" class="w-4"></i> Devices</button>
+        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="pairing" onclick="closeDrawer()"><i data-feather="link" class="w-4"></i> Pairing</button>
+        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="phone-files" onclick="closeDrawer()"><i data-feather="folder" class="w-4"></i> Phone Files</button>
+        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="services" onclick="closeDrawer()"><i data-feather="shield" class="w-4"></i> Access Control</button>
+        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="settings" onclick="closeDrawer()"><i data-feather="settings" class="w-4"></i> Settings</button>
+        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="logs" onclick="closeDrawer()"><i data-feather="terminal" class="w-4"></i> Logs</button>
+        <div class="divider my-2 opacity-20"></div>
+        <button class="nav-item btn btn-ghost justify-start gap-3 w-full opacity-70" data-tab="guide" onclick="closeDrawer()"><i data-feather="book-open" class="w-4"></i> Guide</button>
+        <button class="nav-item btn btn-ghost justify-start gap-3 w-full opacity-70" data-tab="about" onclick="closeDrawer()"><i data-feather="help-circle" class="w-4"></i> About</button>
+      </nav>
+      <div class="p-4 border-t border-base-300">
+        <a href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink" target="_blank" class="flex items-center gap-3 p-3 bg-base-200 rounded-xl hover:bg-base-300 transition-all font-bold">
+          <div class="text-success"><i data-feather="download"></i></div>
+          <div class="leading-tight"><p class="text-xs">Companion App</p><p class="text-[10px] opacity-40">Google Play</p></div>
+        </a>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- Modal: Pairing -->
+<dialog id="pairingModal" class="modal font-bold">
+  <div class="modal-box">
+    <h3 class="font-black text-lg"><i data-feather="smartphone" class="inline-block mr-2 text-primary"></i> Pair Request</h3>
+    <div id="pairingRequestInfo" class="bg-base-200 p-4 rounded-lg my-4 space-y-1 text-sm font-bold border border-base-300">
+      <p>Device: <span id="requestDeviceName" class="font-black text-primary">-</span></p>
+      <p>IP: <span id="requestDeviceIP" class="font-mono opacity-60">-</span></p>
+      <p>Platform: <span id="requestDevicePlatform" class="opacity-60">-</span></p>
+    </div>
+    <div class="modal-action">
+      <button class="btn btn-primary text-white" onclick="approvePairing()">Approve</button>
+      <button class="btn btn-ghost" onclick="denyPairing()">Deny</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Modal: Device Permissions -->
+<dialog id="permissionsModal" class="modal">
+  <div class="modal-box border border-base-300">
+    <h3 class="font-black text-xl mb-4 flex items-center gap-2" id="permModalTitle">
+        <i data-feather="shield" class="text-primary w-5"></i> <span class="opacity-50 text-xs font-black uppercase tracking-widest">Access Control</span>
+    </h3>
+    <div class="flex flex-wrap gap-2 mb-6 bg-base-200/50 p-3 rounded-xl border border-base-300/50">
+        <span class="text-xs font-black uppercase opacity-30 mr-2 self-center">Quick Select:</span>
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Admin', 'permList')">Admin</button>
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Viewer', 'permList')">Viewer</button>
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Media', 'permList')">Media</button>
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Remote', 'permList')">Remote</button>
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-error" onclick="applyPermissionTemplate('None', 'permList')">None</button>
+    </div>
+    <div id="customPermTemplates" class="flex flex-wrap gap-1 mb-4"></div>
+    <div id="permList" class="grid grid-cols-2 gap-3 mb-6">
+        <!-- JS injects checkboxes here -->
+    </div>
+    <div class="modal-action justify-between items-center border-t border-base-300 pt-4">
+      <button class="btn btn-xs btn-outline btn-ghost font-bold text-xs opacity-40 hover:opacity-100" onclick="saveCurrentAsTemplate('permList')">Save current as Template</button>
+      <form method="dialog">
+        <button class="btn btn-sm btn-ghost font-bold uppercase text-xs">Close</button>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<div id="batchActionBar" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-base-100 border border-primary px-4 py-3 rounded-full shadow-2xl flex flex-wrap justify-center items-center gap-4 transition-all duration-300 translate-y-32 z-50 w-11/12 max-w-lg">
+  <div class="font-black text-sm border-r border-base-300 pr-4"><span id="selectedCount" class="text-primary">0</span> Items</div>
+  <div class="flex gap-2">
+    <button class="btn btn-sm btn-error text-white" onclick="deleteSelectedItems()"><i data-feather="trash-2" class="w-3"></i></button>
+    <button class="btn btn-sm btn-primary text-white" onclick="downloadSelectedItems()"><i data-feather="download" class="w-3"></i> Download</button>
+    <button class="btn btn-sm btn-ghost" onclick="clearSelection()">Cancel</button>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="/ui/static/qrcode.min.js"></script>
+<script src="/ui/static/feather.min.js"></script>
+<script src="/ui/static/app.js"></script>
+</body>
 </html>
