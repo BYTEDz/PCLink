@@ -29,6 +29,7 @@ class PCLinkWebUI {
         this.websocket = null;
         this.serverStartTime = Date.now();
         this.currentPhonePath = '/';
+        this.notificationSettings = { deviceConnect: true, deviceDisconnect: true, pairingRequest: true, updates: true };
         this.phoneNavHistory = ['/'];
         this.phoneHistoryIndex = 0;
         this.phoneSearchQuery = '';
@@ -516,11 +517,11 @@ class PCLinkWebUI {
     }
 
     loadNotificationSettings() {
-        const saved = localStorage.getItem('pclink_notifications');
-        return saved ? JSON.parse(saved) : { deviceConnect: true, deviceDisconnect: true, pairingRequest: true, updates: true };
+        // Now loaded via loadSettings() from server
+        return this.notificationSettings;
     }
 
-    saveNotificationSettings() { localStorage.setItem('pclink_notifications', JSON.stringify(this.notificationSettings)); }
+    saveNotificationSettings() { /* Handled via window.saveNotificationSettings */ }
 
     async loadSettings() {
         try {
@@ -532,6 +533,14 @@ class PCLinkWebUI {
                 const autoStart = document.getElementById('autoStartCheckbox');
                 if (autoStart && config.auto_start !== undefined) autoStart.checked = config.auto_start;
                 await this.loadTransferSettings();
+                if (config.notifications) {
+                    this.notificationSettings = {
+                        deviceConnect: config.notifications.device_connect ?? true,
+                        deviceDisconnect: config.notifications.device_disconnect ?? true,
+                        pairingRequest: config.notifications.pairing_request ?? true,
+                        updates: config.notifications.updates ?? true
+                    };
+                }
                 this.loadApiKey();
                 window.loadNotificationSettings();
             }
@@ -870,14 +879,29 @@ window.checkForUpdates = async () => {
 window.dismissUpdate = () => { const b = document.getElementById('updateBanner'); if(b) b.classList.add('hidden'); localStorage.setItem('updateDismissed', Date.now().toString()); };
 window.downloadUpdate = () => { if(window.updateData?.download_url) { window.open(window.updateData.download_url, '_blank'); window.dismissUpdate(); } };
 
-window.saveNotificationSettings = () => {
+window.saveNotificationSettings = async () => {
     if (!window.pclinkUI) return;
-    window.pclinkUI.notificationSettings = {
-        deviceConnect: document.getElementById('notifyDeviceConnect')?.checked, deviceDisconnect: document.getElementById('notifyDeviceDisconnect')?.checked,
-        pairingRequest: document.getElementById('notifyPairingRequest')?.checked, updates: document.getElementById('notifyUpdates')?.checked
+    const settings = {
+        deviceConnect: document.getElementById('notifyDeviceConnect')?.checked,
+        deviceDisconnect: document.getElementById('notifyDeviceDisconnect')?.checked,
+        pairingRequest: document.getElementById('notifyPairingRequest')?.checked,
+        updates: document.getElementById('notifyUpdates')?.checked
     };
-    window.pclinkUI.saveNotificationSettings();
-    window.pclinkUI.showToast('Saved', 'Preferences updated', 'success');
+    window.pclinkUI.notificationSettings = settings;
+    try {
+        const res = await window.pclinkUI.webUICall('/settings/save', { 
+            method: 'POST', 
+            body: JSON.stringify({ 
+                notifications: {
+                    device_connect: settings.deviceConnect,
+                    device_disconnect: settings.deviceDisconnect,
+                    pairing_request: settings.pairingRequest,
+                    updates: settings.updates
+                }
+            }) 
+        });
+        if (res.ok) window.pclinkUI.showToast('Saved', 'Preferences updated', 'success');
+    } catch (e) { window.pclinkUI.showToast('Error', 'Failed to save', 'error'); }
 };
 window.loadNotificationSettings = () => {
     const s = window.pclinkUI?.notificationSettings || {};

@@ -59,6 +59,14 @@ DEFAULT_SETTINGS = {
         "screenshot": True,
         "command": False,
         "wol": True,
+    },
+    
+    # Notification preferences (UI toasts and tray messages)
+    "notifications": {
+        "device_connect": True,
+        "device_disconnect": True,
+        "pairing_request": True,
+        "updates": True
     }
 }
 

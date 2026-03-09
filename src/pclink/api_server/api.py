@@ -903,6 +903,11 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                     extension_manager.unload_all_extensions()
             if "allow_insecure_shell" in data: config_manager.set("allow_insecure_shell", data["allow_insecure_shell"])
 
+            if "notifications" in data:
+                current_notifications = config_manager.get("notifications", {}).copy()
+                current_notifications.update(data["notifications"])
+                config_manager.set("notifications", current_notifications)
+
             log.info(f"Server settings updated via web UI: {data}")
             return {"status": "success", "message": "Settings saved successfully"}
         except HTTPException as he: raise he
@@ -927,7 +932,8 @@ def create_api_app(api_key: str, controller_instance, connected_devices: Dict, a
                 "auto_start": auto_start_status, 
                 "allow_terminal_access": config_manager.get("allow_terminal_access", False),
                 "allow_extensions": config_manager.get("allow_extensions", False),
-                "allow_insecure_shell": config_manager.get("allow_insecure_shell", False)
+                "allow_insecure_shell": config_manager.get("allow_insecure_shell", False),
+                "notifications": config_manager.get("notifications", {})
             }
         except Exception as e: log.error(f"Failed to load settings: {e}"); return {"status": "error", "message": str(e)}
     
