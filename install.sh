@@ -69,8 +69,8 @@ detect_arch() {
 
 detect_distro() {
     if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        echo "$ID"
+        # Using a subshell to avoid polluting the installer's environment
+        ( . /etc/os-release && echo "$ID" )
     elif command -v lsb_release &>/dev/null; then
         lsb_release -si | tr '[:upper:]' '[:lower:]'
     else
@@ -79,22 +79,31 @@ detect_distro() {
 }
 
 detect_pkg_format() {
-    local distro="$1"
-    case "$distro" in
-        ubuntu|debian|linuxmint|pop|elementary|zorin|kali|raspbian|neon)
-            echo "deb" ;;
-        fedora|rhel|centos|rocky|alma|opensuse*|sles|amzn)
-            echo "rpm" ;;
-        arch|manjaro|endeavouros|garuda|cachyos|artix)
-            echo "archlinux" ;;
-        *)
-            if command -v dpkg &>/dev/null; then echo "deb"
-            elif command -v rpm &>/dev/null; then echo "rpm"
-            elif command -v pacman &>/dev/null; then echo "archlinux"
-            else fail "No supported package manager found (dpkg/rpm/pacman)"
-            fi
-            ;;
-    esac
+    local os_identifiers=""
+    
+    # Safely extract ID and ID_LIKE from os-release to determine the OS "family"
+    if [ -f /etc/os-release ]; then
+        os_identifiers=$(grep -E '^(ID|ID_LIKE)=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d "'" | tr '\n' ' ' | tr '[:upper:]' '[:lower:]' || true)
+    fi
+
+    # Smartly map the underlying family to the package type
+    if [[ "$os_identifiers" == *"debian"* || "$os_identifiers" == *"ubuntu"* ]]; then
+        echo "deb"
+    elif [[ "$os_identifiers" == *"fedora"* || "$os_identifiers" == *"rhel"* || "$os_identifiers" == *"centos"* || "$os_identifiers" == *"suse"* || "$os_identifiers" == *"alma"* || "$os_identifiers" == *"rocky"* || "$os_identifiers" == *"amzn"* ]]; then
+        echo "rpm"
+    elif [[ "$os_identifiers" == *"arch"* ]]; then
+        echo "archlinux"
+    else
+        # Smart fallback: look for high-level package managers first (which are harder to false-positive)
+        if command -v apt-get &>/dev/null; then echo "deb"
+        elif command -v dnf &>/dev/null || command -v yum &>/dev/null || command -v zypper &>/dev/null; then echo "rpm"
+        elif command -v pacman &>/dev/null; then echo "archlinux"
+        elif command -v dpkg &>/dev/null; then echo "deb"
+        elif command -v rpm &>/dev/null; then echo "rpm"
+        else
+            fail "No supported package manager found (apt/dnf/pacman)."
+        fi
+    fi
 }
 
 get_pkg_extension() {
@@ -113,7 +122,7 @@ get_current_version() {
     fi
 }
 
-version_gt() { test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"; }
+version_gt() { test "$(printf '%s\n' "$@" | sort -V | sed -n '1p')" != "$1"; }
 
 fetch_release_info() {
     local json
@@ -125,8 +134,8 @@ fetch_release_info() {
         fail "Neither curl nor wget found."
     fi
     
-    if ! echo "$json" | grep -q '"tag_name"'; then
-        fail "GitHub API response invalid or rate-limited.\nResponse: $(echo "$json" | head -n 5)..."
+    if [[ "$json" != *'"tag_name"'* ]]; then
+        fail "GitHub API response invalid or rate-limited.\nResponse: ${json:0:200}..."
     fi
     echo "$json"
 }
@@ -141,7 +150,7 @@ find_asset_url() {
     [[ "$ext" == "\.pkg\.tar\.zst" ]] && arch_patterns+=("any")
 
     for pattern in "${arch_patterns[@]}"; do
-        url=$(echo "$json" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]*?'"${pattern}"'[^"]*?'"${ext}"'(?=")' | head -1 || true)
+        url=$(echo "$json" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]*?'"${pattern}"'[^"]*?'"${ext}"'(?=")' | sed -n '1p' || true)
         if [[ -n "$url" ]]; then
             echo "$url"
             return 0
@@ -203,7 +212,8 @@ main() {
     current_v=$(get_current_version)
     arch=$(detect_arch)
     distro=$(detect_distro)
-    pkg_format=$(detect_pkg_format "$distro")
+    
+    pkg_format=$(detect_pkg_format) 
     ext=$(get_pkg_extension "$pkg_format")
 
     info "System: ${BOLD}${distro}${NC} (${arch}) → ${pkg_format}"
@@ -215,7 +225,8 @@ main() {
     info "Fetching latest release information..."
     local release_json
     release_json=$(fetch_release_info)
-    latest_v=$(echo "$release_json" | grep -oP '"tag_name"\s*:\s*"v?\K[^"]+' | head -1 || true)
+    
+    latest_v=$(echo "$release_json" | grep -oP '"tag_name"\s*:\s*"v?\K[^"]+' | sed -n '1p' || true)
     
     ok "Latest version: ${BOLD}${latest_v}${NC}"
 
