@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-03-11
+
+# Release v3.6.0
+
+This release marks a significant milestone in security and system integration. We’ve introduced a hardened permission architecture, native Linux desktop support, and critical security patches to ensure a more robust and professional environment.
+
+> **⚠️ BREAKING CHANGE:** This version updates the API architecture to a permission-based system. Existing device sessions may need to be re-authenticated, and the master API key can now be rotated to revoke all active sessions.
+
+---
+
+### 🚀 Added
+
+- **Power Management Wrapper:** New sudoers configuration and wrapper for Linux, enabling remote power actions (Reboot/Shutdown).
+- **Linux Desktop Integration:** Added official icons, `.desktop` entry, and `man` pages for a native OS experience.
+- **Global Permission Middleware:** Integrated a new enforcement layer for all API services to improve security.
+- **Per-Device Management:** Fine-grained control over which devices have access to specific system functions.
+- **Master Key Rotation:** Added the ability to regenerate the master API key, instantly revoking all existing device sessions.
+- **Web UI Themes:** Support for custom themes in the Web interface.
+- **Linux Auto-Installer:** A new automated script to simplify the setup process on Linux environments.
+
+### 🔄 Changed
+
+- **Architecture Refactor:** Updated the API versioning to support the new permission-based handshake.
+- **PKGBUILD Enhancements:** Refactored for Arch Linux to include comprehensive system dependencies and service integration.
+- **WebDAV Improvements:** Faster file browsing with automated JSON mapping for directory trees.
+- **UI Modernization:** Significant refactor of the Web UI for improved component structure and a modernized look.
+- **Dependency Updates:** Refreshed third-party notices and core dependencies.
+
+### 🛡️ Fixed
+
+- **Security Patch:** Resolved a potential directory traversal vulnerability during extension extraction.
+- **Logic Fix:** Fixed an issue where duplicate device pairings could occur under specific network conditions.
+
+### 🗑️ Removed
+
+- **WinGet Workflow:** The automated WinGet publication workflow has been retired.
+
+---
+
+### 📦 Installation & Update
+
+For Arch Linux users, please use the updated AUR package: `pclink-bin`.
+For other Linux distributions, you can now use our new **Automated Installer**:
+`curl -sSL https://get.pclink.dev | bash` (Replace with your actual URL if different)
+
+**Full Changelog**: [v3.5.0...v3.6.0](https://github.com/BYTEDz/PCLink/compare/v3.5.0...v3.6.0)
+
 ## [3.5.0] - 2026-03-06
 
 # 🚀 v3.5.0 Release Notes
