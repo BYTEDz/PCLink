@@ -1,6 +1,6 @@
 <div align="center">
 
-![PCLink Banner](assets/pclink_logo.svg)
+<img src="assets/pclink_logo.svg" width="120" alt="PCLink Logo">
 
 # PCLink Server
 
