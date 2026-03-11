@@ -11,7 +11,6 @@ TMP_DIR=""
 UPDATE_MODE=false
 ASSUME_YES=false
 
-# --- Colors ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -20,7 +19,6 @@ ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 fail()  { echo -e "${RED}[ERROR]${NC} $1" >&2; cleanup; exit 1; }
 
-# Helper for interactive prompts that works even when script is piped
 ask() {
     local prompt="$1"
     local default="${2:-}"
@@ -28,7 +26,11 @@ ask() {
     if [[ "$ASSUME_YES" == "true" ]]; then
         return 0
     fi
-    read -rp "$(echo -e "${YELLOW}${prompt}${NC} ")" response < /dev/tty
+    if [ -t 0 ] || [ -c /dev/tty ]; then
+        read -rp "$(echo -e "${YELLOW}${prompt}${NC} ")" response < /dev/tty
+    else
+        response="$default"
+    fi
     if [[ -z "$response" ]]; then response="$default"; fi
     [[ "${response,,}" =~ ^(y|yes)$ ]]
 }
@@ -40,7 +42,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# --- Parse Arguments ---
 for arg in "$@"; do
     case $arg in
         --update|-u) UPDATE_MODE=true ;;
@@ -55,7 +56,6 @@ for arg in "$@"; do
     esac
 done
 
-# --- Detect System ---
 detect_arch() {
     local arch
     arch=$(uname -m)
@@ -99,16 +99,14 @@ detect_pkg_format() {
 
 get_pkg_extension() {
     case "$1" in
-        deb)       echo ".deb" ;;
-        rpm)       echo ".rpm" ;;
-        archlinux) echo ".pkg.tar.zst" ;;
+        deb)       echo "\.deb" ;;
+        rpm)       echo "\.rpm" ;;
+        archlinux) echo "\.pkg\.tar\.zst" ;;
     esac
 }
 
-# --- Version Checks ---
 get_current_version() {
     if command -v pclink &>/dev/null; then
-        # Try getting version from binary
         pclink --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "installed-unknown"
     else
         echo "none"
@@ -117,15 +115,18 @@ get_current_version() {
 
 version_gt() { test "$(printf '%s\n' "$@" | sort -V | head -n 1)" != "$1"; }
 
-# --- GitHub API Helpers ---
 fetch_release_info() {
     local json
     if command -v curl &>/dev/null; then
-        json=$(curl -fsSL "$API_URL") || fail "Failed to fetch release info from GitHub"
+        json=$(curl -fsSL "$API_URL" 2>/dev/null) || fail "Failed to fetch release info from GitHub"
     elif command -v wget &>/dev/null; then
-        json=$(wget -qO- "$API_URL") || fail "Failed to fetch release info from GitHub"
+        json=$(wget -qO- "$API_URL" 2>/dev/null) || fail "Failed to fetch release info from GitHub"
     else
         fail "Neither curl nor wget found."
+    fi
+    
+    if ! echo "$json" | grep -q '"tag_name"'; then
+        fail "GitHub API response invalid or rate-limited.\nResponse: $(echo "$json" | head -n 5)..."
     fi
     echo "$json"
 }
@@ -134,17 +135,13 @@ find_asset_url() {
     local json="$1" arch="$2" ext="$3"
     local url
 
-    # Arch handling: Arch packages usually use 'any' or 'x86_64'
     local arch_patterns=("$arch")
-    if [[ "$ext" == ".pkg.tar.zst" ]]; then
-        arch_patterns+=("any")
-    fi
     [[ "$arch" == "amd64" ]] && arch_patterns+=("x86_64")
     [[ "$arch" == "arm64" ]] && arch_patterns+=("aarch64")
+    [[ "$ext" == "\.pkg\.tar\.zst" ]] && arch_patterns+=("any")
 
     for pattern in "${arch_patterns[@]}"; do
-        # Extract browser_download_url that matches pattern and extension
-        url=$(echo "$json" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]*'"${pattern}"'[^"]*\'"${ext}"'"' | head -1)
+        url=$(echo "$json" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]*?'"${pattern}"'[^"]*?'"${ext}"'(?=")' | head -1 || true)
         if [[ -n "$url" ]]; then
             echo "$url"
             return 0
@@ -163,7 +160,6 @@ download_file() {
     fi
 }
 
-# --- Installers ---
 install_package() {
     local pkg="$1" format="$2"
     case "$format" in
@@ -186,10 +182,21 @@ install_package() {
     esac
 }
 
-# --- Main Flow ---
+fallback_python_install() {
+    info "Falling back to Python installation..."
+    if command -v pipx &>/dev/null; then
+        pipx install pclink || fail "Pipx installation failed."
+    else
+        python3 -m pip install --user --upgrade pclink --break-system-packages 2>/dev/null || \
+        python3 -m pip install --user --upgrade pclink || fail "Pip installation failed."
+    fi
+    ok "Installed successfully via Python environment."
+    exit 0
+}
+
 main() {
     echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║       PCLink Smart Installer v2          ║${NC}"
+    echo -e "${BOLD}║          PCLink Smart Installer          ║${NC}"
     echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}\n"
 
     local current_v latest_v arch distro pkg_format ext
@@ -208,7 +215,7 @@ main() {
     info "Fetching latest release information..."
     local release_json
     release_json=$(fetch_release_info)
-    latest_v=$(echo "$release_json" | grep -oP '"tag_name"\s*:\s*"v?\K[^"]+' | head -1)
+    latest_v=$(echo "$release_json" | grep -oP '"tag_name"\s*:\s*"v?\K[^"]+' | head -1 || true)
     
     ok "Latest version: ${BOLD}${latest_v}${NC}"
 
@@ -224,32 +231,26 @@ main() {
         fi
     fi
 
-    # Find matching asset
     local asset_url
     asset_url=$(find_asset_url "$release_json" "$arch" "$ext") || {
-        warn "No matching ${ext} package found for ${arch}."
-        info "Falling back to Pip install..."
-        python3 -m pip install --user --upgrade pclink || fail "Pip installation failed."
-        ok "Installed successfully via Pip."
-        exit 0
+        warn "No matching native package found for ${arch}."
+        fallback_python_install
     }
 
     ok "Target package: $(basename "$asset_url")"
 
-    # confirm
     echo ""
     if ! ask "This will install PCLink ${latest_v} system-wide (requires sudo). Continue? [Y/n]" "y"; then
         info "Installation cancelled."
         exit 0
     fi
 
-    # Download and Install
     TMP_DIR=$(mktemp -d)
     local pkg_file="${TMP_DIR}/$(basename "$asset_url")"
     download_file "$asset_url" "$pkg_file"
     
     echo ""
-    info "Preparing for system-wide installation (requires sudo)..."
+    info "Preparing for system-wide installation..."
     install_package "$pkg_file" "$pkg_format"
 
     echo -e "\n${GREEN}${BOLD}✓ PCLink ${latest_v} installed successfully!${NC}"
