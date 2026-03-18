@@ -83,4 +83,4 @@ scripts:
   postremove: build/nfpm/scripts/postrm
   preremove: build/nfpm/scripts/prerm
 section: net
-version: 3.5.0
+version: 3.6.0
