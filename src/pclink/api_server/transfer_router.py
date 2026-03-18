@@ -71,7 +71,13 @@ class DownloadStatusResponse(BaseModel):
 
 def _encode_filename(filename: str) -> str:
     quoted = urllib.parse.quote(filename)
-    return f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quoted}'
+    # the 'filename' parameter must be ascii. non-ascii names can only be in 'filename*'
+    # but we can provide a safe fallback or just omit the plain 'filename'
+    try:
+        filename.encode('ascii')
+        return f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quoted}'
+    except UnicodeEncodeError:
+        return f'attachment; filename*=UTF-8\'\'{quoted}'
 
 # --- UPLOAD ENDPOINTS ---
 
@@ -93,10 +99,10 @@ async def initiate_upload(payload: UploadInitiatePayload, client_id: str = Depen
             payload.file_size or 0, payload.conflict_resolution
         )
         return UploadInitiateResponse(**res)
-    except ValueError as e: raise HTTPException(400, str(e))
+    except (ValueError, ValidationError) as e: raise HTTPException(400, str(e))
     except FileExistsError as e: raise HTTPException(409, str(e))
     except Exception as e: 
-        log.error(f"Init upload failed: {e}")
+        log.error(f"Init upload failed error: {e}", exc_info=True)
         raise HTTPException(500, str(e))
 
 @upload_router.get("/status/{upload_id}")
@@ -114,26 +120,30 @@ async def get_upload_status(upload_id: str, client_id: str = Depends(get_client_
 
 @upload_router.post("/chunk/{upload_id}")
 async def upload_chunk(upload_id: str, request: Request, offset: int = Query(...), client_id: str = Depends(get_client_id)):
-    meta = transfer_service.manage_session(upload_id, op="read", type="upload")
-    if not meta or not transfer_service.verify_ownership(meta, client_id):
-        raise HTTPException(404, "Upload not found")
-
-    data = bytearray()
     try:
-        async for chunk in request.stream(): data.extend(chunk)
-    except ClientDisconnect:
-        return {"status": "interrupted"}
+        meta = transfer_service.manage_session(upload_id, op="read", type="upload")
+        if not meta or not transfer_service.verify_ownership(meta, client_id):
+            raise HTTPException(404, "Upload not found")
 
-    return await transfer_service.write_chunk(upload_id, offset, bytes(data))
+        data = bytearray()
+        try:
+            async for chunk in request.stream(): data.extend(chunk)
+        except ClientDisconnect:
+            return {"status": "interrupted"}
+
+        return await transfer_service.write_chunk(upload_id, offset, bytes(data))
+    except Exception as e:
+        log.error(f"Chunk upload failed for {upload_id}: {e}", exc_info=True)
+        raise HTTPException(500, str(e))
 
 @upload_router.post("/complete/{upload_id}")
 async def complete_upload(upload_id: str, bg_tasks: BackgroundTasks, client_id: str = Depends(get_client_id)):
     try:
         path = await transfer_service.complete_upload(upload_id)
         return {"status": "completed", "path": path}
-    except ValueError as e: raise HTTPException(400, str(e))
+    except (ValueError, ValidationError, FileNotFoundError) as e: raise HTTPException(400, str(e))
     except Exception as e:
-        log.error(f"Upload completion failed: {e}")
+        log.error(f"Upload completion failed: {e}", exc_info=True)
         raise HTTPException(500, str(e))
 
 @upload_router.delete("/cancel/{upload_id}")
