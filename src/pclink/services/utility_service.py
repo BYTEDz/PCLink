@@ -4,25 +4,29 @@
 
 import asyncio
 import logging
+import platform
 import subprocess
 import sys
 import time
 from io import BytesIO
 from typing import Dict
-import platform
-import pyperclip
+
 import mss
+import pyperclip
 
 from ..core.wayland_utils import (
-    is_wayland, screenshot_portal,
-    clipboard_get_wayland, clipboard_set_wayland
+    clipboard_get_wayland,
+    clipboard_set_wayland,
+    is_wayland,
+    screenshot_portal,
 )
 
 log = logging.getLogger(__name__)
 
+
 class UtilityService:
     """Logic for shell commands, clipboard, and screenshots."""
-    
+
     def __init__(self):
         self._is_wayland_session = None
         # Command deduplication to prevent rapid duplicate executions
@@ -43,25 +47,29 @@ class UtilityService:
                 log.warning(f"Duplicate command blocked (cooldown): {command[:50]}...")
                 return
         self._recent_commands[command] = now
-        
+
         # Cleanup old entries to prevent memory growth
-        self._recent_commands = {k: v for k, v in self._recent_commands.items() if now - v < 60}
-        
+        self._recent_commands = {
+            k: v for k, v in self._recent_commands.items() if now - v < 60
+        }
+
         def _execute():
             flags = 0
             if sys.platform == "win32":
                 flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
             subprocess.Popen(command, shell=True, creationflags=flags)
-        
+
         await asyncio.to_thread(_execute)
 
     async def get_clipboard(self) -> str:
         if self._check_wayland():
             try:
                 text = await asyncio.to_thread(clipboard_get_wayland)
-                if text is not None: return text
-            except Exception: pass
-        
+                if text is not None:
+                    return text
+            except Exception:
+                pass
+
         try:
             return pyperclip.paste()
         except Exception as e:
@@ -72,9 +80,11 @@ class UtilityService:
         if self._check_wayland():
             try:
                 success = await asyncio.to_thread(clipboard_set_wayland, text)
-                if success: return
-            except Exception: pass
-        
+                if success:
+                    return
+            except Exception:
+                pass
+
         try:
             pyperclip.copy(text)
         except Exception as e:
@@ -83,18 +93,21 @@ class UtilityService:
     async def get_screenshot(self) -> bytes:
         if self._check_wayland():
             data = await asyncio.to_thread(screenshot_portal)
-            if data: return data
-        
+            if data:
+                return data
+
         def _grab():
             with mss.mss() as sct:
                 sct_img = sct.grab(sct.monitors[1])
                 from PIL import Image
+
                 img = Image.frombytes("RGB", sct_img.size, sct_img.rgb)
                 buffer = BytesIO()
                 img.save(buffer, format="PNG")
                 return buffer.getvalue()
-        
+
         return await asyncio.to_thread(_grab)
+
 
 # Global instance
 utility_service = UtilityService()

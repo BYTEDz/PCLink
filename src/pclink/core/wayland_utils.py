@@ -12,7 +12,7 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile 
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -22,11 +22,11 @@ log = logging.getLogger(__name__)
 def is_wayland() -> bool:
     """
     Detect if the current session is running under Wayland.
-    
+
     Returns:
         True if running under Wayland, False otherwise.
     """
-    if os.name == 'nt' or os.name == 'ce':
+    if os.name == "nt" or os.name == "ce":
         return False
 
     # Check XDG_SESSION_TYPE first (most reliable)
@@ -35,21 +35,21 @@ def is_wayland() -> bool:
         return True
     if session_type == "x11":
         return False
-    
+
     # Fallback: check for Wayland display
     if os.environ.get("WAYLAND_DISPLAY"):
         return True
-    
+
     return False
 
 
 def screenshot_portal() -> Optional[bytes]:
     """
     Take a screenshot using xdg-desktop-portal (Wayland-compatible).
-    
+
     This uses the Portal Screenshot API via D-Bus. The user may be prompted
     to confirm the screenshot (standard Wayland security behavior).
-    
+
     Returns:
         PNG image bytes if successful, None otherwise.
     """
@@ -57,20 +57,31 @@ def screenshot_portal() -> Optional[bytes]:
     # such as the user's cache directory.
     cache_dir = Path.home() / ".cache" / "pclink"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    
+
     try:
         # 1. Try GNOME-specific DBus API (Fastest and works inside services)
         if shutil.which("gdbus"):
             tmp_path = str(cache_dir / f"gnome_ss_{os.getpid()}.png")
             # This API is usually non-interactive on modern GNOME if the service is allowed
-            result = subprocess.run([
-                "gdbus", "call", "--session",
-                "--dest", "org.gnome.Shell.Screenshot",
-                "--object-path", "/org/gnome/Shell/Screenshot",
-                "--method", "org.gnome.Shell.Screenshot.Screenshot",
-                "true", "false", tmp_path
-            ], capture_output=True, timeout=10)
-            
+            result = subprocess.run(
+                [
+                    "gdbus",
+                    "call",
+                    "--session",
+                    "--dest",
+                    "org.gnome.Shell.Screenshot",
+                    "--object-path",
+                    "/org/gnome/Shell/Screenshot",
+                    "--method",
+                    "org.gnome.Shell.Screenshot.Screenshot",
+                    "true",
+                    "false",
+                    tmp_path,
+                ],
+                capture_output=True,
+                timeout=10,
+            )
+
             if result.returncode == 0 and Path(tmp_path).exists():
                 with open(tmp_path, "rb") as f:
                     data = f.read()
@@ -79,35 +90,30 @@ def screenshot_portal() -> Optional[bytes]:
 
         # 2. Try using grim (wlroots-based)
         if shutil.which("grim"):
-            result = subprocess.run(
-                ["grim", "-"],
-                capture_output=True,
-                timeout=10
-            )
+            result = subprocess.run(["grim", "-"], capture_output=True, timeout=10)
             if result.returncode == 0:
                 return result.stdout
-
 
         # Fallback: try spectacle (KDE)
         if shutil.which("spectacle"):
             tmp_path = str(cache_dir / f"spectacle_{os.getpid()}.png")
-            
+
             result = subprocess.run(
                 ["spectacle", "-b", "-n", "-o", tmp_path],
                 capture_output=True,
-                timeout=30
+                timeout=30,
             )
-            
+
             if result.returncode == 0 and Path(tmp_path).exists():
                 with open(tmp_path, "rb") as f:
                     data = f.read()
                 os.unlink(tmp_path)
                 return data
-        
+
         # Log failure reason if all methods fail
         log.warning("No Wayland screenshot tool succeeded.")
         return None
-        
+
     except subprocess.TimeoutExpired:
         log.error("Screenshot command timed out")
         return None
@@ -119,20 +125,20 @@ def screenshot_portal() -> Optional[bytes]:
 def clipboard_get_wayland() -> Optional[str]:
     """
     Get clipboard text using wl-paste (Wayland-compatible).
-    
+
     Returns:
         Clipboard text if successful, None otherwise.
     """
     if not shutil.which("wl-paste"):
         log.warning("wl-paste not found. Install wl-clipboard package.")
         return None
-    
+
     try:
         result = subprocess.run(
             ["wl-paste", "--no-newline"],
             capture_output=True,
             text=True,
-            timeout=15  # Increased timeout for slow Wayland clipboard
+            timeout=15,  # Increased timeout for slow Wayland clipboard
         )
         if result.returncode == 0:
             return result.stdout
@@ -148,23 +154,23 @@ def clipboard_get_wayland() -> Optional[str]:
 def clipboard_set_wayland(text: str) -> bool:
     """
     Set clipboard text using wl-copy (Wayland-compatible).
-    
+
     Args:
         text: The text to copy to clipboard.
-        
+
     Returns:
         True if successful, False otherwise.
     """
     if not shutil.which("wl-copy"):
         log.warning("wl-copy not found. Install wl-clipboard package.")
         return False
-    
+
     try:
         result = subprocess.run(
             ["wl-copy"],
             input=text,
             text=True,
-            timeout=15  # Increased timeout for slow Wayland clipboard
+            timeout=15,  # Increased timeout for slow Wayland clipboard
         )
         return result.returncode == 0
     except subprocess.TimeoutExpired:
@@ -173,6 +179,8 @@ def clipboard_set_wayland(text: str) -> bool:
     except Exception as e:
         log.error(f"wl-copy failed: {e}")
         return False
+
+
 def setup_uinput_permissions() -> str:
     """
     Generate a command or script to fix uinput permissions for Wayland.
@@ -184,14 +192,14 @@ def setup_uinput_permissions() -> str:
 
     rule = 'KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"'
     rule_file = "/etc/udev/rules.d/99-uinput.rules"
-    
+
     # We return a single command that the user can copy-paste and run with sudo
     cmd = (
-        f'sudo groupadd -f input && '
-        f'sudo gpasswd -a {user} input && '
-        f'echo \'{rule}\' | sudo tee {rule_file} && '
-        f'sudo udevadm control --reload-rules && sudo udevadm trigger && '
-        f'sudo modprobe uinput'
+        f"sudo groupadd -f input && "
+        f"sudo gpasswd -a {user} input && "
+        f"echo '{rule}' | sudo tee {rule_file} && "
+        f"sudo udevadm control --reload-rules && sudo udevadm trigger && "
+        f"sudo modprobe uinput"
     )
     return cmd
 

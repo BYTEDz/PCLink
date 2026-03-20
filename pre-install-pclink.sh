@@ -20,7 +20,7 @@ echo "================================================================"
 
 # Function to check if running as root
 check_root() {
-    if [ "$EUID" -ne 0 ]; then 
+    if [ "$EUID" -ne 0 ]; then
         echo "ERROR: This script must be run as root or with sudo"
         exit 1
     fi
@@ -30,7 +30,7 @@ check_root() {
 detect_installation() {
     local pkg_status=""
     local files_exist=false
-    
+
     # Check dpkg database
     if dpkg -l | grep -q "^ii\s*${PKG_NAME}"; then
         pkg_status="installed"
@@ -39,7 +39,7 @@ detect_installation() {
     elif dpkg -l | grep -q "${PKG_NAME}"; then
         pkg_status="partial"
     fi
-    
+
     # Check for installed files
     for path in "${INSTALL_PATHS[@]}"; do
         if [ -e "$path" ]; then
@@ -47,7 +47,7 @@ detect_installation() {
             break
         fi
     done
-    
+
     echo "$pkg_status:$files_exist"
 }
 
@@ -65,17 +65,17 @@ handle_upgrade() {
     echo "→ Existing PCLink installation detected (properly registered)."
     echo "  Preparing for upgrade..."
     echo ""
-    
+
     # Stop any running instances
     echo "1. Stopping running PCLink instances..."
     pkill -f "pclink" 2>/dev/null || true
     systemctl stop pclink 2>/dev/null || true
     sleep 2
-    
+
     # Remove old package (dpkg will handle this during upgrade, but we ensure it)
     echo "2. Removing old package version..."
     dpkg --remove ${PKG_NAME} 2>/dev/null || true
-    
+
     echo "   Ready for upgrade."
     echo ""
 }
@@ -86,10 +86,10 @@ handle_broken_package() {
     echo "⚠ Broken PCLink package detected in dpkg database!"
     echo "  This needs to be cleaned before installation."
     echo ""
-    
+
     read -p "Run force-purge script to fix? (y/n): " -n 1 -r
     echo
-    
+
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         if [ -f "./force-purge-pclink.sh" ]; then
             echo "Running force-purge script..."
@@ -111,7 +111,7 @@ handle_orphaned_files() {
     echo "⚠ PCLink files detected but not registered in package manager!"
     echo "  This suggests a manual installation or incomplete removal."
     echo ""
-    
+
     echo "Detected files/directories:"
     for path in "${INSTALL_PATHS[@]}"; do
         if [ -e "$path" ]; then
@@ -119,18 +119,18 @@ handle_orphaned_files() {
         fi
     done
     echo ""
-    
+
     read -p "Remove these files to allow clean installation? (y/n): " -n 1 -r
     echo
-    
+
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo "Cleaning orphaned files..."
-        
+
         # Stop any running instances
         pkill -f "pclink" 2>/dev/null || true
         systemctl stop pclink 2>/dev/null || true
         sleep 2
-        
+
         # Remove files
         rm -rf /opt/pclink 2>/dev/null || true
         rm -f /usr/local/bin/pclink 2>/dev/null || true
@@ -142,7 +142,7 @@ handle_orphaned_files() {
         rm -f /etc/systemd/system/pclink.service 2>/dev/null || true
         rm -f /usr/lib/systemd/user/pclink.service 2>/dev/null || true
         systemctl daemon-reload 2>/dev/null || true
-        
+
         echo "✓ Orphaned files removed."
         echo ""
     else
@@ -167,28 +167,28 @@ handle_mixed_state() {
     echo ""
     echo "Running comprehensive cleanup..."
     echo ""
-    
+
     if [ -f "./force-purge-pclink.sh" ]; then
         bash ./force-purge-pclink.sh
     else
         echo "ERROR: force-purge-pclink.sh not found."
         echo "Attempting manual cleanup..."
-        
+
         # Manual cleanup
         dpkg --remove --force-all ${PKG_NAME} 2>/dev/null || true
         dpkg --purge --force-all ${PKG_NAME} 2>/dev/null || true
         rm -f /var/lib/dpkg/info/${PKG_NAME}.* 2>/dev/null || true
         sed -i "/^Package: ${PKG_NAME}$/,/^$/d" /var/lib/dpkg/status 2>/dev/null || true
-        
+
         # Remove files
         rm -rf /opt/pclink 2>/dev/null || true
         rm -f /usr/local/bin/pclink 2>/dev/null || true
         rm -f /usr/bin/pclink 2>/dev/null || true
-        
+
         apt-get update 2>/dev/null || true
         apt-get install -f -y 2>/dev/null || true
     fi
-    
+
     echo "✓ Cleanup completed."
     echo ""
 }
@@ -196,18 +196,18 @@ handle_mixed_state() {
 # Function to install package
 install_package() {
     local deb_file="$1"
-    
+
     echo "================================================================"
     echo "Installing PCLink..."
     echo "================================================================"
     echo ""
-    
+
     # Install the package
     dpkg -i "$deb_file"
-    
+
     # Fix any dependency issues
     apt-get install -f -y
-    
+
     echo ""
     echo "================================================================"
     echo "✓ PCLink installed successfully!"
@@ -217,12 +217,12 @@ install_package() {
 # Main execution
 main() {
     check_root
-    
+
     # Detect current state
     local state=$(detect_installation)
     local pkg_status=$(echo "$state" | cut -d: -f1)
     local files_exist=$(echo "$state" | cut -d: -f2)
-    
+
     # Handle different scenarios
     if [ "$pkg_status" = "installed" ]; then
         handle_upgrade
@@ -235,7 +235,7 @@ main() {
     else
         handle_clean_install
     fi
-    
+
     # Check if .deb file provided
     if [ -n "$1" ]; then
         if [ -f "$1" ]; then

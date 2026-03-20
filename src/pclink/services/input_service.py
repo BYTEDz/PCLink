@@ -1,23 +1,25 @@
 import logging
 from typing import List, Optional
 
-from .linux_evdev_service import LinuxEvdevService
 from ..core.wayland_utils import is_wayland
+from .linux_evdev_service import LinuxEvdevService
 
 try:
     from pynput.keyboard import Controller as KeyboardController
     from pynput.keyboard import Key
     from pynput.mouse import Button
     from pynput.mouse import Controller as MouseController
+
     PYNPUT_AVAILABLE = True
 except ImportError:
     PYNPUT_AVAILABLE = False
 
 log = logging.getLogger(__name__)
 
+
 class InputService:
     """Logic for remote input control: mouse and keyboard."""
-    
+
     def __init__(self):
         self.use_evdev = False
         self.evdev = None
@@ -25,7 +27,7 @@ class InputService:
         self.keyboard = None
         self.button_map = {}
         self.key_map = {}
-        
+
         # Prefer evdev on linux + Wayland
         if is_wayland():
             self.evdev = LinuxEvdevService()
@@ -35,19 +37,34 @@ class InputService:
 
         if not self.use_evdev and PYNPUT_AVAILABLE:
             log.info("InputService: Using pynput (X11/Standalone mode)")
-            from pynput.mouse import Button
-            from pynput.keyboard import Key
-            from pynput.mouse import Controller as MouseController
             from pynput.keyboard import Controller as KeyboardController
-            
+            from pynput.keyboard import Key
+            from pynput.mouse import Button
+            from pynput.mouse import Controller as MouseController
+
             self.mouse = MouseController()
             self.keyboard = KeyboardController()
-            self.button_map = {"left": Button.left, "right": Button.right, "middle": Button.middle}
+            self.button_map = {
+                "left": Button.left,
+                "right": Button.right,
+                "middle": Button.middle,
+            }
             self.key_map = {
-                "enter": Key.enter, "esc": Key.esc, "shift": Key.shift, "ctrl": Key.ctrl,
-                "alt": Key.alt, "cmd": Key.cmd, "win": Key.cmd, "backspace": Key.backspace,
-                "delete": Key.delete, "tab": Key.tab, "space": Key.space,
-                "up": Key.up, "down": Key.down, "left": Key.left, "right": Key.right,
+                "enter": Key.enter,
+                "esc": Key.esc,
+                "shift": Key.shift,
+                "ctrl": Key.ctrl,
+                "alt": Key.alt,
+                "cmd": Key.cmd,
+                "win": Key.cmd,
+                "backspace": Key.backspace,
+                "delete": Key.delete,
+                "tab": Key.tab,
+                "space": Key.space,
+                "up": Key.up,
+                "down": Key.down,
+                "left": Key.left,
+                "right": Key.right,
             }
 
     def is_available(self) -> bool:
@@ -86,13 +103,16 @@ class InputService:
             try:
                 mods = [self.key_map.get(m.lower(), m) for m in (modifiers or [])]
                 key = self.key_map.get(key_str.lower(), key_str)
-                
-                for m in mods: self.keyboard.press(m)
+
+                for m in mods:
+                    self.keyboard.press(m)
                 self.keyboard.press(key)
                 self.keyboard.release(key)
-                for m in reversed(mods): self.keyboard.release(m)
+                for m in reversed(mods):
+                    self.keyboard.release(m)
             except Exception as e:
                 log.error(f"Keyboard command failed: {e}")
+
 
 # Global instance
 input_service = InputService()

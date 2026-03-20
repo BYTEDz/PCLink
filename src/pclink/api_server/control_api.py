@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-from fastapi import FastAPI, APIRouter
+from fastapi import APIRouter, FastAPI
 
 
 def create_control_api(controller, shutdown_callback):

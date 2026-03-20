@@ -15,7 +15,7 @@ class PCLinkAuth {
                 const sessionCheck = await fetch('/auth/check', {
                     credentials: 'include'
                 });
-                
+
                 if (sessionCheck.ok) {
                     const sessionData = await sessionCheck.json();
                     if (sessionData.authenticated) {
@@ -26,13 +26,13 @@ class PCLinkAuth {
             } catch (sessionError) {
                 console.warn('Session check failed, continuing with auth flow:', sessionError);
             }
-            
+
             // Check setup status
             const response = await fetch('/auth/status');
-            
+
             if (response.ok) {
                 const data = await response.json();
-                
+
                 if (data.setup_completed) {
                     this.showLoginForm();
                 } else {
@@ -52,7 +52,7 @@ class PCLinkAuth {
     showSetupForm() {
         const setupForm = document.getElementById('setupForm');
         const loginForm = document.getElementById('loginForm');
-        
+
         if (setupForm) setupForm.style.display = 'block';
         if (loginForm) loginForm.style.display = 'none';
         this.hideMessages();
@@ -61,7 +61,7 @@ class PCLinkAuth {
     showLoginForm() {
         const setupForm = document.getElementById('setupForm');
         const loginForm = document.getElementById('loginForm');
-        
+
         if (setupForm) setupForm.style.display = 'none';
         if (loginForm) loginForm.style.display = 'block';
         this.hideMessages();
@@ -116,7 +116,7 @@ class PCLinkAuth {
 
             if (response.ok) {
                 this.hideMessages();
-                
+
                 // Show success state on button
                 setupButton.innerHTML = '<span>✔</span> <span class="button-text">Success!</span>';
                 setupButton.style.background = 'var(--success-color)';
@@ -178,20 +178,20 @@ class PCLinkAuth {
 // Global functions for form handling
 async function handleSetup(event) {
     event.preventDefault();
-    
+
     const password = document.getElementById('setupPassword').value;
     const confirmPassword = document.getElementById('confirmPassword').value;
-    
+
     if (password.length < 8) {
         window.pclinkAuth.showError('Password must be at least 8 characters long');
         return;
     }
-    
+
     if (password !== confirmPassword) {
         window.pclinkAuth.showError('Passwords do not match');
         return;
     }
-    
+
     window.pclinkAuth.setLoading('setupButton', true);
     await window.pclinkAuth.handleSetup(password);
     // Note: setLoading(false) is now handled inside the class method on failure/success
@@ -199,14 +199,14 @@ async function handleSetup(event) {
 
 async function handleLogin(event) {
     event.preventDefault();
-    
+
     const password = document.getElementById('loginPassword').value;
-    
+
     if (!password) {
         window.pclinkAuth.showError('Please enter your password');
         return;
     }
-    
+
     window.pclinkAuth.setLoading('loginButton', true);
     await window.pclinkAuth.handleLogin(password);
 }

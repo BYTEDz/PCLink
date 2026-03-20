@@ -1,25 +1,32 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import os
 import sys
 
-import os
 
 class DummyTty:
     """A dummy file-like object to redirect stdout/stderr."""
+
     def __init__(self):
         self.encoding = "utf-8"
         self.errors = "strict"
         self._devnull = None
 
-    def write(self, x): pass
-    def flush(self): pass
-    def isatty(self): return False
-    
+    def write(self, x):
+        pass
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return False
+
     def fileno(self):
         # Return a valid file descriptor for libraries like speedtest that wrap stdout
         # using FileIO. We open os.devnull and let the caller own/close the fd.
         return os.open(os.devnull, os.O_WRONLY)
+
 
 def hide_console_window():
     """
@@ -33,10 +40,10 @@ def hide_console_window():
 
     try:
         import ctypes
-        
+
         # Constants from the Windows API
         SW_HIDE = 0
-        
+
         # Get the console window handle and hide it.
         kernel32 = ctypes.windll.kernel32
         console_window = kernel32.GetConsoleWindow()
@@ -46,6 +53,7 @@ def hide_console_window():
     except Exception:
         # This is a non-critical operation. If it fails, the app can still run.
         pass
+
 
 def setup_console_redirection():
     """
