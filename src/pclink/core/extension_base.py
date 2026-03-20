@@ -5,16 +5,19 @@ import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional
+
 from fastapi import APIRouter
 from pydantic import BaseModel
+
 
 class ExtensionWidgetModel(BaseModel):
     id: str
     display_name: str
     ui_entry: str  # Path to the widget HTML file
-    width: int = 1 # 1: normal, 2: wide
-    height: int = 1 # 1: normal, 2: tall
-    refresh_ms: int = 0 # 0 means handled by widget JS
+    width: int = 1  # 1: normal, 2: wide
+    height: int = 1  # 1: normal, 2: tall
+    refresh_ms: int = 0  # 0 means handled by widget JS
+
 
 class UICapabilities(BaseModel):
     allow_fullscreen: bool = False
@@ -24,6 +27,7 @@ class UICapabilities(BaseModel):
     allow_rotate: bool = False
     prevent_sleep: bool = False
     orientation: Optional[str] = "auto"  # auto, follow_system, landscape, portrait
+
 
 class ExtensionMetadata(BaseModel):
     name: str
@@ -38,7 +42,7 @@ class ExtensionMetadata(BaseModel):
     enabled: bool = True
     supported_platforms: List[str] = ["windows", "linux", "darwin"]
     supported_architectures: List[str] = ["x86_64", "amd64", "arm64", "aarch64"]
-    supported_distros: List[str] = [] # Optional: e.g. ["arch", "ubuntu"]
+    supported_distros: List[str] = []  # Optional: e.g. ["arch", "ubuntu"]
     icon: Optional[str] = None
     theme_aware_icon: bool = False
     category: str = "Utility"
@@ -46,8 +50,15 @@ class ExtensionMetadata(BaseModel):
     ui_capabilities: UICapabilities = UICapabilities()
     dashboard_widgets: List[ExtensionWidgetModel] = []
 
+
 class ExtensionBase(ABC):
-    def __init__(self, metadata: ExtensionMetadata, extension_path: Path, config: Dict, context=None):
+    def __init__(
+        self,
+        metadata: ExtensionMetadata,
+        extension_path: Path,
+        config: Dict,
+        context=None,
+    ):
         self.metadata = metadata
         self.extension_path = extension_path
         self.config = config

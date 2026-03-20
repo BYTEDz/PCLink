@@ -20,9 +20,11 @@ def get_app_data_path(app_name: str) -> Path:
     else:
         path = Path.home() / ".config" / app_name
     return path
+
+
 # --- Application Metadata ---
 APP_NAME = __app_name__
-APP_AUMID = "BYTEDz.PCLink" # AppUserModelID for Windows notifications
+APP_AUMID = "BYTEDz.PCLink"  # AppUserModelID for Windows notifications
 
 # --- Core Application Settings ---
 DEFAULT_PORT = 38080
@@ -31,7 +33,6 @@ DEVICE_TIMEOUT = 300  # in seconds
 
 # --- File Names ---
 CONFIG_FILENAME = "config.json"
-API_KEY_FILENAME = ".api_key"
 PORT_FILENAME = ".port"
 CERT_FILENAME = "cert.pem"
 KEY_FILENAME = "key.pem"
@@ -41,7 +42,6 @@ KEY_FILENAME = "key.pem"
 APP_DATA_PATH = get_app_data_path(APP_NAME)
 
 # Full paths to configuration and data files.
-API_KEY_FILE = APP_DATA_PATH / API_KEY_FILENAME
 PORT_FILE = APP_DATA_PATH / PORT_FILENAME
 CERT_FILE = APP_DATA_PATH / CERT_FILENAME
 KEY_FILE = APP_DATA_PATH / KEY_FILENAME

@@ -8,15 +8,19 @@ from typing import Dict, List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..services.process_service import process_service, ProcessInfo
+from ..services.process_service import ProcessInfo, process_service
 
 log = logging.getLogger(__name__)
 
+
 class KillPayload(BaseModel):
     """Payload model for the kill process endpoint."""
+
     pid: int
 
+
 router = APIRouter()
+
 
 @router.get("/processes", response_model=List[ProcessInfo])
 async def get_running_processes() -> List[ProcessInfo]:
@@ -26,6 +30,7 @@ async def get_running_processes() -> List[ProcessInfo]:
     except Exception as e:
         log.error(f"Failed to fetch processes: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch processes")
+
 
 @router.post("/processes/kill")
 async def kill_process(payload: KillPayload) -> Dict[str, str]:

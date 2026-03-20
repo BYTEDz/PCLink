@@ -3,13 +3,13 @@ PCLink Server License
 
 Copyright (C) 2025-2026 BYTEDz
 
-This project is dual-licensed. You may choose to use this software under the terms of the 
-GNU Affero General Public License v3.0 (AGPL-3.0) OR under the terms of the PCLink 
+This project is dual-licensed. You may choose to use this software under the terms of the
+GNU Affero General Public License v3.0 (AGPL-3.0) OR under the terms of the PCLink
 Commercial License.
 
 1. COMMUNITY / OPEN SOURCE USE (AGPL-3.0)
 -----------------------------------------
-For open-source projects, personal use, or internal non-profit use where you are willing 
+For open-source projects, personal use, or internal non-profit use where you are willing
 to release your source code if you modify and distribute this software (including over a network).
 
 *   File: LICENSE.AGPL
@@ -17,7 +17,7 @@ to release your source code if you modify and distribute this software (includin
 
 2. COMMERCIAL USE (Proprietary License)
 ---------------------------------------
-For commercial software, proprietary integrations, or enterprise use cases where 
+For commercial software, proprietary integrations, or enterprise use cases where
 you do not wish to release your source code or are unable to comply with the AGPL-3.0 terms.
 
 *   Allows integration into proprietary software.
@@ -28,5 +28,5 @@ To acquire a Commercial License, please contact: support@bytedz.com
 
 3. THIRD-PARTY COMPONENTS
 -------------------------
-This software includes components from third-party open-source projects. 
+This software includes components from third-party open-source projects.
 See the NOTICES file for a full list of dependencies and their respective licenses.

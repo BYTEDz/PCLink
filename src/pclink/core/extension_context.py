@@ -2,19 +2,21 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 
+import json
 import logging
 import platform
 import subprocess
-import json
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 from .extension_base import ExtensionMetadata
 
 log = logging.getLogger(__name__)
 
+
 class PermissionDeniedError(Exception):
     pass
+
 
 class ExtensionAPI:
     def __init__(self, metadata: ExtensionMetadata):
@@ -22,35 +24,45 @@ class ExtensionAPI:
 
     def _check_permission(self, permission: str):
         if permission not in self.metadata.permissions:
-            raise PermissionDeniedError(f"Extension '{self.metadata.name}' missing permission: {permission}")
+            raise PermissionDeniedError(
+                f"Extension '{self.metadata.name}' missing permission: {permission}"
+            )
+
 
 class ThemeAPI(ExtensionAPI):
     def get_system_theme(self) -> str:
         """Returns 'dark' or 'light'."""
         # Permission: theme.read (Tier 1 - Safe)
         self._check_permission("theme.read")
-        
+
         if platform.system() == "Windows":
             try:
                 import winreg
+
                 registry = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
-                key = winreg.OpenKey(registry, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+                key = winreg.OpenKey(
+                    registry,
+                    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                )
                 value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
                 return "light" if value == 1 else "dark"
             except Exception as e:
                 log.warning(f"Failed to read windows theme: {e}")
-                return "dark" # Default fallback
+                return "dark"  # Default fallback
         return "dark"
 
+
 class DialogAPI(ExtensionAPI):
-    def open_file_picker(self, title: str = "Select a File", file_types: List[str] = None) -> Optional[str]:
+    def open_file_picker(
+        self, title: str = "Select a File", file_types: List[str] = None
+    ) -> Optional[str]:
         """
         Opens a native file picker dialog on the server.
         Returns the selected file path or None if cancelled.
         """
         # Permission: ui.picker (Tier 1 - Safe, requires user interaction)
         self._check_permission("ui.picker")
-        
+
         if file_types is None:
             file_types = ["All Files", "*.*"]
 
@@ -61,25 +73,37 @@ class DialogAPI(ExtensionAPI):
             Add-Type -AssemblyName System.Windows.Forms
             $f = New-Object System.Windows.Forms.OpenFileDialog
             $f.Title = "{title}"
-            $f.Filter = "All Files (*.*)|*.*" 
+            $f.Filter = "All Files (*.*)|*.*"
             if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
                 Write-Host $f.FileName
             }}
             """
             # Note: Filter implementation in PS simple script above is basic.
-            
+
             try:
-                cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script]
+                cmd = [
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    ps_script,
+                ]
                 # UI rendering requirement: Execution must occur within an active user session context.
                 # Potential failure if executing as a background service without GUI access.
                 # Assumption: Execution occurs within a standard user session.
-                result = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
                 path = result.stdout.strip()
                 return path if path else None
             except Exception as e:
                 log.error(f"File picker failed: {e}")
                 return None
         return None
+
 
 class ExtensionContext:
     def __init__(self, metadata: ExtensionMetadata):

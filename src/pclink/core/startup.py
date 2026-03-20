@@ -2,21 +2,22 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-import sys
-import os
 import logging
+import os
 import platform
+import sys
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
 
 class StartupManager:
     def __init__(self):
         self.system = platform.system()
         self.app_name = "PCLink"
-        
+
         # Determine the execution command
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, "frozen", False):
             # Running as compiled exe
             self.executable = sys.executable
             self.args = ""
@@ -64,16 +65,18 @@ class StartupManager:
     # --- Windows Implementation (Registry) ---
     def _get_windows_key(self):
         import winreg
+
         return winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Run",
             0,
-            winreg.KEY_ALL_ACCESS
+            winreg.KEY_ALL_ACCESS,
         )
 
     def _is_enabled_windows(self) -> bool:
         try:
             import winreg
+
             key = self._get_windows_key()
             winreg.QueryValueEx(key, self.app_name)
             winreg.CloseKey(key)
@@ -86,6 +89,7 @@ class StartupManager:
     def _enable_windows(self) -> bool:
         try:
             import winreg
+
             key = self._get_windows_key()
             if self.args:
                 cmd = f'"{self.executable}" {self.args}'
@@ -101,6 +105,7 @@ class StartupManager:
     def _disable_windows(self) -> bool:
         try:
             import winreg
+
             key = self._get_windows_key()
             try:
                 winreg.DeleteValue(key, self.app_name)
@@ -113,7 +118,7 @@ class StartupManager:
             return False
 
     # --- Linux Implementation (XDG Autostart .desktop file) ---
-    # This is much safer than systemd for GUI/Tray apps as it doesn't 
+    # This is much safer than systemd for GUI/Tray apps as it doesn't
     # involve reloading system daemons that might kill the process.
 
     def _get_linux_autostart_path(self) -> Path:
@@ -150,10 +155,10 @@ X-GNOME-Autostart-enabled=true
             desktop_file.write_text(content)
             # Ensure permissions are correct (rw-r--r--)
             os.chmod(desktop_file, 0o644)
-            
+
             # Cleanup legacy systemd to prevent double-start
             self._cleanup_legacy_systemd()
-            
+
             log.info(f"Created XDG autostart file: {desktop_file}")
             return True
         except Exception as e:
@@ -166,7 +171,7 @@ X-GNOME-Autostart-enabled=true
             if desktop_file.exists():
                 desktop_file.unlink()
                 log.info(f"Removed XDG autostart file: {desktop_file}")
-            
+
             # Cleanup legacy systemd
             self._cleanup_legacy_systemd()
             return True
@@ -179,16 +184,25 @@ X-GNOME-Autostart-enabled=true
         try:
             # Avoid 'systemctl' calls to prevent interference with the current process.
             # Remove service file to prevent execution on subsequent boots.
-            systemd_file = Path.home() / ".config" / "systemd" / "user" / "pclink.service"
-            symlink = Path.home() / ".config" / "systemd" / "user" / "default.target.wants" / "pclink.service"
-            
+            systemd_file = (
+                Path.home() / ".config" / "systemd" / "user" / "pclink.service"
+            )
+            symlink = (
+                Path.home()
+                / ".config"
+                / "systemd"
+                / "user"
+                / "default.target.wants"
+                / "pclink.service"
+            )
+
             if symlink.exists():
                 symlink.unlink()
                 log.info("Removed legacy systemd symlink")
-            
+
             if systemd_file.exists():
                 systemd_file.unlink()
                 log.info("Removed legacy systemd service file")
-                
+
         except Exception as e:
             log.debug(f"Legacy systemd cleanup skipped: {e}")

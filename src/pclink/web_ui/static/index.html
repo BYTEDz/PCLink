@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PCLink Control Panel</title>
-  
+
   <script>
     const originalWarn = console.warn;
     console.warn = (...args) => { if (typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return; originalWarn(...args); };
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
-  
+
   <link rel="stylesheet" href="/ui/static/style.css" />
   <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg" />
   <link rel="icon" type="image/x-icon" href="/ui/assets/icon.ico" />
@@ -20,7 +20,7 @@
 
 <div class="drawer lg:drawer-open">
   <input id="main-drawer" type="checkbox" class="drawer-toggle" />
-  
+
   <div class="drawer-content flex flex-col h-screen overflow-hidden">
     <header class="navbar bg-base-100 border-b border-base-300 px-4 shrink-0 shadow-sm z-10">
       <div class="flex-none lg:hidden">
@@ -45,7 +45,7 @@
     </header>
 
     <main class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-base-200">
-      
+
       <div id="updateBanner" class="alert alert-info shadow-lg mb-6 hidden">
         <i data-feather="download"></i>
         <div>
@@ -161,7 +161,7 @@
       <!-- Access Control (Replaced Services) -->
       <div class="tab-content" id="services">
         <div class="mb-6"><h3 class="text-3xl font-black">Access Control</h3><p class="opacity-50 text-xs font-black uppercase tracking-widest">Manage Features & Policies</p></div>
-        
+
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
             <!-- Global Kill Switches -->
             <div class="card bg-base-100 shadow-sm border border-base-300">
@@ -170,6 +170,20 @@
                     <p class="text-sm opacity-60 mb-4">Disabling a service here turns it off for <strong>ALL</strong> devices, regardless of permissions.</p>
                     <div id="globalServicesGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hardware Blacklist -->
+            <div class="card bg-base-100 shadow-sm border border-base-300">
+                <div class="card-body p-5">
+                    <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="user-x" class="w-4"></i> Hardware Blacklist</h3>
+                    <p class="text-sm opacity-60 mb-4">Banned hardware IDs cannot re-pair or connect. Revoking a banned device removes all its sessions.</p>
+                    <div id="blacklistContainer" class="space-y-2 max-h-64 overflow-y-auto pr-2">
+                        <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                    </div>
+                    <div class="card-actions justify-end mt-4">
+                        <button class="btn btn-sm btn-ghost border-base-300 font-bold text-xs" onclick="window.loadBlacklist()"><i data-feather="refresh-cw" class="w-3"></i> Refresh</button>
                     </div>
                 </div>
             </div>
@@ -309,7 +323,7 @@
         <div class="max-w-4xl mx-auto space-y-4">
           <h2 class="text-2xl font-black mb-6">Support</h2>
           <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
-            <input type="checkbox" checked="checked" /> 
+            <input type="checkbox" checked="checked" />
             <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="shield" class="text-primary w-5"></i> Firewall</div>
             <div class="collapse-content space-y-4 pt-2">
               <p class="text-xs opacity-70">Run these commands in CMD/Powershell as Admin if connection fails.</p>
@@ -322,7 +336,7 @@
             </div>
           </div>
           <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
-            <input type="checkbox" /> 
+            <input type="checkbox" />
             <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="wifi" class="text-primary w-5"></i> Network</div>
             <div class="collapse-content space-y-4 pt-2">
               <ul class="list-disc pl-5 space-y-2 text-sm opacity-80">

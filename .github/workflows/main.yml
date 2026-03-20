@@ -46,7 +46,7 @@ jobs:
           echo "Build artifacts:"
           if (Test-Path "releases") {
             Get-ChildItem releases\ -Recurse | Format-Table Name, Length
-            
+
             # Check if web UI files are included in the build
             $exeFile = Get-ChildItem releases\ -Recurse -Filter "*.exe" | Select-Object -First 1
             if ($exeFile) {

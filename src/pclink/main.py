@@ -9,39 +9,41 @@ import sys
 import threading
 
 from .core.config import config_manager
+from .core.linux_notifier import LinuxNotifier
 from .core.logging import setup_logging
 from .core.server_controller import ServerController
 from .core.singleton import PCLinkSingleton
 from .core.system_tray import SystemTrayManager
-from .core.windows_notifier import WindowsNotifier
-from .core.linux_notifier import LinuxNotifier
 from .core.utils import run_preflight_checks
-from .services import macro_service
 from .core.version import __app_name__, __version__
+from .core.windows_notifier import WindowsNotifier
+from .services import macro_service
 
 
 def main() -> int:
     # Fix for Windows 8.1 asyncio issues - use SelectorEventLoop instead of ProactorEventLoop
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         try:
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         except AttributeError:
             # Fallback for older Python versions
             pass
-    
+
     setup_logging()
     log = logging.getLogger(__name__)
-    
+
     log.info(f"Starting {__app_name__} v{__version__}")
-    
+
     if not run_preflight_checks():
         log.error("Preflight checks failed")
         return 1
-    
+
     singleton = PCLinkSingleton()
     if not singleton.acquire_lock():
         log.warning("Another PCLink instance is already running. Exiting.")
-        print("PCLink is already running. Use 'pclink status' or check the system tray.")
+        print(
+            "PCLink is already running. Use 'pclink status' or check the system tray."
+        )
         return 1
 
     tray_manager = None
@@ -57,7 +59,7 @@ def main() -> int:
     try:
         controller = ServerController(shutdown_callback=graceful_shutdown)
         controller.start()
-        
+
         tray_enabled = config_manager.get("enable_tray_icon", True)
         if tray_enabled:
             log.info("System tray is enabled. Initializing...")
@@ -65,7 +67,7 @@ def main() -> int:
         else:
             log.info("System tray is disabled by user configuration.")
             tray_manager = None
-            
+
         # Register notification handler for Macro Service
         def macro_notification_handler(title, message):
             if tray_manager:
@@ -77,12 +79,12 @@ def main() -> int:
                     fallback_notifier = WindowsNotifier()
                 elif sys.platform.startswith("linux"):
                     fallback_notifier = LinuxNotifier()
-                
+
                 if fallback_notifier and fallback_notifier.is_available():
                     fallback_notifier.show(title, message)
                 else:
                     log.info(f"NOTIFICATION (Headless): {title} - {message}")
-        
+
         macro_service.set_notification_handler(macro_notification_handler)
 
         if tray_manager and tray_manager.is_tray_available():
@@ -94,7 +96,7 @@ def main() -> int:
                 log.warning("System tray UI could not be created or is unavailable.")
             log.warning("PCLink is running in headless mode.")
             shutdown_event.wait()
-        
+
         log.info("Main thread is exiting.")
         return 0
 
@@ -102,7 +104,10 @@ def main() -> int:
         log.info("Keyboard interrupt received, shutting down.")
         return 0
     except Exception as e:
-        log.critical(f"A critical error occurred in the main application loop: {e}", exc_info=True)
+        log.critical(
+            f"A critical error occurred in the main application loop: {e}",
+            exc_info=True,
+        )
         return 1
     finally:
         if controller:

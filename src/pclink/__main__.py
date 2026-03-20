@@ -43,32 +43,34 @@ def is_server_running():
 def _start_server_process():
     """Launches the main PCLink process in a fully detached state."""
     try:
-        launcher_path = os.path.join(os.path.dirname(__file__), 'launcher.py')
-        
+        launcher_path = os.path.join(os.path.dirname(__file__), "launcher.py")
+
         kwargs = {
-            'stdin': subprocess.DEVNULL,
-            'stdout': subprocess.DEVNULL,
-            'stderr': subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
         }
 
         executable = sys.executable
         if sys.platform == "win32":
             # Prefer pythonw.exe to avoid console window if running from source
-            if not getattr(sys, 'frozen', False):
+            if not getattr(sys, "frozen", False):
                 pythonw = Path(executable).parent / "pythonw.exe"
                 if pythonw.exists():
                     executable = str(pythonw)
-            
+
             # Use CREATE_NO_WINDOW (0x08000000) to prevent console flash
             # Also use DETACHED_PROCESS and CREATE_NEW_PROCESS_GROUP for a clean background state
-            kwargs['creationflags'] = subprocess.DETACHED_PROCESS | \
-                                      subprocess.CREATE_NEW_PROCESS_GROUP | \
-                                      0x08000000
+            kwargs["creationflags"] = (
+                subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NEW_PROCESS_GROUP
+                | 0x08000000
+            )
         else:
-            kwargs['start_new_session'] = True
+            kwargs["start_new_session"] = True
 
         subprocess.Popen([executable, launcher_path], **kwargs)
-        
+
         click.echo("Waiting for PCLink to initialize...")
         for _ in range(5):
             time.sleep(1)
@@ -130,7 +132,7 @@ def stop():
     if not is_server_running():
         click.echo("PCLink is not running.")
         return
-        
+
     try:
         click.echo("Sending shutdown signal to PCLink...")
         requests.post(f"{CONTROL_API_URL}/stop", timeout=1)
@@ -160,7 +162,7 @@ def restart():
     if not is_server_running():
         click.echo("PCLink is not running. Use 'start' instead.")
         return
-        
+
     try:
         click.echo("Restarting PCLink...")
         response = requests.post(f"{CONTROL_API_URL}/restart", timeout=5)
@@ -179,10 +181,10 @@ def status():
         response = requests.get(f"{CONTROL_API_URL}/status", timeout=1)
         response.raise_for_status()
         data = response.json()
-        state = data.get('status', 'unknown').title()
-        port = data.get('port')
-        mobile_api = "Enabled" if data.get('mobile_api_enabled') else "Disabled"
-        
+        state = data.get("status", "unknown").title()
+        port = data.get("port")
+        mobile_api = "Enabled" if data.get("mobile_api_enabled") else "Disabled"
+
         click.echo(f"PCLink Status: {state}")
         click.echo(f"  - Web UI Port: {port}")
         click.echo(f"  - Mobile API: {mobile_api}")
@@ -192,7 +194,7 @@ def status():
         click.echo(f"An unexpected error occurred: {e}", err=True)
 
 
-@cli.command(name='open')
+@cli.command(name="open")
 def open_webui():
     """Open WebUI if PCLink is already running."""
     _open_browser()
@@ -212,26 +214,9 @@ def webui():
         else:
             click.echo("PCLink failed to start. Cannot open Web UI.", err=True)
 
-@cli.command()
-def regen_key():
-    """Generate a new API key, revoking access for all paired devices."""
-    click.echo("WARNING: This will generate a new API key and immediately invalidate the connection for all previously paired devices.", err=True)
-    if not click.confirm("Are you sure you want to proceed?"):
-        click.echo("Operation cancelled.")
-        return
-    try:
-        new_key = str(uuid.uuid4())
-        with open(constants.API_KEY_FILE, 'w') as f:
-            f.write(new_key)
-        click.echo("Successfully generated a new API key.")
-        if is_server_running():
-            click.echo("Please restart PCLink for the new key to take effect ('pclink restart').")
-    except Exception as e:
-        click.echo(f"Error: Could not write new API key: {e}", err=True)
-
 
 @cli.command()
-@click.option('--follow', '-f', is_flag=True, help="Follow log output.")
+@click.option("--follow", "-f", is_flag=True, help="Follow log output.")
 def logs(follow):
     """Display the application log file."""
     log_file = constants.APP_DATA_PATH / "pclink.log"
@@ -240,11 +225,11 @@ def logs(follow):
         return
 
     try:
-        with open(log_file, 'r') as f:
+        with open(log_file, "r") as f:
             if not follow:
                 click.echo(f.read())
             else:
-                f.seek(0, 2) 
+                f.seek(0, 2)
                 while True:
                     line = f.readline()
                     if not line:
@@ -274,14 +259,14 @@ def qr():
         response = requests.get(f"{CONTROL_API_URL}/qr-data", timeout=5)
         response.raise_for_status()
         qr_data = response.json().get("qr_data")
-        
+
         if not qr_data:
             click.echo("Failed to retrieve QR code data from server.", err=True)
             return
-        
+
         click.echo("Scan the QR code below with the PCLink mobile app:")
         click.echo("")
-        
+
         qr_obj = qrcode.QRCode(
             error_correction=qr_constants.ERROR_CORRECT_L,
             box_size=1,
@@ -289,7 +274,7 @@ def qr():
         )
         qr_obj.add_data(qr_data)
         qr_obj.make(fit=True)
-        
+
         try:
             qr_obj.print_tty()
         except Exception:
@@ -311,22 +296,22 @@ def setup():
     if web_auth_manager.is_setup_completed():
         click.echo("Setup already completed. Use the web UI to change your password.")
         return
-    
+
     click.echo("=== PCLink Initial Setup ===")
     click.echo("")
     click.echo("Create a password for the web UI (minimum 8 characters)")
-    
+
     password = click.prompt("Password", hide_input=True)
     confirm_password = click.prompt("Confirm password", hide_input=True)
-    
+
     if len(password) < 8:
         click.echo("Error: Password must be at least 8 characters long.", err=True)
         return
-    
+
     if password != confirm_password:
         click.echo("Error: Passwords do not match.", err=True)
         return
-    
+
     if web_auth_manager.setup_password(password):
         click.echo("")
         click.echo("✓ Password setup completed successfully!")
@@ -345,34 +330,36 @@ def pair():
     if not web_auth_manager.is_setup_completed():
         click.echo("Error: Setup not completed. Run 'pclink setup' first.", err=True)
         return
-    
+
     if not is_server_running():
-        click.echo("Error: PCLink is not running. Start it with 'pclink start'.", err=True)
+        click.echo(
+            "Error: PCLink is not running. Start it with 'pclink start'.", err=True
+        )
         return
-    
+
     # Prompt for password to verify identity
     password = click.prompt("Enter your web UI password", hide_input=True)
-    
+
     # Validate password
     if not web_auth_manager.verify_password(password):
         click.echo("Error: Incorrect password.", err=True)
         return
-    
+
     try:
         # Get pairing data from server
         response = requests.get(f"{CONTROL_API_URL}/qr-data", timeout=5)
         response.raise_for_status()
         qr_data = response.json().get("qr_data")
-        
+
         if not qr_data:
             click.echo("Failed to retrieve pairing data from server.", err=True)
             return
-        
+
         # Display pairing information
         click.echo("")
         click.echo("=== PCLink Pairing Information ===")
         click.echo("")
-        
+
         # Try to display QR code
         if qrcode:
             qr_obj = qrcode.QRCode(
@@ -382,20 +369,22 @@ def pair():
             )
             qr_obj.add_data(qr_data)
             qr_obj.make(fit=True)
-            
+
             try:
                 qr_obj.print_tty()
                 click.echo("")
             except Exception:
                 click.echo("(QR code display not available in this terminal)")
                 click.echo("")
-        
+
         # Always show manual pairing data
         click.echo("Manual Pairing Data:")
         click.echo(qr_data)
         click.echo("")
-        click.echo("Scan the QR code or manually enter the data above in the PCLink mobile app.")
-        
+        click.echo(
+            "Scan the QR code or manually enter the data above in the PCLink mobile app."
+        )
+
     except requests.RequestException as e:
         click.echo(f"Failed to fetch pairing data: {e}", err=True)
     except Exception as e:
@@ -407,15 +396,16 @@ def startup():
     """Manage auto-start on system login."""
     pass
 
+
 @startup.command()
 def enable():
     """Enable 'Start at system startup'."""
     try:
         startup_manager = get_startup_manager()
         exe = Path(sys.executable)
-        
+
         # Determine the best executable path for startup
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, "frozen", False):
             # Frozen executable - use as-is
             app_path = str(exe)
         elif sys.platform == "win32":
@@ -428,12 +418,13 @@ def enable():
         else:
             # Linux/other - use current executable
             app_path = str(exe)
-        
+
         startup_manager.add(constants.APP_NAME, app_path)
         config_manager.set("auto_start", True)
         click.echo("PCLink will now start automatically at system startup.")
     except Exception as e:
         click.echo(f"Error: Could not enable startup: {e}", err=True)
+
 
 @startup.command()
 def disable():
@@ -452,31 +443,43 @@ def tray():
     """Enable or disable the system tray icon."""
     pass
 
+
 @tray.command()
 def enable():
     """Enable the system tray icon on next start."""
     config_manager.set("enable_tray_icon", True)
-    click.echo("System tray icon has been enabled. Please restart PCLink for the change to take effect.")
+    click.echo(
+        "System tray icon has been enabled. Please restart PCLink for the change to take effect."
+    )
+
 
 @tray.command()
 def disable():
     """Disable the system tray icon on next start."""
     config_manager.set("enable_tray_icon", False)
-    click.echo("System tray icon has been disabled. PCLink will run headless on next start.")
+    click.echo(
+        "System tray icon has been disabled. PCLink will run headless on next start."
+    )
     click.echo("Use 'pclink stop' to shut it down.")
 
 
-@cli.command(name='fix-wayland')
+@cli.command(name="fix-wayland")
 def fix_wayland():
     """Fix mouse/keyboard issues on Wayland by configuring uinput."""
     if sys.platform != "linux":
         click.echo("This command is only for Linux systems running Wayland.")
         return
 
-    from .core.wayland_utils import is_wayland, check_uinput_access, setup_uinput_permissions
-    
+    from .core.wayland_utils import (
+        check_uinput_access,
+        is_wayland,
+        setup_uinput_permissions,
+    )
+
     if not is_wayland():
-        click.echo("Wayland not detected. This fix is specifically for Wayland sessions.")
+        click.echo(
+            "Wayland not detected. This fix is specifically for Wayland sessions."
+        )
         if not click.confirm("Do you want to continue anyway?"):
             return
 
@@ -486,12 +489,16 @@ def fix_wayland():
         return
 
     click.echo("--- Wayland Input Fix ---")
-    click.echo("To fix mouse/keyboard, PCLink needs permission to create virtual devices.")
+    click.echo(
+        "To fix mouse/keyboard, PCLink needs permission to create virtual devices."
+    )
     click.echo("Run the following command to grant access (requires sudo):")
     click.echo("")
-    click.echo(click.style(setup_uinput_permissions(), fg='yellow', bold=True))
+    click.echo(click.style(setup_uinput_permissions(), fg="yellow", bold=True))
     click.echo("")
-    click.echo("After running the command, you MUST logout and login again (or restart) for group changes to take effect.")
+    click.echo(
+        "After running the command, you MUST logout and login again (or restart) for group changes to take effect."
+    )
 
 
 cli.add_command(startup)
