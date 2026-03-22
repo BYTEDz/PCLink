@@ -6,16 +6,10 @@ import asyncio
 import logging
 from typing import Any, Dict
 
-from fastapi import (
-    FastAPI,
-    HTTPException,
-)
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
-from ..core.device_manager import device_manager
-from ..core.extension_manager import ExtensionManager
-from ..web_ui.router import create_web_ui_router
 from .routers.applications import router as applications_router
 from .routers.extensions import mgmt_router, runtime_router
 
@@ -70,36 +64,65 @@ def create_api_app(
     # Expose managers to state for access in routers
     app.state.mobile_manager = mobile_manager
     app.state.ui_manager = ui_manager
-
-    controller = controller_instance
+    app.state.connected_devices = connected_devices
+    app.state.pairing_events = pairing_events
+    app.state.pairing_results = pairing_results
     app.state.controller = controller_instance
+    app.state.host_port = getattr(controller_instance, "port", 38080)
+    from .routers.dependencies import MOBILE_API, WEB_AUTH
 
-    from .routers.dependencies import (
-        MOBILE_API,
-        WEB_AUTH,
-    )
+    # 5. Extension System (Initialize Early for Startup Tasks)
+    from ..core.extension_manager import ExtensionManager
 
-    # Validation dependencies are now imported from .routers.dependencies
+    extension_manager = ExtensionManager()
+    extension_manager.app = app
+    app.state.extension_manager = extension_manager
+
+    # 1. Startup Logic (Restoration & Cleanup)
+    @app.on_event("startup")
+    async def startup_event():
+        from .routers.transfers import (
+            cleanup_stale_sessions,
+            restore_sessions_startup,
+        )
+
+        try:
+            result = await restore_sessions_startup()
+            log.info(
+                f"Session restoration: {result['restored_uploads']} up, {result['restored_downloads']} down"
+            )
+
+            async def periodic_cleanup():
+                from ..core.config import config_manager
+
+                while True:
+                    await asyncio.sleep(3600)
+                    try:
+                        th = config_manager.get("transfer_cleanup_threshold", 7)
+                        await cleanup_stale_sessions(days=th)
+                    except Exception as e:
+                        log.error(f"Cleanup failed: {e}")
+
+            asyncio.create_task(periodic_cleanup())
+        except Exception as e:
+            log.error(f"Startup restoration failed: {e}")
+
+        # Start WebSocket Broadcast Task
+        from .routers.websocket_routes import broadcast_updates_task
+
+        asyncio.create_task(broadcast_updates_task(mobile_manager, app.state))
+
+        # Reset extension crash counter
+        extension_manager.mark_startup_success()
+
+    # 2. Global Middleware
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-    terminal_router = create_terminal_router()
-
-    try:
-        web_ui_router = create_web_ui_router(app)
-        app.include_router(web_ui_router, prefix="/ui")
-        log.info("Web UI enabled at /ui/")
-    except Exception as e:
-        log.warning(f"Web UI could not be loaded: {e}")
-        error_str = str(e)
-
-        @app.get("/ui/")
-        async def web_ui_fallback():
-            return {"message": "Web UI not available", "error": error_str}
-
-    # --- Service Management ---
+    # 3. Router Registration
+    # - Services & Settings
     app.include_router(
         services_router,
         prefix="/ui/services",
@@ -107,63 +130,60 @@ def create_api_app(
         dependencies=[WEB_AUTH],
     )
 
+    # - UI/Static Root Redirect
+    @app.get("/")
+    def root():
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse(url="/ui/")
+
+    # - NEW: Modularized Routers
+    from .routers.auth import router as auth_router
+    from .routers.devices import router as devices_router, get_connected_devices
+    from .routers.pairing import (
+        mgmt_router as pairing_mgmt,
+        mobile_router as pairing_mobile,
+    )
+    from .routers.server import core_router as server_core, mgmt_router as server_mgmt
+    from .routers.websocket_routes import router as ws_router
+
+    # Root Level (Match UI Expectations)
+    app.include_router(auth_router)  # /auth/...
+    app.include_router(server_core)  # /heartbeat, /announce...
+    app.include_router(server_mgmt)  # /status, /logs, /ui/pairing/list...
+
+    # UI Prefixed
+    app.include_router(devices_router)  # /ui/devices/...
+    app.include_router(pairing_mgmt)  # /ui/pairing/...
+    app.include_router(pairing_mobile)  # /pairing/...
+
+    # Aliases for UI Compatibility (Force /ui/devices without slash)
+    @app.get("/ui/devices", dependencies=[WEB_AUTH])
+    async def ui_devices_alias(request: Request):
+        return await get_connected_devices(request)
+
+    @app.get("/settings/defaults/permissions", dependencies=[WEB_AUTH])
+    async def ui_default_perms_alias():
+        from .routers.devices import get_default_permissions
+
+        return await get_default_permissions()
+
+    @app.post("/settings/defaults/permissions", dependencies=[WEB_AUTH])
+    async def ui_update_default_perms_alias(payload: Dict[str, Any]):
+        from .routers.devices import update_default_permissions
+
+        return await update_default_permissions(payload)
+
+    app.include_router(ws_router)  # /ws, /ws/ui
+
+    # - Services Support
     @app.get("/ui/services/list", dependencies=[WEB_AUTH])
     async def list_services_states():
         from ..core.config import config_manager
 
         return {"services": config_manager.get("services", {})}
 
-    @app.get("/settings/defaults/permissions", dependencies=[WEB_AUTH])
-    async def get_default_permissions():
-        from ..core.config import config_manager
-
-        return {"permissions": config_manager.get("default_device_permissions", [])}
-
-    @app.post("/settings/defaults/permissions", dependencies=[WEB_AUTH])
-    async def update_default_permissions(payload: Dict[str, Any]):
-        from ..core.config import config_manager
-
-        perms = payload.get("permissions", [])
-        config_manager.set("default_device_permissions", perms)
-        return {"status": "success"}
-
-    # --- NEW: Device Permission Management ---
-    @app.post("/devices/{device_id}/permissions", dependencies=[WEB_AUTH])
-    async def update_device_permissions(device_id: str, payload: Dict[str, Any]):
-        """Update specific permission node for a device."""
-        perm = payload.get("permission")
-        enabled = payload.get("enabled", False)
-
-        device = device_manager.get_device_by_id(device_id)
-        if not device:
-            raise HTTPException(status_code=404, detail="Device not found")
-
-        current_perms = set(device.permissions)
-        if enabled:
-            current_perms.add(perm)
-        else:
-            current_perms.discard(perm)
-
-        device.permissions = list(current_perms)
-        device_manager._save_device(device)
-
-        log.info(f"Updated permissions for {device.device_name}: {perm}={enabled}")
-
-        # Proactively notify the device via WebSocket
-        from ..core.config import config_manager
-
-        await mobile_manager.send_to_device(
-            device_id,
-            {
-                "type": "UPDATE_STATE",
-                "services": config_manager.get("services", {}),
-                "permissions": device.permissions,
-            },
-        )
-
-        return {"status": "success", "permissions": device.permissions}
-
-    # --- Register Routers (ORDER MATTERS) ---
+    # - Core Domain Routers
     app.include_router(
         upload_router, prefix="/files/upload", tags=["Uploads"], dependencies=MOBILE_API
     )
@@ -182,7 +202,6 @@ def create_api_app(
         tags=["Phone Files"],
         dependencies=MOBILE_API,
     )
-
     app.include_router(
         system_router, prefix="/system", tags=["System"], dependencies=MOBILE_API
     )
@@ -210,7 +229,7 @@ def create_api_app(
     app.include_router(
         utils_router, prefix="/utils", tags=["Utils"], dependencies=MOBILE_API
     )
-    app.include_router(terminal_router, prefix="/terminal", tags=["Terminal"])
+    app.include_router(create_terminal_router(), prefix="/terminal", tags=["Terminal"])
     app.include_router(
         macro_router, prefix="/macro", tags=["Macros"], dependencies=MOBILE_API
     )
@@ -221,37 +240,25 @@ def create_api_app(
         dependencies=MOBILE_API,
     )
 
-    # --- Extension System ---
-    extension_manager = ExtensionManager()
+    # 4. Web UI & Extensions
+    try:
+        from ..web_ui.router import create_web_ui_router
 
-    # Enable dynamic mounting for extensions loaded now or later
-    extension_manager.app = app
+        web_ui_router = create_web_ui_router(app)
+        app.include_router(web_ui_router, prefix="/ui")
+    except Exception as e:
+        log.warning(f"Web UI failed to load: {e}")
 
-    # Extension management (accessible by mobile app)
-    app.include_router(mgmt_router, prefix="/api/extensions", dependencies=MOBILE_API)
-
-    # Extension runtime (UI/Static) - Authenticated unique per extension ID
-    app.include_router(runtime_router, prefix="/extensions", dependencies=MOBILE_API)
-
-    # Load all enabled extensions at startup
+    # 5. Extension Loading
     extension_manager.load_all_extensions()
+
+    app.include_router(mgmt_router, prefix="/api/extensions", dependencies=MOBILE_API)
+    app.include_router(runtime_router, prefix="/extensions", dependencies=MOBILE_API)
 
     app.state.allow_insecure_shell = allow_insecure_shell
 
     from .middleware import setup_app_middleware
 
     setup_app_middleware(app, extension_manager)
-
-    from .routers.core_routes import mount_core_routes
-
-    mount_core_routes(
-        app,
-        controller,
-        connected_devices,
-        allow_insecure_shell,
-        pairing_events,
-        pairing_results,
-        extension_manager,
-    )
 
     return app
