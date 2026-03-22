@@ -359,7 +359,7 @@ class PCLinkWebUI {
     }
 
     async banDevice(deviceId) {
-        if (!confirm('Ban this device hardware? It will be disconnected and cannot re-pair.')) return;
+        if (!await window.confirmDialog('Ban this device? It will be disconnected and cannot re-pair.', { title: 'Ban Hardware ID', danger: true })) return;
         try {
             const res = await this.webUICall(`/ui/devices/ban?device_id=${deviceId}`, { method: 'POST' });
             if (res.ok) {
@@ -373,7 +373,7 @@ class PCLinkWebUI {
     }
 
     async unbanHardware(hardwareId) {
-        if (!confirm(`Unban hardware ID ${hardwareId}?`)) return;
+        if (!await window.confirmDialog(`Unban hardware ID: ${hardwareId}?`, { title: 'Unban Hardware' })) return;
         try {
             const res = await this.webUICall(`/ui/devices/unban?hardware_id=${hardwareId}`, { method: 'POST' });
             if (res.ok) {
@@ -544,7 +544,7 @@ class PCLinkWebUI {
     }
 
     async deletePhoneItems(paths) {
-        if (!confirm(`Delete ${paths.length} items permanently?`)) return;
+        if (!await window.confirmDialog(`Permanently delete ${paths.length} item${paths.length !== 1 ? 's' : ''}? This cannot be undone.`, { title: 'Delete Files', danger: true })) return;
         for (const p of paths) { try { await fetch(`/phone/files${p.startsWith('/') ? p : '/' + p}${this.currentPhoneDeviceId ? '?device_id=' + encodeURIComponent(this.currentPhoneDeviceId) : ''}`, { method: 'DELETE', headers: this.getHeaders() }); } catch (e) { } }
         this.phoneSelectedItems.clear(); this.updateBatchActionBar(); this.loadPhoneFiles(this.currentPhonePath);
     }
@@ -681,6 +681,44 @@ class PCLinkWebUI {
 }
 
 // global window helpers
+
+// confirmDialog: replaces native confirm() with a daisyui modal
+// danger=true → red btn, false/default → primary btn
+window.confirmDialog = function (message, { title = 'Confirm', danger = false } = {}) {
+    return new Promise(resolve => {
+        const modal = document.getElementById('confirmModal');
+        const titleEl = document.getElementById('confirmModalTitle');
+        const msgEl = document.getElementById('confirmModalMessage');
+        const iconEl = document.getElementById('confirmModalIcon');
+        const okBtn = document.getElementById('confirmModalOk');
+        const cancelBtn = document.getElementById('confirmModalCancel');
+
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        // icon setup
+        const iconName = danger ? 'alert-triangle' : 'help-circle';
+        const iconColor = danger ? 'text-error' : 'text-primary';
+        iconEl.innerHTML = `<i data-feather="${iconName}" class="w-5 h-5 ${iconColor}"></i>`;
+        okBtn.className = `btn btn-sm font-bold text-white ${danger ? 'btn-error' : 'btn-primary'}`;
+        if (window.feather) feather.replace();
+
+        const cleanup = (result) => {
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('cancel', onCancel);
+            modal.close();
+            resolve(result);
+        };
+        const onOk = () => cleanup(true);
+        const onCancel = () => cleanup(false);
+
+        okBtn.addEventListener('click', onOk, { once: true });
+        cancelBtn.addEventListener('click', onCancel, { once: true });
+        modal.addEventListener('cancel', onCancel, { once: true });
+        modal.showModal();
+    });
+};
+
 window.closeDrawer = function () { const d = document.getElementById('main-drawer'); if (d) d.checked = false; };
 window.toggleApiKeyVisibility = function () { if (window.pclinkUI) { window.pclinkUI.apiKeyVisible = !window.pclinkUI.apiKeyVisible; window.pclinkUI.updateApiKeyDisplay(); } };
 window.copyApiKey = async function () { if (window.pclinkUI && window.pclinkUI.apiKey) { await navigator.clipboard.writeText(window.pclinkUI.apiKey); window.pclinkUI.showToast('Copied', 'Access key added to clipboard', 'success'); } };
@@ -802,8 +840,8 @@ window.renderCustomTemplates = function () {
     if (window.feather) feather.replace();
 };
 
-window.deleteTemplate = function (name) {
-    if (!confirm(`Delete template '${name}'?`)) return;
+window.deleteTemplate = async function (name) {
+    if (!await window.confirmDialog(`Delete template '${name}'?`, { title: 'Delete Template', danger: true })) return;
     const custom = JSON.parse(localStorage.getItem('pclink_custom_templates') || '{}');
     delete custom[name];
     localStorage.setItem('pclink_custom_templates', JSON.stringify(custom));
@@ -948,19 +986,19 @@ window.handlePhoneDeviceChange = (id) => { if (window.pclinkUI) window.pclinkUI.
 window.startRemoteServer = async () => { try { await fetch('/server/start', { method: 'POST' }); window.pclinkUI.showToast('Started', 'Remote API is starting...', 'success'); } catch (e) { } };
 window.stopRemoteServer = async () => { try { await fetch('/server/stop', { method: 'POST' }); window.pclinkUI.showToast('Stopped', 'Remote API is stopping...', 'success'); } catch (e) { } };
 window.restartRemoteServer = async () => { try { await fetch('/server/restart', { method: 'POST' }); window.pclinkUI.showToast('Restart', 'Rebooting service...', 'success'); } catch (e) { } };
-window.shutdownServer = async () => { if (confirm('Shutdown server?')) await fetch('/server/shutdown', { method: 'POST' }); };
-window.logout = async () => { if (confirm('Logout?')) { await fetch('/auth/logout', { method: 'POST' }); window.location.reload(); } };
-window.removeAllDevices = async () => { if (confirm('Remove ALL devices?')) { await window.pclinkUI.webUICall('/ui/devices/remove-all', { method: 'POST' }); window.pclinkUI.loadDevices(); } };
+window.shutdownServer = async () => { if (await window.confirmDialog('The server process will stop. You will lose access to this panel.', { title: 'Shutdown Server', danger: true })) await fetch('/server/shutdown', { method: 'POST' }); };
+window.logout = async () => { if (await window.confirmDialog('End your current session and return to login?', { title: 'Logout' })) { await fetch('/auth/logout', { method: 'POST' }); window.location.reload(); } };
+window.removeAllDevices = async () => { if (await window.confirmDialog('Remove ALL paired devices? They will need to re-pair to reconnect.', { title: 'Clear Fleet', danger: true })) { await window.pclinkUI.webUICall('/ui/devices/remove-all', { method: 'POST' }); window.pclinkUI.loadDevices(); } };
 window.banDevice = async (id) => { if (window.pclinkUI) await window.pclinkUI.banDevice(id); };
 window.unbanHardware = async (hwid) => { if (window.pclinkUI) await window.pclinkUI.unbanHardware(hwid); };
 window.loadBlacklist = async () => { if (window.pclinkUI) await window.pclinkUI.loadBlacklist(); };
-window.revokeDevice = async (id) => { if (confirm('Revoke access?')) { await window.pclinkUI.webUICall(`/ui/devices/revoke?device_id=${id}`, { method: 'POST' }); window.pclinkUI.loadDevices(); } };
-window.regenerateApiKey = async () => { if (confirm('Regen access key? Clients will disconnect.')) { await window.pclinkUI.webUICall('/ui/auth/regenerate-key', { method: 'POST' }); window.location.reload(); } };
+window.revokeDevice = async (id) => { if (await window.confirmDialog('Revoke this device session? It will be disconnected immediately.', { title: 'Revoke Access', danger: true })) { await window.pclinkUI.webUICall(`/ui/devices/revoke?device_id=${id}`, { method: 'POST' }); window.pclinkUI.loadDevices(); } };
+window.regenerateApiKey = async () => { if (await window.confirmDialog('Regenerate the access key? All connected clients will disconnect.', { title: 'Regenerate Key', danger: true })) { await window.pclinkUI.webUICall('/ui/auth/regenerate-key', { method: 'POST' }); window.location.reload(); } };
 window.approvePairingRequest = (id) => { if (window.pclinkUI.websocket?.readyState === WebSocket.OPEN) { window.pclinkUI.websocket.send(JSON.stringify({ type: 'approve_pair', pairing_id: id })); setTimeout(() => window.pclinkUI.loadPendingRequests(), 500); } };
 window.denyPairingRequest = (id) => { if (window.pclinkUI.websocket?.readyState === WebSocket.OPEN) { window.pclinkUI.websocket.send(JSON.stringify({ type: 'deny_pair', pairing_id: id })); setTimeout(() => window.pclinkUI.loadPendingRequests(), 500); } };
 window.approvePairing = async () => { if (!window.pclinkUI?.pendingPairingRequest) return; await window.pclinkUI.webUICall('/ui/pairing/approve', { method: 'POST', body: JSON.stringify({ pairing_id: window.pclinkUI.pendingPairingRequest.pairing_id, approved: true }) }); document.getElementById('pairingModal').close(); window.pclinkUI.loadDevices(); };
 window.denyPairing = async () => { if (!window.pclinkUI?.pendingPairingRequest) return; await window.pclinkUI.webUICall('/ui/pairing/deny', { method: 'POST', body: JSON.stringify({ pairing_id: window.pclinkUI.pendingPairingRequest.pairing_id, approved: false }) }); document.getElementById('pairingModal').close(); };
-window.clearLogs = async () => { if (confirm('Purge history?')) { await fetch('/logs/clear', { method: 'POST' }); const c = document.getElementById('logContent'); if (c) c.textContent = '--- cleared ---'; } };
+window.clearLogs = async () => { if (await window.confirmDialog('Purge all log history? This cannot be undone.', { title: 'Clear Logs', danger: true })) { await fetch('/logs/clear', { method: 'POST' }); const c = document.getElementById('logContent'); if (c) c.textContent = '--- cleared ---'; } };
 
 window.checkForUpdates = async () => {
     try {
