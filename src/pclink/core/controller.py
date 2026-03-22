@@ -10,7 +10,6 @@ import subprocess
 import sys
 import threading
 import time
-import uuid
 from pathlib import Path
 
 import uvicorn
@@ -21,7 +20,7 @@ from . import constants
 from .config import config_manager
 from .device_manager import device_manager
 from .state import connected_devices
-from .utils import DummyTty, get_startup_manager, restart_as_admin, save_config_value
+from .utils import DummyTty, get_startup_manager, restart_as_admin
 from .web_auth import web_auth_manager
 
 log = logging.getLogger(__name__)
@@ -134,24 +133,8 @@ class Controller:
         if sys.platform == "win32":
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         try:
-            api_key = getattr(self.window, "api_key", None)
-            if api_key is None:
-                if constants.API_KEY_FILE.exists():
-                    api_key = constants.API_KEY_FILE.read_text().strip()
-                else:
-                    api_key = str(uuid.uuid4())
-                    save_config_value(constants.API_KEY_FILE, api_key)
-                    log.info("Generated new API key for first run")
-
-            app = create_api_app(
-                api_key,
-                self,  # Pass controller instance
-                connected_devices,
-                allow_insecure_shell=config_manager.get("allow_insecure_shell"),
-            )
-
+            app = create_api_app(self, connected_devices)
             app.state.host_port = self.get_port()
-            app.state.api_key = api_key
 
             if hasattr(self.window, "tray_manager"):
                 app.state.tray_manager = self.window.tray_manager
@@ -234,26 +217,12 @@ class Controller:
         config_manager.set("minimize_to_tray", checked)
         self.window.minimize_to_tray = checked
 
-    def handle_allow_insecure_shell_change(self, checked: bool):
-        if checked:
-            log.warning("Insecure shell access enabled - this reduces security!")
-        config_manager.set("allow_insecure_shell", checked)
-        self._prompt_for_server_restart()
-
     def handle_startup_notification_change(self, checked: bool):
         config_manager.set("show_startup_notification", checked)
 
     def handle_restart_as_admin(self):
         self.stop_server()
         restart_as_admin()
-
-    def update_api_key_ui(self):
-        log.info("Regenerating API key...")
-        new_key = str(uuid.uuid4())
-        save_config_value(constants.API_KEY_FILE, new_key)
-        if hasattr(self.window, "api_key"):
-            self.window.api_key = new_key
-        self._prompt_for_server_restart()
 
     def change_port_ui(self, new_port: int = None):
         if new_port is None:

@@ -211,12 +211,6 @@ async def broadcast_updates_task(manager, state):
                     "platform": platform.system(),
                 }
 
-            update_data["system"]["allow_insecure_shell"] = (
-                getattr(state, "controller", None).allow_insecure_shell
-                if hasattr(state, "controller")
-                else False
-            )
-
             # Gather Media Metadata
             if services.get("media", True):
                 update_data["media"] = await media_service.get_media_info()

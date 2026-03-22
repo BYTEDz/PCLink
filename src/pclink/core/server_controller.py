@@ -224,11 +224,7 @@ class ServerController:
         if sys.stderr is None:
             sys.stderr = DummyTty()
 
-        app = create_api_app(
-            self,
-            connected_devices,
-            allow_insecure_shell=config_manager.get("allow_insecure_shell"),
-        )
+        app = create_api_app(self, connected_devices)
         app.state.host_port = self.get_port()
 
         config = uvicorn.Config(

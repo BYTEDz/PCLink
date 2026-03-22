@@ -44,7 +44,7 @@
       </div>
     </header>
 
-    <main class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-base-200">
+    <main class="flex-1 overflow-y-auto p-2 md:p-4 bg-base-200">
 
       <div id="updateBanner" class="alert alert-info shadow-lg mb-6 hidden">
         <i data-feather="download"></i>
@@ -82,11 +82,14 @@
 
       <!-- Devices -->
       <div class="tab-content" id="devices">
-        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-          <h3 class="text-2xl font-bold flex items-center">Client Fleet <span class="badge badge-primary ml-3 font-bold" id="deviceCount">0</span></h3>
-          <div class="flex flex-wrap gap-2">
-            <button class="btn btn-sm btn-ghost border-base-300" onclick="refreshDevices()"><i data-feather="refresh-cw" class="w-4"></i> Refresh</button>
-            <button class="btn btn-sm btn-error btn-outline" onclick="removeAllDevices()"><i data-feather="trash-2" class="w-4"></i> Remove All</button>
+        <div class="flex justify-between items-center gap-3 mb-4">
+          <div class="flex items-center gap-2">
+            <span class="badge badge-primary font-bold" id="deviceCount">0</span>
+            <span class="text-[10px] uppercase font-black opacity-30 tracking-widest">Connected Clients</span>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-xs btn-ghost border-base-300" onclick="refreshDevices()"><i data-feather="refresh-cw" class="w-3"></i></button>
+            <button class="btn btn-xs btn-error btn-outline" onclick="removeAllDevices()"><i data-feather="trash-2" class="w-3"></i> Clear Fleet</button>
           </div>
         </div>
         <div id="deviceList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
@@ -160,53 +163,66 @@
 
       <!-- Access Control (Replaced Services) -->
       <div class="tab-content" id="services">
-        <div class="mb-6"><h3 class="text-3xl font-black">Access Control</h3><p class="opacity-50 text-xs font-black uppercase tracking-widest">Manage Features & Policies</p></div>
+        <div class="max-w-4xl mx-auto">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                <div class="flex items-center gap-3">
+                    <span class="badge badge-error badge-outline font-bold text-[9px] uppercase">Firewall Mode</span>
+                    <span class="text-[10px] font-black uppercase opacity-30 tracking-widest">Global Security Policies</span>
+                </div>
+                <div class="tabs tabs-boxed bg-base-300/50 p-1 rounded-xl">
+                    <button class="sub-tab tab tab-xs font-black uppercase tracking-widest active bg-primary text-white" onclick="switchSubTab('security', this)">Firewall</button>
+                    <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50" onclick="switchSubTab('blacklist', this)">Blacklist</button>
+                    <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50" onclick="switchSubTab('policies', this)">Policies</button>
+                </div>
+            </div>
 
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
-            <!-- Global Kill Switches -->
-            <div class="card bg-base-100 shadow-sm border border-base-300">
-                <div class="card-body p-5">
-                    <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="alert-triangle" class="w-4"></i> Global Kill Switches</h3>
-                    <p class="text-sm opacity-60 mb-4">Disabling a service here turns it off for <strong>ALL</strong> devices, regardless of permissions.</p>
-                    <div id="globalServicesGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+            <div id="subtab-security" class="subtab-content active space-y-6">
+                <!-- Global Kill Switches -->
+                <div class="card bg-base-100 shadow-sm border border-base-300">
+                    <div class="card-body p-5">
+                        <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="alert-triangle" class="w-4"></i> Global Kill Switches</h3>
+                        <p class="text-sm opacity-60 mb-4">Disabling a service here turns it off for <strong>ALL</strong> devices, regardless of permissions.</p>
+                        <div id="globalServicesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Hardware Blacklist -->
-            <div class="card bg-base-100 shadow-sm border border-base-300">
-                <div class="card-body p-5">
-                    <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="user-x" class="w-4"></i> Hardware Blacklist</h3>
-                    <p class="text-sm opacity-60 mb-4">Banned hardware IDs cannot re-pair or connect. Revoking a banned device removes all its sessions.</p>
-                    <div id="blacklistContainer" class="space-y-2 max-h-64 overflow-y-auto pr-2">
-                        <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
-                    </div>
-                    <div class="card-actions justify-end mt-4">
-                        <button class="btn btn-sm btn-ghost border-base-300 font-bold text-xs" onclick="window.loadBlacklist()"><i data-feather="refresh-cw" class="w-3"></i> Refresh</button>
+            <div id="subtab-blacklist" class="subtab-content hidden space-y-6">
+               <!-- Hardware Blacklist -->
+                <div class="card bg-base-100 shadow-sm border border-base-300">
+                    <div class="card-body p-5">
+                        <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="user-x" class="w-4"></i> Hardware Blacklist</h3>
+                        <p class="text-sm opacity-60 mb-4">Banned hardware IDs cannot re-pair or connect.</p>
+                        <div id="blacklistContainer" class="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+                            <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                        </div>
+                        <div class="card-actions justify-end mt-4">
+                            <button class="btn btn-sm btn-ghost border-base-300 font-bold text-xs" onclick="window.loadBlacklist()"><i data-feather="refresh-cw" class="w-3"></i> Refresh</button>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Default Policy -->
-            <div class="card bg-base-100 shadow-sm border border-base-300">
-                <div class="card-body p-5">
-                    <h3 class="card-title text-sm font-black uppercase text-primary tracking-widest mb-4"><i data-feather="shield" class="w-4"></i> New Device Policy</h3>
-                    <p class="text-sm opacity-60 mb-2">Permissions automatically granted to new devices upon pairing.</p>
-                    <div class="flex flex-wrap gap-1 mb-4 bg-base-200/50 p-2 rounded-lg border border-base-300/50">
-                        <span class="text-[9px] font-black uppercase opacity-30 mr-1 self-center">Templates:</span>
-                        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Admin', 'defaultPermsGrid')">Admin</button>
-                        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Viewer', 'defaultPermsGrid')">Viewer</button>
-                        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Media', 'defaultPermsGrid')">Media</button>
-                        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Remote', 'defaultPermsGrid')">Remote</button>
-                    </div>
-                    <div id="customPolicyTemplates" class="flex flex-wrap gap-1 mb-4"></div>
-                    <div id="defaultPermsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
-                    </div>
-                    <div class="card-actions justify-between items-center mt-4">
-                        <button class="btn btn-xs btn-outline btn-ghost font-bold text-xs opacity-40 hover:opacity-100" onclick="saveCurrentAsTemplate('defaultPermsGrid')">Save as Template</button>
-                        <button class="btn btn-sm btn-primary text-white font-bold" onclick="saveDefaultPermissions()">Save Policy</button>
+            <div id="subtab-policies" class="subtab-content hidden space-y-6">
+                <!-- Default Policy -->
+                <div class="card bg-base-100 shadow-sm border border-base-300">
+                    <div class="card-body p-5">
+                        <h3 class="card-title text-sm font-black uppercase text-primary tracking-widest mb-4"><i data-feather="shield" class="w-4"></i> New Device Policy</h3>
+                        <p class="text-sm opacity-60 mb-2">Permissions granted automatically.</p>
+                        <div class="flex flex-wrap gap-1 mb-4 bg-base-200/50 p-2 rounded-lg border border-base-300/50">
+                            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary" onclick="applyPermissionTemplate('Admin', 'defaultPermsGrid')">Admin</button>
+                            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary" onclick="applyPermissionTemplate('Viewer', 'defaultPermsGrid')">Viewer</button>
+                            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary" onclick="applyPermissionTemplate('Media', 'defaultPermsGrid')">Media</button>
+                        </div>
+                        <div id="defaultPermsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                        </div>
+                        <div class="card-actions justify-between items-center mt-4">
+                            <button class="btn btn-xs btn-outline btn-ghost font-bold text-[9px] opacity-40 hover:opacity-100" onclick="saveCurrentAsTemplate('defaultPermsGrid')">Template</button>
+                            <button class="btn btn-sm btn-primary text-white font-bold" onclick="saveDefaultPermissions()">Save Policy</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -227,7 +243,6 @@
                     <option value="dracula">Dracula</option>
                     <option value="synthwave">Retro Future</option>
                     <option value="black">Pure Black</option>
-                    <option value="luxury">Luxury Gold</option>
                     <option value="business">Enterprise</option>
                     <option value="night">Night Owl</option>
                     <option value="dim">Dimmed</option>
@@ -315,7 +330,9 @@
       <!-- Guide -->
       <div class="tab-content" id="guide">
         <div class="max-w-4xl mx-auto space-y-4">
-          <h2 class="text-2xl font-black mb-6">Support</h2>
+          <div class="mb-4">
+            <span class="text-[10px] font-black uppercase opacity-30 tracking-widest">Documentation & Support</span>
+          </div>
           <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
             <input type="checkbox" checked="checked" />
             <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="shield" class="text-primary w-5"></i> Firewall</div>
@@ -360,6 +377,75 @@
 
           <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
             <input type="checkbox" />
+            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="terminal" class="text-primary w-5"></i> CLI - Server Control</div>
+            <div class="collapse-content space-y-3 pt-2 text-xs">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="space-y-1">
+                  <p class="text-[9px] uppercase font-black opacity-40">Service Control</p>
+                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink start</code>
+                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink stop</code>
+                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink restart</code>
+                </div>
+                <div class="space-y-1">
+                  <p class="text-[9px] uppercase font-black opacity-40">Status & Logs</p>
+                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink status</code>
+                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink logs -f</code>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+            <input type="checkbox" />
+            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="smartphone" class="text-primary w-5"></i> CLI - Device Management</div>
+            <div class="collapse-content space-y-3 pt-2 text-xs">
+              <div class="space-y-2">
+                <p class="text-[10px] uppercase font-black opacity-50">Pairing Management</p>
+                <div class="flex gap-2">
+                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink pair list</code>
+                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink pair approve 1</code>
+                </div>
+              </div>
+              <div class="space-y-2">
+                <p class="text-[10px] uppercase font-black opacity-50">Revoke / Ban / Index</p>
+                <div class="flex gap-2">
+                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink device list</code>
+                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink device revoke 1</code>
+                </div>
+                <div class="flex gap-2">
+                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink device ban 1</code>
+                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink device unban 1</code>
+                </div>
+              </div>
+              <div class="space-y-2">
+                <p class="text-[10px] uppercase font-black opacity-50">Role-Based Perms</p>
+                <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer mb-1" onclick="copyCommand(this)">pclink device perm 1 admin</code>
+                <p class="text-[8px] opacity-40 font-bold uppercase">Roles: admin | viewer | media | remote | none</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+            <input type="checkbox" />
+            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="settings" class="text-primary w-5"></i> CLI - System & Identity</div>
+            <div class="collapse-content space-y-3 pt-2 text-xs">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="space-y-1">
+                  <p class="text-[9px] uppercase font-black opacity-40">System Integration</p>
+                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink startup enable</code>
+                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink tray disable</code>
+                </div>
+                <div class="space-y-1">
+                  <p class="text-[9px] uppercase font-black opacity-40">Identity & Utils</p>
+                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink qr</code>
+                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink fix-wayland</code>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+            <input type="checkbox" />
             <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="wifi" class="text-primary w-5"></i> Network</div>
             <div class="collapse-content space-y-4 pt-2">
               <ul class="list-disc pl-5 space-y-2 text-sm opacity-80">
@@ -367,9 +453,6 @@
                 <li>Disable VPN while pairing</li>
                 <li>AP Isolation must be OFF</li>
               </ul>
-              <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
-                <pre data-prefix="$"><code>ipconfig</code></pre>
-              </div>
             </div>
           </div>
         </div>
@@ -387,8 +470,8 @@
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2 w-full mb-8 font-bold">
               <a href="https://bytedz.com" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Website</a>
               <a href="https://github.com/BYTEDz/PCLink" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">GitHub</a>
-              <a href="#" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Support</a>
-              <a href="#" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Legal</a>
+              <a href="https://github.com/BYTEDz/PCLink/issues" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Support</a>
+              <a href="https://bytedz.com/legal/?doc=pclink-privacy" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Legal</a>
             </div>
             <div class="divider opacity-10 my-2"></div>
             <p class="text-[10px] font-black opacity-30 tracking-[0.3em] uppercase">© <span id="copyrightYear">2026</span> BYTEDZ, INC.</p>

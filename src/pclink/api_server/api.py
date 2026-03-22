@@ -46,9 +46,7 @@ pairing_results: Dict[str, dict] = {}
 
 
 # --- FastAPI App Factory ---
-def create_api_app(
-    controller_instance, connected_devices: Dict, allow_insecure_shell: bool
-) -> FastAPI:
+def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     app = FastAPI(
         title="PCLink API",
         version="8.9.5",
@@ -254,8 +252,6 @@ def create_api_app(
 
     app.include_router(mgmt_router, prefix="/api/extensions", dependencies=MOBILE_API)
     app.include_router(runtime_router, prefix="/extensions", dependencies=MOBILE_API)
-
-    app.state.allow_insecure_shell = allow_insecure_shell
 
     from .middleware import setup_app_middleware
 
