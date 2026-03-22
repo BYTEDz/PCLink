@@ -171,7 +171,7 @@ async def update_default_permissions(payload: Dict[str, Any]):
 
 @router.post("/{device_id}/permissions")
 async def update_device_permissions(device_id: str, payload: Dict[str, Any]):
-    """Update specific permissions for a single device and notify it of the change."""
+    """Update specific permissions for a single device (Web UI toggles)."""
     perm = payload.get("permission")
     enabled = payload.get("enabled", False)
 
@@ -184,11 +184,33 @@ async def update_device_permissions(device_id: str, payload: Dict[str, Any]):
         current_perms.add(perm)
     else:
         current_perms.discard(perm)
-
     device.permissions = list(current_perms)
     device_manager._save_device(device)
 
-    log.info(f"Updated permissions for {device.device_name}: {perm}={enabled}")
+    # Notify device
+    await mobile_manager.send_to_device(
+        device_id,
+        {
+            "type": "UPDATE_STATE",
+            "services": config_manager.get("services", {}),
+            "permissions": device.permissions,
+        },
+    )
+    return {"status": "success", "permissions": device.permissions}
+
+
+@router.post("/{device_id}/permissions/bulk")
+async def update_device_permissions_bulk(device_id: str, payload: Dict[str, Any]):
+    """Update all permissions for a single device in bulk (CLI/Roles)."""
+    perms = payload.get("permissions", [])
+    device = device_manager.get_device_by_id(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    device.permissions = perms
+    device_manager._save_device(device)
+
+    log.info(f"Updated bulk permissions for {device.device_name}")
 
     # Proactively notify the device via WebSocket
     await mobile_manager.send_to_device(

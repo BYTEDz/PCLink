@@ -24,7 +24,6 @@ DEFAULT_SETTINGS = {
     # Core settings
     "allow_terminal_access": False,
     "allow_extensions": True,
-    "allow_insecure_shell": False,
     "server_port": constants.DEFAULT_PORT,
     "auto_start": False,
     "auto_open_webui": True,

@@ -459,6 +459,347 @@ def disable_tray():
     click.echo("Use 'pclink stop' to shut it down.")
 
 
+def _get_pending_pairings(port: int):
+    """Helper to fetch pairings from the local server."""
+    import requests
+    import urllib3
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    try:
+        url = f"https://localhost:{port}/ui/pairing/list"
+        res = requests.get(
+            url, verify=False, headers={"X-Internal-Auth": "true"}, timeout=5
+        )
+        return res.json().get("requests", []) if res.status_code == 200 else []
+    except Exception:
+        return []
+
+
+@cli.group(name="pair")
+def pair_group():
+    """Manage device pairing requests (Headless Mode)."""
+    pass
+
+
+@pair_group.command(name="list")
+def list_pairings():
+    """List all pending pairing requests."""
+    port = config_manager.get("server_port", 38080)
+    requests_list = _get_pending_pairings(port)
+
+    if not requests_list:
+        click.echo("No pending pairing requests.")
+        return
+
+    click.echo(f"{'#':<3} | {'Device':<20} | {'IP':<15} | {'Platform'}")
+    click.echo("-" * 60)
+    for idx, req in enumerate(requests_list, 1):
+        click.echo(
+            f"{idx:<3} | {req['device_name']:<20} | {req['ip']:<15} | {req['platform']}"
+        )
+
+
+@pair_group.command(name="approve")
+@click.argument("id_or_idx", required=False)
+def approve_pairing(id_or_idx: str = None):
+    """Approve a request by ID or index from 'list'."""
+    port = config_manager.get("server_port", 38080)
+    requests_list = _get_pending_pairings(port)
+    target_id = None
+
+    if not requests_list:
+        click.echo("No pending pairing requests.")
+        return
+
+    if not id_or_idx:
+        list_pairings()
+        val = click.prompt("Select request number to APPROVE", type=int)
+        if 0 < val <= len(requests_list):
+            target_id = requests_list[val - 1]["pairing_id"]
+    elif id_or_idx.isdigit():
+        idx = int(id_or_idx)
+        if 0 < idx <= len(requests_list):
+            target_id = requests_list[idx - 1]["pairing_id"]
+    else:
+        target_id = id_or_idx
+
+    if not target_id:
+        click.echo("Error: Invalid selection.")
+        return
+
+    try:
+        import requests
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        url = f"https://localhost:{port}/ui/pairing/approve"
+        response = requests.post(
+            url,
+            params={"pairing_id": target_id},
+            verify=False,
+            headers={"X-Internal-Auth": "true"},
+            timeout=5,
+        )
+        if response.status_code == 200:
+            click.echo(
+                click.style(f"✓ Approved device {target_id}.", fg="green", bold=True)
+            )
+        else:
+            click.echo(f"Failed: {response.text}")
+    except Exception as e:
+        click.echo(f"Error: {e}")
+
+
+@pair_group.command(name="deny")
+@click.argument("id_or_idx", required=False)
+def deny_pairing(id_or_idx: str = None):
+    """Deny a request by ID or index from 'list'."""
+    port = config_manager.get("server_port", 38080)
+    requests_list = _get_pending_pairings(port)
+    target_id = None
+
+    if not requests_list:
+        click.echo("No pending pairing requests.")
+        return
+
+    if not id_or_idx:
+        list_pairings()
+        val = click.prompt("Select request number to DENY", type=int)
+        if 0 < val <= len(requests_list):
+            target_id = requests_list[val - 1]["pairing_id"]
+    elif id_or_idx.isdigit():
+        idx = int(id_or_idx)
+        if 0 < idx <= len(requests_list):
+            target_id = requests_list[idx - 1]["pairing_id"]
+    else:
+        target_id = id_or_idx
+
+    if not target_id:
+        click.echo("Error: Invalid selection.")
+        return
+
+    try:
+        import requests
+        import urllib3
+
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        url = f"https://localhost:{port}/ui/pairing/deny"
+        response = requests.post(
+            url,
+            params={"pairing_id": target_id},
+            verify=False,
+            headers={"X-Internal-Auth": "true"},
+            timeout=5,
+        )
+        if response.status_code == 200:
+            click.echo(
+                click.style(f"✗ Denied device {target_id}.", fg="red", bold=True)
+            )
+        else:
+            click.echo(f"Failed: {response.text}")
+    except Exception as e:
+        click.echo(f"Error: {e}")
+
+
+# Permission Roles for CLI
+PERM_ROLES = {
+    "admin": [
+        "files_browse",
+        "files_download",
+        "files_upload",
+        "files_delete",
+        "processes",
+        "power",
+        "info",
+        "mouse",
+        "keyboard",
+        "media",
+        "volume",
+        "terminal",
+        "macros",
+        "extensions",
+        "apps",
+        "clipboard",
+        "screenshot",
+        "command",
+        "wol",
+    ],
+    "viewer": ["files_browse", "info", "apps"],
+    "media": ["media", "volume", "info", "apps"],
+    "remote": ["mouse", "keyboard", "screenshot", "info", "volume"],
+    "none": [],
+}
+
+
+def _get_api_data(url: str, params=None):
+    """Helper for CLI API calls."""
+    import requests
+    import urllib3
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    try:
+        res = requests.get(
+            url,
+            params=params,
+            verify=False,
+            headers={"X-Internal-Auth": "true"},
+            timeout=5,
+        )
+        return res.json() if res.status_code == 200 else None
+    except Exception:
+        return None
+
+
+def _post_api_data(url: str, params=None, json=None):
+    """Helper for CLI API calls."""
+    import requests
+    import urllib3
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    try:
+        res = requests.post(
+            url,
+            params=params,
+            json=json,
+            verify=False,
+            headers={"X-Internal-Auth": "true"},
+            timeout=5,
+        )
+        return res.status_code == 200
+    except Exception:
+        return False
+
+
+@cli.group(name="device")
+def device_group():
+    """Manage paired devices and permissions."""
+    pass
+
+
+@device_group.command(name="list")
+def list_devices():
+    """List all paired devices."""
+    port = config_manager.get("server_port", 38080)
+    data = _get_api_data(f"https://localhost:{port}/ui/devices")
+    if not data or not data.get("devices"):
+        click.echo("No paired devices found.")
+        return
+
+    click.echo(
+        f"{'#':<3} | {'Device':<20} | {'IP':<15} | {'Platform':<10} | {'Last Seen'}"
+    )
+    click.echo("-" * 75)
+    for idx, d in enumerate(data["devices"], 1):
+        click.echo(
+            f"{idx:<3} | {d['name']:<20} | {d['ip']:<15} | {d['platform']:<10} | {d['last_seen']}"
+        )
+
+
+@device_group.command(name="revoke")
+@click.argument("id_or_idx")
+def revoke_device(id_or_idx: str):
+    """Kick a device and unpair it."""
+    port = config_manager.get("server_port", 38080)
+    target_id = id_or_idx
+    if id_or_idx.isdigit():
+        data = _get_api_data(f"https://localhost:{port}/ui/devices")
+        if data and 0 < int(id_or_idx) <= len(data["devices"]):
+            target_id = data["devices"][int(id_or_idx) - 1]["id"]
+
+    if _post_api_data(
+        f"https://localhost:{port}/ui/devices/revoke", params={"device_id": target_id}
+    ):
+        click.echo(click.style(f"✓ Device {target_id} revoked.", fg="green", bold=True))
+    else:
+        click.echo("Error: Could not revoke device.")
+
+
+@device_group.command(name="ban")
+@click.argument("id_or_idx")
+def ban_device(id_or_idx: str):
+    """Permanently ban a device's hardware ID."""
+    port = config_manager.get("server_port", 38080)
+    target_id = id_or_idx
+    if id_or_idx.isdigit():
+        data = _get_api_data(f"https://localhost:{port}/ui/devices")
+        if data and 0 < int(id_or_idx) <= len(data["devices"]):
+            target_id = data["devices"][int(id_or_idx) - 1]["id"]
+
+    if _post_api_data(
+        f"https://localhost:{port}/ui/devices/ban", params={"device_id": target_id}
+    ):
+        click.echo(
+            click.style(
+                f"✓ Device {target_id} banned permanently.", fg="red", bold=True
+            )
+        )
+    else:
+        click.echo("Error: Could not ban device.")
+
+
+@device_group.command(name="perm")
+@click.argument("id_or_idx")
+@click.argument("role", type=click.Choice(list(PERM_ROLES.keys())))
+def update_perms(id_or_idx: str, role: str):
+    """Update device permissions using a role: admin, viewer, media, remote, none."""
+    port = config_manager.get("server_port", 38080)
+    target_id = id_or_idx
+    if id_or_idx.isdigit():
+        data = _get_api_data(f"https://localhost:{port}/ui/devices")
+        if data and 0 < int(id_or_idx) <= len(data["devices"]):
+            target_id = data["devices"][int(id_or_idx) - 1]["id"]
+
+    perms = PERM_ROLES.get(role, [])
+    if _post_api_data(
+        f"https://localhost:{port}/ui/devices/{target_id}/permissions/bulk",
+        json={"permissions": perms},
+    ):
+        click.echo(
+            click.style(
+                f"✓ Role '{role}' applied to {target_id}.", fg="blue", bold=True
+            )
+        )
+    else:
+        click.echo("Error: Could not update permissions.")
+
+
+@device_group.command(name="blacklist")
+def list_blacklist():
+    """List all hardware-banned IDs."""
+    port = config_manager.get("server_port", 38080)
+    data = _get_api_data(f"https://localhost:{port}/ui/devices/blacklist")
+    if not data or not data.get("blacklist"):
+        click.echo("Blacklist is empty.")
+        return
+
+    click.echo(f"{'#':<3} | {'Hardware ID':<40} | {'Reason'}")
+    click.echo("-" * 65)
+    for idx, (hwid, reason) in enumerate(data["blacklist"].items(), 1):
+        click.echo(f"{idx:<3} | {hwid:<40} | {reason}")
+
+
+@device_group.command(name="unban")
+@click.argument("hwid_or_idx")
+def unban_device(hwid_or_idx: str):
+    """Remove a hardware ID from the blacklist."""
+    port = config_manager.get("server_port", 38080)
+    target_hwid = hwid_or_idx
+    if hwid_or_idx.isdigit():
+        data = _get_api_data(f"https://localhost:{port}/ui/devices/blacklist")
+        if data and 0 < int(hwid_or_idx) <= len(data["blacklist"]):
+            target_hwid = list(data["blacklist"].keys())[int(hwid_or_idx) - 1]
+
+    if _post_api_data(
+        f"https://localhost:{port}/ui/devices/unban",
+        params={"hardware_id": target_hwid},
+    ):
+        click.echo(
+            click.style(f"✓ Hardware {target_hwid} unbanned.", fg="green", bold=True)
+        )
+    else:
+        click.echo("Error: Could not unban hardware.")
+
+
 @cli.command(name="fix-wayland")
 def fix_wayland():
     """Fix mouse/keyboard issues on Wayland by configuring uinput."""

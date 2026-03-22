@@ -59,9 +59,9 @@ async def pairing_request(request: Request, payload: PairingRequestPayload):
         }
     )
 
-    # 3. Wait for UI Response (60s timeout)
+    # 3. Wait for UI Response (30s timeout)
     try:
-        await asyncio.wait_for(events[pairing_id].wait(), timeout=60.0)
+        await asyncio.wait_for(events[pairing_id].wait(), timeout=30.0)
         if results[pairing_id]["approved"]:
             # 4. Generate device-specific identities
             device_id = payload.device_id or str(uuid.uuid4())
@@ -95,34 +95,52 @@ async def pairing_request(request: Request, payload: PairingRequestPayload):
 
 
 @mgmt_router.post("/approve")
-async def approve_pairing(request: Request):
-    """Signal approval for a pending pairing request (triggered by Web UI)."""
-    data = await request.json()
-    pairing_id = data.get("pairing_id")
+async def approve_pairing(request: Request, pairing_id: Optional[str] = None):
+    """Signal approval for a pending pairing request (triggered by Web UI or CLI)."""
+    # 1. Try to get pairing_id from JSON body
+    if pairing_id is None:
+        try:
+            data = await request.json()
+            pairing_id = data.get("pairing_id")
+        except Exception:
+            pass
+
+    # 2. Try to get from query params if still None
+    if pairing_id is None:
+        pairing_id = request.query_params.get("pairing_id")
+
     results = getattr(request.app.state, "pairing_results", {})
     events = getattr(request.app.state, "pairing_events", {})
 
-    if pairing_id in results:
+    if pairing_id and pairing_id in results:
         results[pairing_id]["approved"] = True
         results[pairing_id]["user_decided"] = True
         if event := events.get(pairing_id):
             event.set()
         return {"status": "success"}
-    raise HTTPException(status_code=404, detail="Request not found")
+    raise HTTPException(status_code=404, detail="Request not found or ID missing")
 
 
 @mgmt_router.post("/deny")
-async def deny_pairing(request: Request):
-    """Signal rejection for a pending pairing request (triggered by Web UI)."""
-    data = await request.json()
-    pairing_id = data.get("pairing_id")
+async def deny_pairing(request: Request, pairing_id: Optional[str] = None):
+    """Signal rejection for a pending pairing request (triggered by Web UI or CLI)."""
+    if pairing_id is None:
+        try:
+            data = await request.json()
+            pairing_id = data.get("pairing_id")
+        except Exception:
+            pass
+
+    if pairing_id is None:
+        pairing_id = request.query_params.get("pairing_id")
+
     results = getattr(request.app.state, "pairing_results", {})
     events = getattr(request.app.state, "pairing_events", {})
 
-    if pairing_id in results:
+    if pairing_id and pairing_id in results:
         results[pairing_id]["approved"] = False
         results[pairing_id]["user_decided"] = True
         if event := events.get(pairing_id):
             event.set()
         return {"status": "success"}
-    raise HTTPException(status_code=404, detail="Request not found")
+    raise HTTPException(status_code=404, detail="Request not found or ID missing")

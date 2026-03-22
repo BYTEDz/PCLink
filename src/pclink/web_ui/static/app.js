@@ -387,7 +387,7 @@ class PCLinkWebUI {
 
     async loadDefaultPermissions() {
         try {
-            const res = await this.webUICall('/settings/defaults/permissions');
+            const res = await this.webUICall('/ui/devices/settings/defaults/permissions');
             if (res.ok) {
                 const data = await res.json();
                 const container = document.getElementById('defaultPermsGrid');
@@ -684,6 +684,18 @@ class PCLinkWebUI {
 window.closeDrawer = function () { const d = document.getElementById('main-drawer'); if (d) d.checked = false; };
 window.toggleApiKeyVisibility = function () { if (window.pclinkUI) { window.pclinkUI.apiKeyVisible = !window.pclinkUI.apiKeyVisible; window.pclinkUI.updateApiKeyDisplay(); } };
 window.copyApiKey = async function () { if (window.pclinkUI && window.pclinkUI.apiKey) { await navigator.clipboard.writeText(window.pclinkUI.apiKey); window.pclinkUI.showToast('Copied', 'Access key added to clipboard', 'success'); } };
+window.switchSubTab = function (id, btn) {
+    document.querySelectorAll('.subtab-content').forEach(c => c.classList.add('hidden'));
+    const target = document.getElementById(`subtab-${id}`);
+    if (target) target.classList.remove('hidden');
+
+    document.querySelectorAll('.sub-tab').forEach(b => {
+        b.classList.remove('active', 'bg-primary', 'text-white');
+        b.classList.add('opacity-50');
+    });
+    btn.classList.add('active', 'bg-primary', 'text-white');
+    btn.classList.remove('opacity-50');
+};
 window.copyCommand = async function (el) { const c = el.querySelector('code'); if (c) { await navigator.clipboard.writeText(c.textContent); window.pclinkUI.showToast('Copied', 'Command added to clipboard'); } };
 
 window.loadTheme = function () {
@@ -800,7 +812,7 @@ window.deleteTemplate = function (name) {
 
 window.updateDevicePerm = async function (deviceId, perm, enabled) {
     try {
-        await window.pclinkUI.webUICall(`/devices/${deviceId}/permissions`, {
+        await window.pclinkUI.webUICall(`/ui/devices/${deviceId}/permissions`, {
             method: 'POST',
             body: JSON.stringify({ permission: perm, enabled: enabled })
         });
@@ -815,7 +827,7 @@ window.saveDefaultPermissions = async function () {
         const checkboxes = document.querySelectorAll('#defaultPermsGrid input[type="checkbox"]');
         const perms = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.getAttribute('data-perm'));
 
-        const res = await window.pclinkUI.webUICall('/settings/defaults/permissions', {
+        const res = await window.pclinkUI.webUICall('/ui/devices/settings/defaults/permissions', {
             method: 'POST',
             body: JSON.stringify({ permissions: perms })
         });

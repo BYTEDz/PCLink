@@ -210,9 +210,6 @@ async def save_server_settings(request: Request):
             else:
                 extension_service.manager.unload_all_extensions()
 
-        if "allow_insecure_shell" in data:
-            config_manager.set("allow_insecure_shell", data["allow_insecure_shell"])
-
         if "notifications" in data:
             current_notifications = config_manager.get("notifications", {}).copy()
             current_notifications.update(data["notifications"])

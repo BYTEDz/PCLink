@@ -10,6 +10,12 @@ log = logging.getLogger(__name__)
 
 
 async def verify_web_session(request: Request):
+    # 1. Check for Internal/CLI authentication (only from localhost)
+    if request.client and request.client.host in ("127.0.0.1", "::1"):
+        if request.headers.get("X-Internal-Auth") == "true":
+            return True
+
+    # 2. Check for traditional session tokens
     session_token = request.cookies.get("pclink_session")
     if not session_token:
         session_token = request.headers.get("X-Session-Token")
