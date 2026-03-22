@@ -1,17 +1,68 @@
-:root { --primary-color: #2563eb; }
+:root {
+  --primary-color: #2563eb;
+}
 
-html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  overflow: hidden;
+}
 
 /* switch between tabs */
-.tab-content { display: none; width: 100%; height: 100%; flex-direction: column; }
-.tab-content.active { display: flex; animation: fadeIn 0.2s ease-out; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+.tab-content {
+  display: none;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  overflow-y: auto;
+  /* Allow global scroll for cards */
+  padding-bottom: 2.5rem;
+  /* Better breathing room at the end */
+}
+
+/* Specific tabs that should NOT scroll the whole page (they have internal lists) */
+#phone-files,
+#logs {
+  overflow-y: hidden;
+}
+
+.tab-content.active {
+  display: flex;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
 /* custom scrollbars for dark theme */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: #475569; }
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
 
 /* terminal text formatting */
 .log-container pre {
@@ -23,10 +74,15 @@ html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
 }
 
 /* fix logo visibility in dark sidebars/headers */
-.icon-white { filter: brightness(0) invert(1); }
+.icon-white {
+  filter: brightness(0) invert(1);
+}
 
 /* feather icons inherit text color */
-svg.feather { stroke: currentColor; fill: none; }
+svg.feather {
+  stroke: currentColor;
+  fill: none;
+}
 
 /* white background for qr scanner compatibility */
 #qrCodeContainer {
@@ -36,7 +92,10 @@ svg.feather { stroke: currentColor; fill: none; }
   display: inline-block !important;
 }
 
-.file-list-container { flex: 1; overflow-y: auto; }
+.file-list-container {
+  flex: 1;
+  overflow-y: auto;
+}
 
 /* notification popups */
 #toast-container {
@@ -49,6 +108,23 @@ svg.feather { stroke: currentColor; fill: none; }
   gap: 0.5rem;
   pointer-events: none;
 }
-#toast-container > div { pointer-events: auto; }
-.hiding { animation: slideOut 0.3s ease forwards; }
-@keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
+
+#toast-container>div {
+  pointer-events: auto;
+}
+
+.hiding {
+  animation: slideOut 0.3s ease forwards;
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  to {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+}
