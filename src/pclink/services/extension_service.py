@@ -4,7 +4,7 @@
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 import yaml
 
@@ -32,7 +32,7 @@ class ExtensionService:
                 and any(self.manager.extensions_path.iterdir())
             ):
                 self.manager.discover_extensions()
-        except:
+        except Exception:
             pass
 
         discovered = self.manager.discover_extensions()

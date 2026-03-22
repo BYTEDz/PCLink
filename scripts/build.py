@@ -8,13 +8,11 @@ consistent, professional naming convention.
 """
 
 import argparse
-import hashlib
 import os
 import platform
 import shutil
 import subprocess
 import sys
-import tarfile
 import time
 from pathlib import Path
 
@@ -213,7 +211,7 @@ def check_system_dependencies(build_format=None):
     # Platform-specific checks
     if platform.system().lower() == "windows":
         try:
-            import win32api
+            pass
         except ImportError:
             missing_deps.append("Python package: pywin32 (Windows-specific)")
 
@@ -302,7 +300,7 @@ class Builder:
             while len(v) < 4:
                 v.append("0")
             file_ver = tuple(map(int, v[:4]))
-        except:
+        except Exception:
             file_ver = (1, 0, 0, 0)
 
         ver_str = ".".join(map(str, file_ver))
@@ -482,7 +480,7 @@ VSVersionInfo(
             shutil.move(source_file, self.releases_dir / final_name)
             print(f"[OK] Packaged one-file executable: {final_name}")
         else:
-            source_dir = self.dist_dir / build_name
+            self.dist_dir / build_name
             archive_format = "zip" if self.platform == "windows" else "gztar"
             archive_path = Path(
                 shutil.make_archive(
@@ -583,7 +581,7 @@ def main():
         start_time = time.monotonic()
 
         print(f"--- {APP_NAME} Builder v{version_info.version} ---")
-        print(f"[INFO] Performing pre-build checks...")
+        print("[INFO] Performing pre-build checks...")
 
         # Run system checks
         if not check_system_dependencies(args.format):
@@ -720,7 +718,7 @@ def main():
             # Check for build module or setuptools
             has_build = False
             try:
-                import build
+                pass
 
                 has_build = True
             except ImportError:

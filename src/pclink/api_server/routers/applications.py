@@ -8,9 +8,9 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from ..services.app_service import app_service
+from ...services.app_service import app_service
 
 log = logging.getLogger(__name__)
 router = APIRouter()

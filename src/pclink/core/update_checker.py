@@ -2,12 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-import json
 import logging
 import threading
 import time
-from typing import Optional, Tuple
-from urllib.parse import urljoin
+from typing import Optional
 
 import requests
 from packaging import version

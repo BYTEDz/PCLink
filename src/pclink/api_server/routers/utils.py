@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
-from ..services.utility_service import utility_service
+from ...services.utility_service import utility_service
 
 log = logging.getLogger(__name__)
 router = APIRouter()

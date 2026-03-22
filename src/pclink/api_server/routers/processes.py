@@ -8,7 +8,7 @@ from typing import Dict, List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..services.process_service import ProcessInfo, process_service
+from ...services.process_service import ProcessInfo, process_service
 
 log = logging.getLogger(__name__)
 

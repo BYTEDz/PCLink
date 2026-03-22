@@ -4,9 +4,9 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
-from ..core.config import config_manager
-from ..core.device_manager import device_manager
-from ..services.terminal_service import terminal_service
+from ...core.config import config_manager
+from ...core.device_manager import device_manager
+from ...services.terminal_service import terminal_service
 
 log = logging.getLogger(__name__)
 
@@ -27,7 +27,14 @@ def create_terminal_router() -> APIRouter:
             pass
         return None
 
-    @router.get("/shells")
+    from fastapi import Depends
+
+    from .dependencies import verify_api_key, verify_mobile_api_enabled
+
+    @router.get(
+        "/shells",
+        dependencies=[Depends(verify_api_key), Depends(verify_mobile_api_enabled)],
+    )
     async def get_available_shells(token: str = Query(None)):
         device = _get_authenticated_device(token)
         if not device:
@@ -46,6 +53,8 @@ def create_terminal_router() -> APIRouter:
 
     @router.websocket("/ws")
     async def terminal_websocket(websocket: WebSocket, token: str = Query(None)):
+        await websocket.accept()
+
         device = _get_authenticated_device(token)
         if not device:
             log.warning(
@@ -70,8 +79,6 @@ def create_terminal_router() -> APIRouter:
             return
 
         log.info(f"Terminal access granted for device '{device.device_name}'")
-
-        await websocket.accept()
         log.info(f"Terminal session started for {websocket.client}")
 
         try:

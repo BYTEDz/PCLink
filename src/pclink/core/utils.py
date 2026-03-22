@@ -294,7 +294,7 @@ def get_cert_fingerprint(cert_path: Path) -> Optional[str]:
 def generate_self_signed_cert(cert_path: Path, key_path: Path):
     """Bootstrap self-signed TLS credentials."""
     if cert_path.exists() and key_path.exists():
-        log.debug(f"Certificate and key already exist")
+        log.debug("Certificate and key already exist")
         if get_cert_fingerprint(cert_path):
             log.debug("Existing certificate is valid")
             return
@@ -305,14 +305,14 @@ def generate_self_signed_cert(cert_path: Path, key_path: Path):
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import NameOID
-    except ImportError as e:
+    except ImportError:
         log.error(
-            f"Cryptography library required. Install with: pip install cryptography"
+            "Cryptography library required. Install with: pip install cryptography"
         )
         raise
 
     try:
-        log.info(f"Generating new self-signed certificate")
+        log.info("Generating new self-signed certificate")
 
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -358,7 +358,7 @@ def generate_self_signed_cert(cert_path: Path, key_path: Path):
 
         fingerprint = get_cert_fingerprint(cert_path)
         if fingerprint:
-            log.info(f"Successfully generated certificate")
+            log.info("Successfully generated certificate")
         else:
             raise Exception("Certificate validation failed after generation")
 

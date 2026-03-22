@@ -7,7 +7,6 @@ import socket
 import sys
 import threading
 import time
-import uuid
 import webbrowser
 
 import uvicorn

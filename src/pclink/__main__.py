@@ -5,13 +5,11 @@ import os
 import subprocess
 import sys
 import time
-import uuid
 import webbrowser
 from pathlib import Path
 
 import click
 import requests
-import urllib3
 
 from .core import constants
 from .core.config import config_manager
@@ -394,7 +392,6 @@ def pair():
 @click.group()
 def startup():
     """Manage auto-start on system login."""
-    pass
 
 
 @startup.command()
@@ -441,11 +438,10 @@ def disable():
 @click.group()
 def tray():
     """Enable or disable the system tray icon."""
-    pass
 
 
-@tray.command()
-def enable():
+@tray.command(name="enable")
+def enable_tray():
     """Enable the system tray icon on next start."""
     config_manager.set("enable_tray_icon", True)
     click.echo(
@@ -453,8 +449,8 @@ def enable():
     )
 
 
-@tray.command()
-def disable():
+@tray.command(name="disable")
+def disable_tray():
     """Disable the system tray icon on next start."""
     config_manager.set("enable_tray_icon", False)
     click.echo(

@@ -6,8 +6,6 @@ import logging
 import os
 import sys
 import threading
-import webbrowser
-from pathlib import Path
 
 from .linux_notifier import LinuxNotifier
 from .utils import resource_path

@@ -5,7 +5,7 @@
 import logging
 import urllib.parse
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -17,14 +17,12 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from starlette.requests import ClientDisconnect
 
-from ..core.device_manager import device_manager
-from ..core.validators import validate_api_key
-from ..services.file_service import file_service
-from ..services.transfer_service import (
-    AIOFILES_INSTALLED,
+from ...core.device_manager import device_manager
+from ...services.file_service import file_service
+from ...services.transfer_service import (
     DOWNLOAD_CHUNK_SIZE,
     UPLOAD_BUFFER_SIZE,
     UPLOAD_CHUNK_SIZE,
@@ -49,14 +47,11 @@ def get_client_id(
         raise HTTPException(401, "Missing API Key")
 
     try:
-        from ..api_server.api import (  # Circular import workaround if needed, or better fetch from app state
-            create_api_app,
-        )
+        pass
 
         # Actually, simpler: check device manager directly.
         # But for 'server' uploads we need to know if it's the master key.
-        pass
-    except:
+    except Exception:
         pass
 
     # Check device manager
@@ -286,7 +281,7 @@ async def download_chunk(
             start = int(p[0])
             if len(p) > 1 and p[1]:
                 end = int(p[1])
-        except:
+        except Exception:
             raise HTTPException(400, "Invalid Range")
 
     chunk_len = (end - start) + 1

@@ -5,8 +5,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter
 
-from ..core.version import __version__
-from ..services import media_service, system_service
+from ...services import media_service, system_service
 
 router = APIRouter()
 

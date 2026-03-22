@@ -7,12 +7,10 @@ import logging
 import socket
 import subprocess
 import sys
-import time
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from . import constants
-from .utils import is_admin, load_config_value, save_config_value
+from .utils import is_admin, save_config_value
 
 log = logging.getLogger(__name__)
 

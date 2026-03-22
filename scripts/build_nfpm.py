@@ -8,11 +8,9 @@ Prepares the staging directory and generates the nfpm.yaml config and
 maintainer scripts for package creation via nfpm or GoReleaser.
 """
 
-import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import yaml
@@ -114,9 +112,9 @@ class NFPMBuilder:
             subprocess.run(
                 cmd, check=True, cwd=self.root_dir, capture_output=True, text=True
             )
-            print(f"[OK] Wheel build completed")
+            print("[OK] Wheel build completed")
         except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Wheel build failed:")
+            print("[ERROR] Wheel build failed:")
             print(f"STDOUT: {e.stdout}")
             print(f"STDERR: {e.stderr}")
             raise RuntimeError("Wheel creation failed")
@@ -146,7 +144,7 @@ class NFPMBuilder:
         shutil.copy2(wheel_path, wheel_dest)
 
         # --- Launcher Script ---
-        launcher_content = f"""#!/bin/bash
+        launcher_content = """#!/bin/bash
 # PCLink Launcher Script
 INSTALL_DIR="/usr/lib/pclink"
 VENV_DIR="$INSTALL_DIR/venv"

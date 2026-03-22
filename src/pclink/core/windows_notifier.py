@@ -4,7 +4,6 @@
 import html
 import logging
 import sys
-from pathlib import Path
 
 from .constants import APP_AUMID
 from .utils import resource_path  # Import our robust path helper

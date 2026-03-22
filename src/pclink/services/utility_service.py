@@ -4,7 +4,6 @@
 
 import asyncio
 import logging
-import platform
 import subprocess
 import sys
 import time

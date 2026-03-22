@@ -2,11 +2,9 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
-import os
 import re
 import socket
 from pathlib import Path
-from typing import List, Optional
 
 from .exceptions import SecurityError
 
@@ -15,8 +13,6 @@ log = logging.getLogger(__name__)
 
 class ValidationError(ValueError):
     """Custom exception for validation-specific errors."""
-
-    pass
 
 
 def validate_port(port: int) -> int:

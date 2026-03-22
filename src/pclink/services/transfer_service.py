@@ -3,19 +3,17 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
-import hashlib
 import json
 import logging
-import os
 import shutil
 import time
 import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
-from ..core.constants import APP_DATA_PATH, DOWNLOADS_PATH, UPLOADS_PATH
+from ..core.constants import DOWNLOADS_PATH, UPLOADS_PATH
 from ..services.file_service import AIOFILES_INSTALLED, file_service
 
 if AIOFILES_INSTALLED:
@@ -277,7 +275,7 @@ class TransferService:
                     cli = data["client_id"]
                     self.active_uploads[cli][data["final_path"]] = f.stem
                     count_up += 1
-            except:
+            except Exception:
                 pass
 
         # Downloads
@@ -288,7 +286,7 @@ class TransferService:
                     cli = data["client_id"]
                     self.active_downloads[cli][f.stem] = data
                     count_down += 1
-            except:
+            except Exception:
                 pass
 
         return {"restored_uploads": count_up, "restored_downloads": count_down}

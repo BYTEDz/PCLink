@@ -6,7 +6,6 @@ import logging
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 from .utils import resource_path
 

@@ -2,11 +2,9 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 
-import json
 import logging
 import platform
 import subprocess
-from pathlib import Path
 from typing import List, Optional
 
 from .extension_base import ExtensionMetadata
@@ -68,7 +66,7 @@ class DialogAPI(ExtensionAPI):
 
         if platform.system() == "Windows":
             # Use PowerShell for a native-looking dialog without heavy dependencies like tkinter
-            filter_str = "|".join(file_types)
+            "|".join(file_types)
             ps_script = f"""
             Add-Type -AssemblyName System.Windows.Forms
             $f = New-Object System.Windows.Forms.OpenFileDialog

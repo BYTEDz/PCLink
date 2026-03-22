@@ -147,7 +147,7 @@ class DiscoveryService:
             try:
                 self._socket.bind((host, port))
                 return
-            except OSError as e:
+            except OSError:
                 continue
 
         # If all binding attempts fail, continue without binding

@@ -4,10 +4,10 @@
 
 import logging
 import time
-from typing import List, Optional
+from typing import List
 
 try:
-    from evdev import AbsInfo, UInput, ecodes
+    from evdev import UInput, ecodes
 
     EVDEV_AVAILABLE = True
 except ImportError:

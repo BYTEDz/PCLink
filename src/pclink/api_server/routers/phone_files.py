@@ -9,7 +9,7 @@ import requests
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
-from ..core.device_manager import device_manager
+from ...core.device_manager import device_manager
 
 log = logging.getLogger(__name__)
 router = APIRouter()

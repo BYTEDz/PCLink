@@ -6,7 +6,7 @@ import asyncio
 import logging
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import psutil
 
@@ -28,11 +28,8 @@ DEFAULT_MEDIA_INFO = {
 
 # Win32 Specifics
 try:
-    import comtypes
     import win32gui
     import win32process
-    from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
-    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
     LEGACY_SUPPORT_AVAILABLE = True
 except ImportError:

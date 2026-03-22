@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import base64
 import importlib.util
 import logging
 import os
@@ -19,8 +20,6 @@ from pclink.core.extension_context import ExtensionContext
 from pclink.core.version import __version__ as PCLINK_VERSION
 
 log = logging.getLogger(__name__)
-
-import base64
 
 
 def _decode_perm(s: str) -> str:
@@ -63,9 +62,9 @@ class ExtensionManager:
             self.safe_mode = False
 
             # Registry of extensions that failed to load to avoid infinite retry loops
-            self.failed_extensions: Dict[str, float] = (
-                {}
-            )  # extension_id -> last_fail_timestamp
+            self.failed_extensions: Dict[
+                str, float
+            ] = {}  # extension_id -> last_fail_timestamp
             self.LOAD_RETRY_COOLDOWN = 60.0  # seconds
 
             # Safe Mode crash tracking
@@ -406,7 +405,7 @@ class ExtensionManager:
                     config = yaml.safe_load(f)
                 if config.get("enabled", True):
                     self.load_extension(extension_id)
-            except:
+            except Exception:
                 pass
 
     def unload_all_extensions(self):

@@ -8,7 +8,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..services import input_service
+from ...services import input_service
 
 router = APIRouter()
 log = logging.getLogger(__name__)

@@ -11,6 +11,24 @@ Handles platform-specific bootstrapping for frozen applications.
 import logging
 import os
 import sys
+import traceback
+from datetime import datetime
+from pathlib import Path
+
+
+def _fatal_hook(exc_type, exc_value, tb):
+    try:
+        p = Path.home() / ".config" / "PCLink" / "fatal.log"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(f"\\n[{datetime.now()}] FATAL CRASH:\\n")
+            traceback.print_exception(exc_type, exc_value, tb, file=f)
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc_value, tb)
+
+
+sys.excepthook = _fatal_hook
 
 # Hide console window IMMEDIATELY on Windows frozen builds
 # This must happen before ANY other imports or operations that might output to console
