@@ -17,9 +17,8 @@ body {
   height: 100%;
   flex-direction: column;
   overflow-y: auto;
-  /* Allow global scroll for cards */
   padding-bottom: 2.5rem;
-  /* Better breathing room at the end */
+
 }
 
 /* Specific tabs that should NOT scroll the whole page (they have internal lists) */

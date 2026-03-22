@@ -64,20 +64,81 @@ class MediaService:
             "command_lock_until": 0,
         }
         self._has_playerctl = None
+        self._keyboard = None
+
+    @property
+    def keyboard(self):
+        """Lazy load pynput controller to avoid X11 focus grab on startup."""
+        if self._keyboard is None:
+            try:
+                from pynput.keyboard import Controller
+
+                self._keyboard = Controller()
+            except ImportError:
+                log.warning("pynput not available - universal media control disabled")
+        return self._keyboard
+
+    async def _tap(self, key):
+        """Simulates a key tap with a small delay for OS reliability."""
+        kb = self.keyboard
+        if not kb:
+            return False
+        try:
+            kb.press(key)
+            await asyncio.sleep(0.05)
+            kb.release(key)
+            return True
+        except Exception as e:
+            log.error(f"Failed to tap media key: {e}")
+            return False
 
     async def media_command(self, action: str):
-        """Executes a media control command."""
-        if sys.platform == "win32":
-            await self._control_media_win32_cmd(action)
-        elif sys.platform.startswith("linux"):
-            await self._control_media_linux(action)
-        elif sys.platform == "darwin":
-            await self._control_media_darwin(action)
+        """Executes a media control command universally using OS hardware keys via pynput."""
+        from pynput.keyboard import Key
+
+        # Normalize incoming actions mapping
+        action_map = {
+            "toggle_play": "play_pause",
+            "play": "play_pause",  # Hardware media keys use a single toggle button
+            "pause": "play_pause",
+            "next_track": "next",
+            "prev_track": "previous",
+            "prev": "previous",
+            "vol_up": "volume_up",
+            "vol_down": "volume_down",
+            "mute": "mute_toggle",
+        }
+
+        norm_action = action_map.get(action, action)
+
+        # Map directly to pynput OS-level keyboard keys
+        key_map = {
+            "play_pause": Key.media_play_pause,
+            "next": Key.media_next,
+            "previous": Key.media_previous,
+            "volume_up": Key.media_volume_up,
+            "volume_down": Key.media_volume_down,
+            "mute_toggle": Key.media_volume_mute,
+            "seek_fwd": Key.right,  # Note: Arrow keys only work if media player is the actively focused window
+            "seek_bwd": Key.left,
+        }
+
+        # Use universal keyboard emulation for standard play/volume functions
+        if norm_action in key_map:
+            await self._tap(key_map[norm_action])
+        else:
+            # Fallback for exact backend-level actions like seeking specific seconds
+            if sys.platform == "win32":
+                await self._control_media_win32_cmd(action)
+            elif sys.platform.startswith("linux"):
+                await self._control_media_linux(action)
+            elif sys.platform == "darwin":
+                await self._control_media_darwin(action)
 
         await self._apply_heuristics(action)
 
     async def seek_media(self, position_sec: int):
-        """Seeks to a specific position."""
+        """Seeks to a specific position using OS native APIs."""
         if sys.platform == "win32":
             await self._control_media_win32_cmd("seek", position_sec)
         elif sys.platform.startswith("linux"):
@@ -105,20 +166,8 @@ class MediaService:
                 )
 
     async def _control_media_win32_cmd(self, action: str, position_sec: int = 0):
-        # Implementation moved from router
-        action_map = {
-            "toggle_play": "play_pause",
-            "prev_track": "previous",
-            "next_track": "next",
-        }
-        norm_action = action_map.get(action, action)
-
-        if norm_action in ["volume_up", "volume_down", "mute_toggle"]:
-            await asyncio.to_thread(self._control_volume_win32, norm_action)
-            return
-
-        last_source = self._cache["data"].get("source_app", "")
-        if "Legacy" not in str(last_source):
+        """Handles Windows-specific commands not covered by hardware keys (e.g., exact seeking)."""
+        if action == "seek":
             try:
                 from winrt.windows.media.control import (
                     GlobalSystemMediaTransportControlsSessionManager as MediaManager,
@@ -127,108 +176,31 @@ class MediaService:
                 manager = await MediaManager.request_async()
                 session = manager.get_current_session()
                 if session:
-                    if norm_action == "play_pause":
-                        await session.try_toggle_play_pause_async()
-                    elif norm_action == "play":
-                        await session.try_play_async()
-                    elif norm_action == "pause":
-                        await session.try_pause_async()
-                    elif norm_action == "next":
-                        await session.try_skip_next_async()
-                    elif norm_action == "previous":
-                        await session.try_skip_previous_async()
-                    elif norm_action == "seek":
-                        await session.try_change_playback_position_async(
-                            int(position_sec * 10_000_000)
-                        )
-                    return
-            except Exception:
-                pass
-
-        # Fallback to key Simulation/Targeted messages for Legacy
-        hwnd = self._cache["data"].get("_hwnd")
-        if hwnd:
-            try:
-                APPCOMMAND_MAP = {
-                    "play_pause": 14,
-                    "next": 11,
-                    "previous": 12,
-                    "stop": 13,
-                }
-                if cmd := APPCOMMAND_MAP.get(norm_action):
-                    win32gui.SendMessage(hwnd, 0x0319, hwnd, cmd << 16)
-                    return
-            except Exception:
-                pass
-
-    def _control_volume_win32(self, action: str):
-        import comtypes
-        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
-
-        try:
-            CoInitialize()
-            from pycaw.pycaw import IAudioEndpointVolume
-
-            try:
-                from pycaw.constants import CLSID_MMDeviceEnumerator
-                from pycaw.pycaw import IMMDeviceEnumerator
-            except ImportError:
-                IMMDeviceEnumerator = comtypes.GUID(
-                    "{A95664D2-9614-4F35-A746-DE8DB63617E6}"
-                )
-                CLSID_MMDeviceEnumerator = comtypes.GUID(
-                    "{BCDE0395-E52F-467C-8E3D-C4579291692E}"
-                )
-
-            enumerator = comtypes.CoCreateInstance(
-                CLSID_MMDeviceEnumerator,
-                IMMDeviceEnumerator,
-                comtypes.CLSCTX_INPROC_SERVER,
-            )
-            device = enumerator.GetDefaultAudioEndpoint(0, 0)
-            interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            vol = interface.QueryInterface(IAudioEndpointVolume)
-
-            if action == "volume_up":
-                vol.SetMasterVolumeLevelScalar(
-                    min(1.0, vol.GetMasterVolumeLevelScalar() + 0.02), None
-                )
-            elif action == "volume_down":
-                vol.SetMasterVolumeLevelScalar(
-                    max(0.0, vol.GetMasterVolumeLevelScalar() - 0.02), None
-                )
-            elif action == "mute_toggle":
-                vol.SetMute(not vol.GetMute(), None)
-        except Exception as e:
-            log.error(f"Ultimate media volume control failure: {e}")
-        finally:
-            CoUninitialize()
+                    await session.try_change_playback_position_async(
+                        int(position_sec * 10_000_000)
+                    )
+            except Exception as e:
+                log.debug(f"Windows SMTC seek failed: {e}")
 
     async def _control_media_linux(self, action: str, position_sec: int = 0):
-        from .system_service import system_service
+        """Handles Linux-specific commands not covered by hardware keys."""
+        if action == "seek":
+            try:
+                from .system_service import system_service
 
-        amap = {
-            "play": "play",
-            "pause": "pause",
-            "toggle_play": "play-pause",
-            "next": "next",
-            "previous": "previous",
-        }
-        try:
-            if action == "seek":
+                # Using -a to apply to all active compatible players
                 await system_service.run_command(
-                    ["playerctl", "position", str(position_sec)]
+                    ["playerctl", "-a", "position", str(position_sec)]
                 )
-            elif cmd := amap.get(action):
-                await system_service.run_command(["playerctl", cmd])
-        except Exception:
-            pass
+            except Exception as e:
+                log.debug(f"Linux playerctl seek failed: {e}")
 
-    async def _control_media_darwin(self, action: str):
-        pass  # Simplified for core refactor
+    async def _control_media_darwin(self, action: str, position_sec: int = 0):
+        pass  # Placeholder
 
     async def get_media_info(self) -> Dict[str, Any]:
         """Caches and returns the current media playback state."""
+        # Info fetching MUST use native OS APIs (winrt/playerctl) because keys cannot read state
         now = time.time()
         if (
             self._cache["data"].get("title") != "Nothing Playing"
@@ -281,7 +253,7 @@ class MediaService:
                 timeline = session.get_timeline_properties()
                 status_map = {0: "STOPPED", 1: "PAUSED", 4: "PLAYING"}
                 smtc_data = {
-                    "title": info.title,
+                    "title": info.title or "Unknown Media",
                     "artist": info.artist or "",
                     "status": status_map.get(playback.playback_status, "STOPPED"),
                     "position_sec": int(timeline.position.total_seconds()),
@@ -330,7 +302,6 @@ class MediaService:
         win32gui.EnumWindows(enum_window_callback, None)
         return found_media
 
-    # Simplified Linux/Darwin for brevity - same pattern as services.py
     async def _get_media_info_linux(self) -> Dict[str, Any]:
         if self._has_playerctl is False:
             return DEFAULT_MEDIA_INFO.copy()
@@ -342,18 +313,27 @@ class MediaService:
                 ["playerctl", "status"], timeout=1.0
             )
             self._has_playerctl = True
-            if "Playing" in status:
+
+            status = status.strip().upper() if status else "STOPPED"
+
+            if status in ["PLAYING", "PAUSED"]:
                 title = await system_service.run_command(
                     ["playerctl", "metadata", "title"]
                 )
+                artist = await system_service.run_command(
+                    ["playerctl", "metadata", "artist"]
+                )
+
                 return {
-                    "title": title.strip(),
-                    "status": "PLAYING",
+                    "title": title.strip() if title else "Unknown",
+                    "artist": artist.strip() if artist else "",
+                    "status": status,
                     "source_app": "Mpris",
                 }
         except Exception as e:
             if isinstance(e, FileNotFoundError):
                 self._has_playerctl = False
+
         return DEFAULT_MEDIA_INFO.copy()
 
     async def _get_media_info_darwin(self) -> Dict[str, Any]:
