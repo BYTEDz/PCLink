@@ -181,8 +181,17 @@ def mount_core_routes(
                 from ...core.config import config_manager
 
                 services = config_manager.get("services", {})
-
                 msg_type = data.get("type")
+
+                # REFRESH PERMISSIONS (Safety for real-time revocation)
+                device = device_manager.get_device_by_id(device_id)
+                if not (device and device.is_approved):
+                    log.warning(
+                        f"Closing WebSocket for revoked/unapproved device: {device_id}"
+                    )
+                    await websocket.close(code=4003, reason="DEVICE_REVOKED")
+                    break
+                permissions = device.permissions
 
                 # MAP TYPE TO SERVICE
                 type_service_map = {
@@ -190,6 +199,8 @@ def mount_core_routes(
                     "keyboard_control": "keyboard",
                     "media_control": "media",
                     "file_operation": "files_browse",
+                    "macros": "macros",
+                    "apps": "apps",
                 }
 
                 required_service = type_service_map.get(msg_type)
@@ -205,6 +216,20 @@ def mount_core_routes(
                     handle_mouse_command(data, permissions)
                 elif msg_type == "keyboard_control":
                     handle_keyboard_command(data, permissions)
+                elif msg_type == "media_control" and "media" in permissions:
+                    from ...services.media_service import media_service
+
+                    action = data.get("action")
+                    if action == "play_pause":
+                        media_service.play_pause()
+                    elif action == "next":
+                        media_service.next_track()
+                    elif action == "previous":
+                        media_service.previous_track()
+                    elif action == "volume_up":
+                        media_service.volume_up()
+                    elif action == "volume_down":
+                        media_service.volume_down()
         except (WebSocketDisconnect, OSError):
             pass
         except (json.JSONDecodeError, KeyError):
