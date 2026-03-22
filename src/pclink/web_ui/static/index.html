@@ -285,6 +285,78 @@
           </div>
         </div>
 
+        <!-- Extensions -->
+        <div class="tab-content" id="extensions">
+          <div class="w-full space-y-4">
+
+            <!-- Global disabled warning -->
+            <div id="extGlobalDisabledAlert" class="alert alert-warning hidden">
+              <i data-feather="alert-triangle" class="w-5 shrink-0"></i>
+              <div>
+                <h4 class="font-black text-sm">Extensions are globally disabled</h4>
+                <p class="text-xs opacity-80">Enable them via <button class="underline font-black" onclick="document.querySelector('[data-tab=services]').click()">Access Control → Firewall</button> first.</p>
+              </div>
+            </div>
+
+            <!-- Safe mode warning -->
+            <div id="extSafeModeAlert" class="alert alert-error hidden">
+              <i data-feather="shield-off" class="w-5 shrink-0"></i>
+              <div>
+                <h4 class="font-black text-sm">Safe Mode Active</h4>
+                <p class="text-xs opacity-80">Extensions were disabled after repeated startup crashes. Delete the crash lock file and restart to recover.</p>
+              </div>
+            </div>
+
+            <!-- Install card -->
+            <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="package" class="w-4"></i> Install Extension</h3>
+
+                <!-- Drag & Drop zone -->
+                <div id="extDropZone"
+                  class="border-2 border-dashed border-base-300 rounded-xl p-6 text-center transition-colors hover:border-primary cursor-pointer mb-3"
+                  onclick="document.getElementById('extFileInput').click()"
+                  ondragover="event.preventDefault(); this.classList.add('border-primary','bg-primary/5')"
+                  ondragleave="this.classList.remove('border-primary','bg-primary/5')"
+                  ondrop="window.handleExtDrop(event)">
+                  <i data-feather="upload-cloud" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+                  <p class="text-xs font-bold opacity-60">Drop <span class="text-primary">.zip</span> bundle here or click to browse</p>
+                  <input type="file" id="extFileInput" class="hidden" accept=".zip" onchange="window.handleExtFileSelect(this)">
+                </div>
+
+                <!-- URL install -->
+                <div class="flex gap-2">
+                  <input type="url" id="extUrlInput" placeholder="https://example.com/extension.zip"
+                    class="input input-sm input-bordered flex-1 font-mono text-xs" />
+                  <button class="btn btn-sm btn-primary text-white font-bold" onclick="window.installExtFromUrl()">
+                    <i data-feather="link" class="w-3"></i> Install URL
+                  </button>
+                </div>
+
+                <!-- Install progress -->
+                <div id="extInstallProgress" class="hidden mt-3">
+                  <div class="flex items-center gap-3 p-3 bg-base-200 rounded-lg border border-base-300">
+                    <span class="loading loading-spinner loading-sm text-primary"></span>
+                    <span class="text-xs font-bold" id="extInstallMsg">Installing...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Installed extensions list -->
+            <div class="flex justify-between items-center">
+              <span class="text-[10px] font-black uppercase opacity-30 tracking-widest">Installed</span>
+              <button class="btn btn-xs btn-ghost border-base-300" onclick="window.loadExtensions()">
+                <i data-feather="refresh-cw" class="w-3"></i>
+              </button>
+            </div>
+            <div id="extList" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+            </div>
+
+          </div>
+        </div>
+
         <!-- Settings -->
         <div class="tab-content" id="settings">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start w-full">
@@ -654,6 +726,10 @@
             onclick="closeDrawer()"><i data-feather="folder" class="w-4"></i> Phone Files</button>
           <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="services"
             onclick="closeDrawer()"><i data-feather="shield" class="w-4"></i> Access Control</button>
+          <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="extensions"
+            onclick="closeDrawer()"><i data-feather="package" class="w-4"></i> Extensions
+            <span id="extBadgeCount" class="badge badge-primary badge-xs ml-auto hidden"></span>
+          </button>
           <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="settings"
             onclick="closeDrawer()"><i data-feather="settings" class="w-4"></i> Settings</button>
           <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="logs" onclick="closeDrawer()"><i
@@ -726,6 +802,28 @@
         <form method="dialog">
           <button class="btn btn-sm btn-ghost font-bold uppercase text-xs">Close</button>
         </form>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal: Extension Logs -->
+  <dialog id="extLogsModal" class="modal font-bold">
+    <div class="modal-box max-w-2xl w-full">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-black text-base flex items-center gap-2">
+          <i data-feather="terminal" class="w-4 text-primary"></i>
+          <span id="extLogsModalTitle">Extension Logs</span>
+        </h3>
+        <div class="flex gap-2">
+          <button class="btn btn-xs btn-ghost border-base-300" onclick="window.refreshExtLogs()"><i data-feather="refresh-cw" class="w-3"></i></button>
+          <button class="btn btn-xs btn-ghost border-base-300 text-error" onclick="window.clearExtLogs()"><i data-feather="trash-2" class="w-3"></i></button>
+        </div>
+      </div>
+      <div class="bg-[#0b1120] rounded-xl p-4 max-h-80 overflow-y-auto font-mono text-xs">
+        <pre id="extLogsContent" class="text-gray-300 whitespace-pre-wrap">Loading...</pre>
+      </div>
+      <div class="modal-action mt-4">
+        <form method="dialog"><button class="btn btn-sm btn-ghost font-bold">Close</button></form>
       </div>
     </div>
   </dialog>
