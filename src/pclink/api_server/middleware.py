@@ -76,7 +76,7 @@ async def service_enforcement_middleware(request: Request, call_next):
             break
 
     if target_service:
-        # 3. Check Global Service Config
+        # --- GLOBAL SERVICE CHECK ---
         global_services = config_manager.get("services", {})
         if not global_services.get(target_service, True):
             log.warning(
@@ -91,8 +91,31 @@ async def service_enforcement_middleware(request: Request, call_next):
                 },
             )
 
-        # 4. Check Per-Device Permissions
-        token = request.headers.get("X-API-Key") or request.query_params.get("token")
+        # --- IDENTITY EXTRACTION ---
+        # 1. Check for device token (headers, query, or cookie)
+        token = (
+            request.headers.get("X-API-Key")
+            or request.query_params.get("token")
+            or request.cookies.get("pclink_device_token")
+        )
+
+        # 2. Check for web admin session
+        session_token = request.cookies.get("pclink_session") or request.headers.get(
+            "X-Session-Token"
+        )
+        is_admin = False
+        if session_token:
+            from ..core.web_auth import web_auth_manager
+
+            client_ip = request.client.host if request.client else None
+            if web_auth_manager.validate_session(session_token, client_ip):
+                is_admin = True
+
+        # --- PERMISSION ENFORCEMENT ---
+        if is_admin:
+            # Admin session bypasses device-specific permission checks
+            return await call_next(request)
+
         if token:
             try:
                 device = device_manager.get_device_by_api_key(token)
@@ -108,8 +131,18 @@ async def service_enforcement_middleware(request: Request, call_next):
                                 "required": target_service,
                             },
                         )
+                    # Permission granted
+                    return await call_next(request)
             except ValidationError:
                 pass
+
+        # If we reached here, it's a service request with no valid identity (neither admin nor device)
+        # We block it since these services REQUIRE a valid identity.
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "AUTHENTICATION_REQUIRED", "service": target_service},
+        )
+
     return await call_next(request)
 
 

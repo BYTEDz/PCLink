@@ -1,8 +1,7 @@
 import logging
 import platform
 from typing import Any, Optional
-
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
 
 from ...core.config import config_manager
 from ...core.device_manager import device_manager
@@ -14,12 +13,21 @@ log = logging.getLogger(__name__)
 def create_terminal_router() -> APIRouter:
     router = APIRouter()
 
-    def _get_authenticated_device(token: str) -> Optional[Any]:
-        if not token:
+    def _get_authenticated_device(
+        conn: Any, token: Optional[str] = None
+    ) -> Optional[Any]:
+        # 1. Extraction (Checks query param, then headers, then cookies)
+        tk = (
+            token
+            or conn.headers.get("X-API-Key")
+            or conn.cookies.get("pclink_device_token")
+        )
+        if not tk:
             return None
-        # Device Token Check (Per-device identity)
+
+        # 2. Lookup
         try:
-            device = device_manager.get_device_by_api_key(token)
+            device = device_manager.get_device_by_api_key(tk)
             if device and device.is_approved:
                 device_manager.update_device_last_seen(device.device_id)
                 return device
@@ -27,16 +35,14 @@ def create_terminal_router() -> APIRouter:
             pass
         return None
 
-    from fastapi import Depends
-
     from .dependencies import verify_api_key, verify_mobile_api_enabled
 
     @router.get(
         "/shells",
         dependencies=[Depends(verify_api_key), Depends(verify_mobile_api_enabled)],
     )
-    async def get_available_shells(token: str = Query(None)):
-        device = _get_authenticated_device(token)
+    async def get_available_shells(request: Request, token: str = Query(None)):
+        device = _get_authenticated_device(request, token)
         if not device:
             return {"error": "Unauthorized"}
 
@@ -55,7 +61,7 @@ def create_terminal_router() -> APIRouter:
     async def terminal_websocket(websocket: WebSocket, token: str = Query(None)):
         await websocket.accept()
 
-        device = _get_authenticated_device(token)
+        device = _get_authenticated_device(websocket, token)
         if not device:
             log.warning(
                 f"Terminal connection rejected: Invalid or missing token from {websocket.client}"
