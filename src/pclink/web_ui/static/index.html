@@ -730,6 +730,23 @@
     </div>
   </dialog>
 
+  <!-- Modal: Generic Confirm -->
+  <dialog id="confirmModal" class="modal font-bold">
+    <div class="modal-box max-w-sm">
+      <div class="flex items-start gap-3 mb-4">
+        <div id="confirmModalIcon" class="shrink-0 mt-0.5"></div>
+        <div>
+          <h3 class="font-black text-base" id="confirmModalTitle">Confirm Action</h3>
+          <p class="text-sm opacity-70 mt-1 font-normal" id="confirmModalMessage"></p>
+        </div>
+      </div>
+      <div class="modal-action mt-4 gap-2">
+        <button id="confirmModalCancel" class="btn btn-sm btn-ghost font-bold">Cancel</button>
+        <button id="confirmModalOk" class="btn btn-sm font-bold text-white">Confirm</button>
+      </div>
+    </div>
+  </dialog>
+
   <div id="batchActionBar"
     class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-base-100 border border-primary px-4 py-3 rounded-full shadow-2xl flex flex-wrap justify-center items-center gap-4 transition-all duration-300 translate-y-32 z-50 w-11/12 max-w-lg">
     <div class="font-black text-sm border-r border-base-300 pr-4"><span id="selectedCount" class="text-primary">0</span>
