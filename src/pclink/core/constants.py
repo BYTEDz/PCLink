@@ -33,7 +33,6 @@ DEVICE_TIMEOUT = 300  # in seconds
 
 # --- File Names ---
 CONFIG_FILENAME = "config.json"
-PORT_FILENAME = ".port"
 CERT_FILENAME = "cert.pem"
 KEY_FILENAME = "key.pem"
 
@@ -42,7 +41,6 @@ KEY_FILENAME = "key.pem"
 APP_DATA_PATH = get_app_data_path(APP_NAME)
 
 # Full paths to configuration and data files.
-PORT_FILE = APP_DATA_PATH / PORT_FILENAME
 CERT_FILE = APP_DATA_PATH / CERT_FILENAME
 KEY_FILE = APP_DATA_PATH / KEY_FILENAME
 CONFIG_FILE = APP_DATA_PATH / CONFIG_FILENAME

@@ -13,7 +13,7 @@ import requests
 
 from .core import constants
 from .core.config import config_manager
-from .core.utils import get_startup_manager
+from .core.startup import StartupManager
 from .core.version import __version__
 from .core.web_auth import web_auth_manager
 
@@ -398,27 +398,12 @@ def startup():
 def enable():
     """Enable 'Start at system startup'."""
     try:
-        startup_manager = get_startup_manager()
-        exe = Path(sys.executable)
-
-        # Determine the best executable path for startup
-        if getattr(sys, "frozen", False):
-            # Frozen executable - use as-is
-            app_path = str(exe)
-        elif sys.platform == "win32":
-            # Windows dev mode - prefer pythonw.exe for windowless operation
-            pythonw = exe.parent / "pythonw.exe"
-            if pythonw.exists():
-                app_path = str(pythonw)
-            else:
-                app_path = str(exe)
+        startup_manager = StartupManager()
+        if startup_manager.enable():
+            config_manager.set("auto_start", True)
+            click.echo("PCLink will now start automatically at system startup.")
         else:
-            # Linux/other - use current executable
-            app_path = str(exe)
-
-        startup_manager.add(constants.APP_NAME, app_path)
-        config_manager.set("auto_start", True)
-        click.echo("PCLink will now start automatically at system startup.")
+            click.echo("Failed to enable auto-start.", err=True)
     except Exception as e:
         click.echo(f"Error: Could not enable startup: {e}", err=True)
 
@@ -427,10 +412,12 @@ def enable():
 def disable():
     """Disable 'Start at system startup'."""
     try:
-        startup_manager = get_startup_manager()
-        startup_manager.remove(constants.APP_NAME)
-        config_manager.set("auto_start", False)
-        click.echo("PCLink will no longer start automatically at system startup.")
+        startup_manager = StartupManager()
+        if startup_manager.disable():
+            config_manager.set("auto_start", False)
+            click.echo("PCLink will no longer start automatically at system startup.")
+        else:
+            click.echo("Failed to disable auto-start.", err=True)
     except Exception as e:
         click.echo(f"Error: Could not disable startup: {e}", err=True)
 
