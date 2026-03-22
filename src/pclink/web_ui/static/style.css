@@ -3,8 +3,8 @@
 html, body { margin: 0; padding: 0; height: 100vh; overflow: hidden; }
 
 /* switch between tabs */
-.tab-content { display: none; width: 100%; }
-.tab-content.active { display: block; animation: fadeIn 0.2s ease-out; }
+.tab-content { display: none; width: 100%; height: 100%; flex-direction: column; }
+.tab-content.active { display: flex; animation: fadeIn 0.2s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
 /* custom scrollbars for dark theme */
@@ -36,7 +36,7 @@ svg.feather { stroke: currentColor; fill: none; }
   display: inline-block !important;
 }
 
-.file-list-container { max-height: calc(100vh - 400px); overflow-y: auto; }
+.file-list-container { flex: 1; overflow-y: auto; }
 
 /* notification popups */
 #toast-container {

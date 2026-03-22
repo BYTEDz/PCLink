@@ -44,7 +44,7 @@
       </div>
     </header>
 
-    <main class="flex-1 overflow-y-auto p-2 md:p-4 bg-base-200">
+    <main class="flex-1 flex flex-col p-2 md:p-3 bg-base-200 overflow-hidden">
 
       <div id="updateBanner" class="alert alert-info shadow-lg mb-6 hidden">
         <i data-feather="download"></i>
@@ -85,7 +85,7 @@
         <div class="flex justify-between items-center gap-3 mb-4">
           <div class="flex items-center gap-2">
             <span class="badge badge-primary font-bold" id="deviceCount">0</span>
-            <span class="text-[10px] uppercase font-black opacity-30 tracking-widest">Connected Clients</span>
+            <span class="text-[10px] uppercase font-black opacity-30 tracking-widest">Clients</span>
           </div>
           <div class="flex gap-2">
             <button class="btn btn-xs btn-ghost border-base-300" onclick="refreshDevices()"><i data-feather="refresh-cw" class="w-3"></i></button>
@@ -121,23 +121,23 @@
       </div>
 
       <!-- Phone Files -->
-      <div class="tab-content" id="phone-files">
-        <div class="card bg-base-100 shadow-sm border border-base-300 h-full">
-          <div class="p-4 border-b border-base-300 flex flex-col md:flex-row justify-between gap-4 md:items-center">
-            <h3 class="text-xl font-bold flex items-center gap-2">
-              <i data-feather="folder" class="text-primary"></i> Phone Files
-              <span id="phoneReadOnlyBadge" class="badge badge-warning hidden font-bold uppercase text-[10px]">Read-Only</span>
-            </h3>
-            <div class="flex flex-wrap gap-2 items-center">
-              <select id="phoneDeviceSelector" class="select select-bordered select-sm w-full max-w-[180px]" onchange="handlePhoneDeviceChange(this.value)">
+      <div class="tab-content h-full" id="phone-files">
+        <div class="card bg-base-100 shadow-sm border border-base-300 flex-1 flex flex-col overflow-hidden">
+          <div class="p-3 border-b border-base-300 flex flex-wrap justify-between gap-3 items-center">
+            <div class="flex items-center gap-2">
+              <i data-feather="folder" class="text-primary w-4 h-4"></i>
+              <span id="phoneReadOnlyBadge" class="badge badge-warning hidden font-bold uppercase text-[9px]">Read-Only</span>
+              <select id="phoneDeviceSelector" class="select select-bordered select-xs w-[160px]" onchange="handlePhoneDeviceChange(this.value)">
                 <option value="">Select Device...</option>
               </select>
+            </div>
+            <div class="flex gap-2 items-center">
               <div class="join">
-                <button class="btn btn-sm join-item" onclick="goBackPhoneFiles()" id="phoneBackBtn" disabled><i data-feather="arrow-left"></i></button>
-                <button class="btn btn-sm join-item" onclick="goForwardPhoneFiles()" id="phoneForwardBtn" disabled><i data-feather="arrow-right"></i></button>
-                <button class="btn btn-sm join-item" onclick="refreshPhoneFiles()"><i data-feather="refresh-cw"></i></button>
+                <button class="btn btn-xs join-item" onclick="goBackPhoneFiles()" id="phoneBackBtn" disabled><i data-feather="arrow-left" class="w-3"></i></button>
+                <button class="btn btn-xs join-item" onclick="goForwardPhoneFiles()" id="phoneForwardBtn" disabled><i data-feather="arrow-right" class="w-3"></i></button>
+                <button class="btn btn-xs join-item" onclick="refreshPhoneFiles()"><i data-feather="refresh-cw" class="w-3"></i></button>
               </div>
-              <button class="btn btn-sm btn-primary text-white" id="phoneUploadBtn" onclick="triggerUpload()"><i data-feather="upload"></i> Upload</button>
+              <button class="btn btn-xs btn-primary text-white font-bold" id="phoneUploadBtn" onclick="triggerUpload()"><i data-feather="upload" class="w-3"></i> Upload</button>
               <input type="file" id="phoneUploadInput" class="hidden" multiple onchange="handlePhoneUpload(this)">
             </div>
           </div>
@@ -153,10 +153,10 @@
             </select>
             <label class="label cursor-pointer gap-2"><span class="label-text text-xs font-bold uppercase opacity-50">Hidden</span><input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="showHiddenFiles" onchange="handleToggleHidden(this.checked)"></label>
           </div>
-          <div class="p-2">
-            <div id="phoneBreadcrumb" class="bg-base-300 p-2 rounded text-xs font-mono mb-2 truncate border border-base-300 opacity-60">Path: /</div>
-            <div id="uploadProgressContainer" class="space-y-2 mb-2"></div>
-            <div id="phoneFileList" class="file-list-container"></div>
+          <div class="flex-1 flex flex-col overflow-hidden">
+            <div id="phoneBreadcrumb" class="bg-base-200 p-2 text-[10px] font-mono truncate border-b border-base-300 opacity-60">Path: /</div>
+            <div id="uploadProgressContainer" class="p-2 space-y-2 border-b border-base-300 empty:hidden"></div>
+            <div id="phoneFileList" class="flex-1 overflow-y-auto"></div>
           </div>
         </div>
       </div>
@@ -311,8 +311,8 @@
       </div>
 
       <!-- Logs -->
-      <div class="tab-content" id="logs">
-        <div class="card bg-base-100 shadow-sm border border-base-300 h-[calc(100vh-140px)] flex flex-col">
+      <div class="tab-content h-full" id="logs">
+        <div class="card bg-base-100 shadow-sm border border-base-300 flex-1 flex flex-col overflow-hidden">
           <div class="p-3 border-b border-base-300 flex flex-wrap justify-between items-center bg-base-200 gap-2">
             <h3 class="font-bold flex items-center gap-2"><i data-feather="file-text" class="text-primary w-5"></i> System Logs</h3>
             <div class="flex items-center gap-2">
