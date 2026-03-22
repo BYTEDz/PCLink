@@ -249,17 +249,11 @@
               <div class="card-body p-5">
                 <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="settings" class="w-4"></i> Server Configuration</h3>
                 <div class="form-control w-full mb-3">
-                  <label class="label py-1"><span class="label-text font-bold text-xs opacity-60">Port</span></label>
-                  <input type="number" id="serverPortInput" class="input input-sm input-bordered w-full font-bold" readonly />
-                </div>
-                <div class="form-control w-full mb-4">
-                  <label class="label py-1"><span class="label-text font-bold text-xs opacity-60">Access Key</span></label>
-                  <div class="join w-full">
-                    <input type="password" id="apiKeyDisplay" class="input input-sm input-bordered join-item w-full font-mono text-xs" readonly value="••••••••••••" />
-                    <button class="btn btn-sm btn-square btn-ghost border-base-300 border-y join-item" onclick="toggleApiKeyVisibility()"><i data-feather="eye" id="apiKeyEye"></i></button>
-                    <button class="btn btn-sm btn-square btn-ghost border-base-300 border-y join-item" onclick="copyApiKey()"><i data-feather="copy"></i></button>
-                    <button class="btn btn-sm btn-secondary join-item text-[10px] uppercase font-black" onclick="regenerateApiKey()">Regen</button>
-                  </div>
+                  <label class="label py-1">
+                    <span class="label-text font-bold text-xs opacity-60">Server Port (Requires Restart)</span>
+                    <a href="#" class="text-[9px] uppercase font-black text-primary hover:underline" onclick="document.querySelector('[data-tab=guide]').click()">Need Help?</a>
+                  </label>
+                  <input type="number" id="serverPortInput" class="input input-sm input-bordered w-full font-bold" />
                 </div>
                 <div class="flex flex-col gap-2 mb-4">
                   <label class="cursor-pointer flex items-center gap-3 bg-base-200 p-2 rounded-lg hover:bg-base-300 transition-colors">
@@ -335,6 +329,35 @@
               </div>
             </div>
           </div>
+          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+            <input type="checkbox" />
+            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="terminal" class="text-primary w-5"></i> Server Port</div>
+            <div class="collapse-content space-y-4 pt-2">
+              <p class="text-xs opacity-70">Changing the port requires updating your system firewall manually to allow the new traffic.</p>
+
+              <div class="space-y-2">
+                <p class="text-[10px] uppercase font-black opacity-50">Linux (UFW)</p>
+                <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
+                  <pre data-prefix="$"><code>sudo ufw allow <span class="current-port">38080</span>/tcp</code></pre>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <p class="text-[10px] uppercase font-black opacity-50">Linux (Firewalld)</p>
+                <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
+                  <pre data-prefix="$"><code>sudo firewall-cmd --permanent --add-port=<span class="current-port">38080</span>/tcp && sudo firewall-cmd --reload</code></pre>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <p class="text-[10px] uppercase font-black opacity-50">Windows (netsh)</p>
+                <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
+                  <pre data-prefix="$"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow protocol=TCP localport=<span class="current-port">38080</span></code></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
             <input type="checkbox" />
             <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="wifi" class="text-primary w-5"></i> Network</div>

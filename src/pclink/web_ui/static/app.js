@@ -44,7 +44,7 @@ class PCLinkWebUI {
     }
 
     async init() {
-        window.loadTheme();
+        await this.loadSettings();
         const yearEl = document.getElementById('copyrightYear');
         if (yearEl) yearEl.textContent = new Date().getFullYear();
         this.setupEventListeners();
@@ -596,7 +596,12 @@ class PCLinkWebUI {
             if (res.ok) {
                 const config = await res.json();
                 const portInput = document.getElementById('serverPortInput');
-                if (portInput) portInput.value = window.location.port || '38080';
+                if (portInput) portInput.value = config.server_port || window.location.port || '38080';
+
+                // Update all port placeholders in the UI (Guide tab)
+                const currentPort = config.server_port || window.location.port || '38080';
+                document.querySelectorAll('.current-port').forEach(el => el.textContent = currentPort);
+
                 const autoStart = document.getElementById('autoStartCheckbox');
                 if (autoStart && config.auto_start !== undefined) autoStart.checked = config.auto_start;
                 await this.loadTransferSettings();
@@ -608,7 +613,11 @@ class PCLinkWebUI {
                         updates: config.notifications.updates ?? true
                     };
                 }
-                this.loadApiKey();
+                if (config.theme) {
+                    const sel = document.getElementById('themeSelector');
+                    if (sel) sel.value = config.theme;
+                    window.changeTheme(config.theme, false); // false = don't save back to server during load
+                }
                 window.loadNotificationSettings();
             }
         } catch (e) { }
@@ -684,7 +693,7 @@ window.loadTheme = function () {
     window.changeTheme(saved);
 };
 
-window.changeTheme = function (theme) {
+window.changeTheme = async function (theme, saveToServer = true) {
     if (theme === 'system') {
         const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
@@ -692,6 +701,16 @@ window.changeTheme = function (theme) {
         document.documentElement.setAttribute('data-theme', theme);
     }
     localStorage.setItem('pclink_theme', theme);
+
+    if (saveToServer && window.pclinkUI) {
+        try {
+            await fetch('/settings/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ theme: theme })
+            });
+        } catch (e) { }
+    }
 };
 
 window.openPermissions = async function (deviceId) {
@@ -832,7 +851,10 @@ window.toggleAutoRefresh = () => {
 };
 
 window.saveSettings = async () => {
-    const body = { auto_start: document.getElementById('autoStartCheckbox')?.checked };
+    const body = {
+        auto_start: document.getElementById('autoStartCheckbox')?.checked,
+        server_port: parseInt(document.getElementById('serverPortInput')?.value || 38080)
+    };
     try {
         const res = await window.pclinkUI.webUICall('/settings/save', { method: 'POST', body: JSON.stringify(body) });
         if (res.ok) window.pclinkUI.showToast('Saved', 'Configuration updated', 'success');
