@@ -1,14 +1,11 @@
 import logging
-from typing import List, Optional
+from typing import List
 
 from ..core.wayland_utils import is_wayland
 from .linux_evdev_service import LinuxEvdevService
 
 try:
-    from pynput.keyboard import Controller as KeyboardController
-    from pynput.keyboard import Key
     from pynput.mouse import Button
-    from pynput.mouse import Controller as MouseController
 
     PYNPUT_AVAILABLE = True
 except ImportError:

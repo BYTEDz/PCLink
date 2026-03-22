@@ -69,12 +69,10 @@ class ExtensionBase(ABC):
     @abstractmethod
     def initialize(self) -> bool:
         """Called when the extension is enabled."""
-        pass
 
     @abstractmethod
     def cleanup(self):
         """Called when the extension is disabled or removed."""
-        pass
 
     def get_routes(self) -> APIRouter:
         """Returns the APIRouter for the extension."""

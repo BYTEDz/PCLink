@@ -15,8 +15,6 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
-from ..core.validators import validate_filename
-
 log = logging.getLogger(__name__)
 
 # Optional dependencies
@@ -188,9 +186,6 @@ class FileService:
     ) -> Generator[int, None, None]:
         """Compresses files/folders into a ZIP archive."""
         # This will be used with StreamingResponse in router
-        from .system_service import (  # For circular import safety if needed
-            system_service,
-        )
 
         def _gen():
             resolved = [self.validate_path(p) for p in source_paths]

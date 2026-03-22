@@ -2,15 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-import json
 import logging
 import sqlite3
 import threading
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from . import constants
 
@@ -125,7 +123,8 @@ class DeviceManager:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS devices (
                     device_id TEXT PRIMARY KEY,
                     device_name TEXT NOT NULL,
@@ -140,9 +139,11 @@ class DeviceManager:
                     hardware_id TEXT DEFAULT '',
                     permissions TEXT DEFAULT ''
                 )
-            """)
+            """
+            )
 
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS ip_change_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     device_id TEXT NOT NULL,
@@ -151,7 +152,8 @@ class DeviceManager:
                     timestamp TEXT NOT NULL,
                     FOREIGN KEY (device_id) REFERENCES devices(device_id)
                 )
-            """)
+            """
+            )
 
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_devices_api_key ON devices(api_key)"
@@ -160,13 +162,15 @@ class DeviceManager:
                 "CREATE INDEX IF NOT EXISTS idx_ip_change_device_id ON ip_change_log(device_id)"
             )
 
-            conn.execute("""
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS blacklist (
                     hardware_id TEXT PRIMARY KEY,
                     reason TEXT,
                     banned_at TEXT NOT NULL
                 )
-            """)
+            """
+            )
 
             conn.commit()
 

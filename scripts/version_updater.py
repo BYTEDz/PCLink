@@ -6,6 +6,7 @@ This is a helper script that takes a version string and updates it in all
 relevant project files. It is called by the main release script.
 """
 
+import sys
 import argparse
 import re
 from pathlib import Path

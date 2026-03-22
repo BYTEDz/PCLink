@@ -8,7 +8,7 @@ import os
 import platform
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 log = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 if platform.system() != "Windows":
     import pty
 else:
-    import threading
+    pass
 
 SUBPROCESS_FLAGS = 0
 if sys.platform == "win32":

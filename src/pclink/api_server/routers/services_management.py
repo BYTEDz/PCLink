@@ -2,13 +2,12 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
-from typing import Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from ..core.config import config_manager
-from ..core.extension_manager import ExtensionManager
+from ...core.config import config_manager
+from ...core.extension_manager import ExtensionManager
 
 log = logging.getLogger(__name__)
 router = APIRouter()

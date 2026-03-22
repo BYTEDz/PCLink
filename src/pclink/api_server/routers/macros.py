@@ -6,9 +6,9 @@ import logging
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from ..services.macro_service import macro_service
+from ...services.macro_service import macro_service
 
 log = logging.getLogger(__name__)
 router = APIRouter()

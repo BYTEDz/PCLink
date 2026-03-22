@@ -31,12 +31,12 @@ class MacroService:
         for i, step in enumerate(actions):
             action_type = step.get("type")
             payload = step.get("payload", {})
-            log.debug(f"Step {i+1}: {action_type}")
+            log.debug(f"Step {i + 1}: {action_type}")
 
             try:
                 await self._execute_step(action_type, payload)
             except Exception as e:
-                log.error(f"Macro '{name}' failed at step {i+1} ({action_type}): {e}")
+                log.error(f"Macro '{name}' failed at step {i + 1} ({action_type}): {e}")
                 raise
 
     async def _execute_step(self, action_type: str, payload: Dict[str, Any]):

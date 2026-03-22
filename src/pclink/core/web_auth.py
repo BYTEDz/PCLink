@@ -8,7 +8,6 @@ import json
 import logging
 import secrets
 import time
-from pathlib import Path
 from typing import Optional
 
 from . import constants

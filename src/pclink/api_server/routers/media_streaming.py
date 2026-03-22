@@ -9,7 +9,7 @@ import urllib.parse
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from ..services.file_service import file_service
+from ...services.file_service import file_service
 
 log = logging.getLogger(__name__)
 router = APIRouter()

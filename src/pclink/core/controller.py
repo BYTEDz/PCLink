@@ -10,7 +10,6 @@ import subprocess
 import sys
 import threading
 import time
-import traceback
 import uuid
 from pathlib import Path
 
@@ -311,7 +310,7 @@ class Controller:
             import pwd
 
             try:
-                netdev_group = grp.getgrnam("netdev")
+                grp.getgrnam("netdev")
                 current_user = pwd.getpwuid(os.getuid()).pw_name
                 user_groups = [
                     g.gr_name for g in grp.getgrall() if current_user in g.gr_mem

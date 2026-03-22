@@ -12,7 +12,6 @@ This script consolidates the release process by:
 """
 
 import argparse
-import json
 import os
 import re
 import subprocess

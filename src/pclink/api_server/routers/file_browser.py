@@ -6,22 +6,19 @@ import asyncio
 import json
 import logging
 import os
-import platform
 import subprocess
 import sys
 import urllib.parse
-from pathlib import Path
 from typing import List, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..core.validators import validate_filename
-from ..services.file_service import (
+from ...core.validators import validate_filename
+from ...services.file_service import (
     AIOFILES_INSTALLED,
     HOME_DIR,
-    THUMBNAIL_CACHE_DIR,
     file_service,
 )
 

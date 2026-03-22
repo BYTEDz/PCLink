@@ -108,11 +108,11 @@ def setup_logging(level=logging.INFO):
 
     if not is_frozen:
         try:
-            print(f"🚀 PCLink Logging Initialized")
+            print("🚀 PCLink Logging Initialized")
             print(f"📁 Log file: {log_file}")
         except UnicodeEncodeError:
             # Fallback for Windows consoles that don't support UTF-8/Emojis
-            print(f"[+] PCLink Logging Initialized")
+            print("[+] PCLink Logging Initialized")
             print(f"[-] Log file: {log_file}")
 
     logging.info("=" * 50)

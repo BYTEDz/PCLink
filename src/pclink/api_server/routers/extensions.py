@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from ..services.extension_service import extension_service
+from ...services.extension_service import extension_service
 
 mgmt_router = APIRouter(tags=["extension-management"])
 runtime_router = APIRouter(tags=["extension-runtime"])
