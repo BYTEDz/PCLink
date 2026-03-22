@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en" data-theme="dark">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -16,558 +17,737 @@
   <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg" />
   <link rel="icon" type="image/x-icon" href="/ui/assets/icon.ico" />
 </head>
+
 <body class="bg-base-300">
 
-<div class="drawer lg:drawer-open">
-  <input id="main-drawer" type="checkbox" class="drawer-toggle" />
+  <div class="drawer lg:drawer-open">
+    <input id="main-drawer" type="checkbox" class="drawer-toggle" />
 
-  <div class="drawer-content flex flex-col h-screen overflow-hidden">
-    <header class="navbar bg-base-100 border-b border-base-300 px-4 shrink-0 shadow-sm z-10">
-      <div class="flex-none lg:hidden">
-        <label for="main-drawer" class="btn btn-square btn-ghost"><i data-feather="menu"></i></label>
-      </div>
-      <div class="flex-1 gap-3">
-        <div class="bg-primary p-1.5 rounded-lg lg:hidden">
-          <img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" alt="Logo" />
+    <div class="drawer-content flex flex-col h-screen overflow-hidden">
+      <header class="navbar bg-base-100 border-b border-base-300 px-4 shrink-0 shadow-sm z-10">
+        <div class="flex-none lg:hidden">
+          <label for="main-drawer" class="btn btn-square btn-ghost"><i data-feather="menu"></i></label>
         </div>
-        <div>
-          <h1 class="text-xl font-black leading-none">PCLink</h1>
-          <span class="text-xs opacity-50 uppercase font-black tracking-widest">Control Panel</span>
-        </div>
-      </div>
-      <div class="flex-none gap-2">
-        <div class="badge badge-outline gap-2 py-3 px-3 border-base-300" id="serverStatusBadge">
-          <span class="status-dot online w-2 h-2 rounded-full bg-success"></span>
-          <span id="serverStatusText" class="text-sm font-black uppercase tracking-wider">Online</span>
-        </div>
-        <button class="btn btn-ghost btn-sm text-error ml-2" onclick="logout()" title="Logout"><i data-feather="log-out"></i></button>
-      </div>
-    </header>
-
-    <main class="flex-1 flex flex-col p-2 md:p-3 bg-base-200 overflow-hidden">
-
-      <div id="updateBanner" class="alert alert-info shadow-lg mb-6 hidden">
-        <i data-feather="download"></i>
-        <div>
-          <h3 class="font-bold">New Update Available!</h3>
-          <div class="text-sm" id="updateVersion">Version X.X.X is ready</div>
+        <div class="flex-1 gap-3">
+          <div class="bg-primary p-1.5 rounded-lg lg:hidden">
+            <img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" alt="Logo" />
+          </div>
+          <div>
+            <h1 class="text-xl font-black leading-none">PCLink</h1>
+            <span class="text-xs opacity-50 uppercase font-black tracking-widest">Control Panel</span>
+          </div>
         </div>
         <div class="flex-none gap-2">
-          <button class="btn btn-sm btn-primary text-white font-bold" onclick="downloadUpdate()">Update</button>
-          <button class="btn btn-sm btn-ghost" onclick="dismissUpdate()">Dismiss</button>
+          <div class="badge badge-outline gap-2 py-3 px-3 border-base-300" id="serverStatusBadge">
+            <span class="status-dot online w-2 h-2 rounded-full bg-success"></span>
+            <span id="serverStatusText" class="text-sm font-black uppercase tracking-wider">Online</span>
+          </div>
+          <button class="btn btn-ghost btn-sm text-error ml-2" onclick="logout()" title="Logout"><i
+              data-feather="log-out"></i></button>
         </div>
-      </div>
+      </header>
 
-      <!-- Dashboard -->
-      <div class="tab-content active" id="dashboard">
-        <div class="grid grid-cols-1 gap-6">
-          <div class="card bg-base-100 shadow-sm border border-base-300">
-            <div class="card-body p-6">
-              <h2 class="card-title text-sm opacity-60 uppercase mb-4"><i data-feather="power" class="w-5 text-primary"></i> Server Control</h2>
-              <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <button class="btn btn-success text-white font-bold" onclick="startRemoteServer()"><i data-feather="play"></i> Start</button>
-                <button class="btn btn-warning text-black font-bold" onclick="stopRemoteServer()"><i data-feather="pause"></i> Stop</button>
-                <button class="btn btn-primary text-white font-bold" onclick="restartRemoteServer()"><i data-feather="refresh-cw"></i> Restart</button>
-                <button class="btn btn-error text-white font-bold" onclick="shutdownServer()"><i data-feather="power"></i> Shutdown</button>
+      <main class="flex-1 flex flex-col p-2 md:p-3 bg-base-200 overflow-hidden">
+
+        <div id="updateBanner" class="alert alert-info shadow-lg mb-6 hidden">
+          <i data-feather="download"></i>
+          <div>
+            <h3 class="font-bold">New Update Available!</h3>
+            <div class="text-sm" id="updateVersion">Version X.X.X is ready</div>
+          </div>
+          <div class="flex-none gap-2">
+            <button class="btn btn-sm btn-primary text-white font-bold" onclick="downloadUpdate()">Update</button>
+            <button class="btn btn-sm btn-ghost" onclick="dismissUpdate()">Dismiss</button>
+          </div>
+        </div>
+
+        <!-- Dashboard -->
+        <div class="tab-content active" id="dashboard">
+          <div class="grid grid-cols-1 gap-6">
+            <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+              <div class="card-body p-6">
+                <h2 class="card-title text-sm opacity-60 uppercase mb-4"><i data-feather="power"
+                    class="w-5 text-primary"></i> Server Control</h2>
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <button class="btn btn-success text-white font-bold" onclick="startRemoteServer()"><i
+                      data-feather="play"></i> Start</button>
+                  <button class="btn btn-warning text-black font-bold" onclick="stopRemoteServer()"><i
+                      data-feather="pause"></i> Stop</button>
+                  <button class="btn btn-primary text-white font-bold" onclick="restartRemoteServer()"><i
+                      data-feather="refresh-cw"></i> Restart</button>
+                  <button class="btn btn-error text-white font-bold" onclick="shutdownServer()"><i
+                      data-feather="power"></i> Shutdown</button>
+                </div>
+              </div>
+            </div>
+            <div class="stats stats-vertical lg:stats-horizontal shadow bg-base-100 border border-base-300 w-full">
+              <div class="stat">
+                <div class="stat-figure text-primary"><i data-feather="globe" class="w-8 h-8"></i></div>
+                <div class="stat-title text-xs font-bold uppercase">Address</div>
+                <div class="stat-value text-lg break-all" id="hostIP">Loading...</div>
+              </div>
+              <div class="stat">
+                <div class="stat-figure text-secondary"><i data-feather="smartphone" class="w-8 h-8"></i></div>
+                <div class="stat-title text-xs font-bold uppercase">Devices</div>
+                <div class="stat-value text-lg" id="dashboardDeviceCount">0</div>
+                <div class="stat-desc font-mono" id="serverPort">Port: 38080</div>
+              </div>
+              <div class="stat">
+                <div class="stat-figure text-accent"><i data-feather="clock" class="w-8 h-8"></i></div>
+                <div class="stat-title text-xs font-bold uppercase">Uptime</div>
+                <div class="stat-value text-lg" id="serverUptime">Just now</div>
+                <div class="stat-desc font-bold text-success" id="serverVersion">vLoading</div>
               </div>
             </div>
           </div>
-          <div class="stats stats-vertical lg:stats-horizontal shadow bg-base-100 border border-base-300">
-            <div class="stat"><div class="stat-figure text-primary"><i data-feather="globe" class="w-8 h-8"></i></div><div class="stat-title text-xs font-bold uppercase">Address</div><div class="stat-value text-lg break-all" id="hostIP">Loading...</div></div>
-            <div class="stat"><div class="stat-figure text-secondary"><i data-feather="smartphone" class="w-8 h-8"></i></div><div class="stat-title text-xs font-bold uppercase">Devices</div><div class="stat-value text-lg" id="dashboardDeviceCount">0</div><div class="stat-desc font-mono" id="serverPort">Port: 38080</div></div>
-            <div class="stat"><div class="stat-figure text-accent"><i data-feather="clock" class="w-8 h-8"></i></div><div class="stat-title text-xs font-bold uppercase">Uptime</div><div class="stat-value text-lg" id="serverUptime">Just now</div><div class="stat-desc font-bold text-success" id="serverVersion">vLoading</div></div>
-          </div>
         </div>
-      </div>
 
-      <!-- Devices -->
-      <div class="tab-content" id="devices">
-        <div class="flex justify-between items-center gap-3 mb-4">
-          <div class="flex items-center gap-2">
-            <span class="badge badge-primary font-bold" id="deviceCount">0</span>
-            <span class="text-[10px] uppercase font-black opacity-30 tracking-widest">Clients</span>
-          </div>
-          <div class="flex gap-2">
-            <button class="btn btn-xs btn-ghost border-base-300" onclick="refreshDevices()"><i data-feather="refresh-cw" class="w-3"></i></button>
-            <button class="btn btn-xs btn-error btn-outline" onclick="removeAllDevices()"><i data-feather="trash-2" class="w-3"></i> Clear Fleet</button>
-          </div>
-        </div>
-        <div id="deviceList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
-        <div class="divider my-8 font-bold text-xs uppercase opacity-30 tracking-widest text-primary">Pending Requests</div>
-        <div id="pendingRequests" class="grid grid-cols-1 gap-4"></div>
-      </div>
-
-      <!-- Pairing -->
-      <div class="tab-content" id="pairing">
-        <div class="card bg-base-100 shadow-sm border border-base-300 max-w-3xl mx-auto">
-          <div class="card-body items-center text-center font-bold">
-            <h3 class="text-2xl font-black"><i data-feather="smartphone" class="inline-block mr-2 text-primary"></i> Pair New Device</h3>
-            <p class="opacity-70 font-normal mb-6 text-sm">Scan this QR code with the PCLink app to link your device.</p>
-            <div class="flex flex-wrap gap-3 justify-center mb-6">
-              <button class="btn btn-primary text-white" onclick="generateQRCode()"><i data-feather="square"></i> Generate QR Code</button>
-              <button class="btn btn-ghost border-base-300" onclick="regenerateQRCode()"><i data-feather="refresh-cw"></i> Regenerate</button>
-            </div>
-            <div id="qrCodeDisplay" class="mb-8"></div>
-            <div class="bg-base-200 p-6 rounded-xl text-left w-full border border-base-300 font-normal">
-              <h4 class="font-bold mb-4 uppercase text-xs opacity-50 tracking-widest">Setup Guide</h4>
-              <ol class="list-decimal pl-5 space-y-2 opacity-80 text-sm">
-                <li>Install the PCLink companion app from your app store.</li>
-                <li>Press the button above to generate a secure code.</li>
-                <li>Scan the code and approve the request here.</li>
-              </ol>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Phone Files -->
-      <div class="tab-content h-full" id="phone-files">
-        <div class="card bg-base-100 shadow-sm border border-base-300 flex-1 flex flex-col overflow-hidden">
-          <div class="p-3 border-b border-base-300 flex flex-wrap justify-between gap-3 items-center">
+        <!-- Devices -->
+        <div class="tab-content" id="devices">
+          <div class="flex justify-between items-center gap-3 mb-4 w-full">
             <div class="flex items-center gap-2">
-              <i data-feather="folder" class="text-primary w-4 h-4"></i>
-              <span id="phoneReadOnlyBadge" class="badge badge-warning hidden font-bold uppercase text-[9px]">Read-Only</span>
-              <select id="phoneDeviceSelector" class="select select-bordered select-xs w-[160px]" onchange="handlePhoneDeviceChange(this.value)">
-                <option value="">Select Device...</option>
-              </select>
+              <span class="badge badge-primary font-bold" id="deviceCount">0</span>
+              <span class="text-[10px] uppercase font-black opacity-30 tracking-widest">Clients</span>
             </div>
-            <div class="flex gap-2 items-center">
-              <div class="join">
-                <button class="btn btn-xs join-item" onclick="goBackPhoneFiles()" id="phoneBackBtn" disabled><i data-feather="arrow-left" class="w-3"></i></button>
-                <button class="btn btn-xs join-item" onclick="goForwardPhoneFiles()" id="phoneForwardBtn" disabled><i data-feather="arrow-right" class="w-3"></i></button>
-                <button class="btn btn-xs join-item" onclick="refreshPhoneFiles()"><i data-feather="refresh-cw" class="w-3"></i></button>
+            <div class="flex gap-2">
+              <button class="btn btn-xs btn-ghost border-base-300" onclick="refreshDevices()"><i
+                  data-feather="refresh-cw" class="w-3"></i></button>
+              <button class="btn btn-xs btn-error btn-outline" onclick="removeAllDevices()"><i data-feather="trash-2"
+                  class="w-3"></i> Clear Fleet</button>
+            </div>
+          </div>
+          <div id="deviceList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full"></div>
+          <div class="divider my-8 font-bold text-xs uppercase opacity-30 tracking-widest text-primary w-full">Pending
+            Requests
+          </div>
+          <div id="pendingRequests" class="grid grid-cols-1 gap-4 w-full"></div>
+        </div>
+
+        <!-- Pairing -->
+        <div class="tab-content" id="pairing">
+          <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+            <div class="card-body items-center text-center font-bold">
+              <h3 class="text-2xl font-black"><i data-feather="smartphone" class="inline-block mr-2 text-primary"></i>
+                Pair New Device</h3>
+              <p class="opacity-70 font-normal mb-6 text-sm">Scan this QR code with the PCLink app to link your device.
+              </p>
+              <div class="flex flex-wrap gap-3 justify-center mb-6">
+                <button class="btn btn-primary text-white" onclick="generateQRCode()"><i data-feather="square"></i>
+                  Generate QR Code</button>
+                <button class="btn btn-ghost border-base-300" onclick="regenerateQRCode()"><i
+                    data-feather="refresh-cw"></i> Regenerate</button>
               </div>
-              <button class="btn btn-xs btn-primary text-white font-bold" id="phoneUploadBtn" onclick="triggerUpload()"><i data-feather="upload" class="w-3"></i> Upload</button>
-              <input type="file" id="phoneUploadInput" class="hidden" multiple onchange="handlePhoneUpload(this)">
+              <div id="qrCodeDisplay" class="mb-8"></div>
+              <div class="bg-base-200 p-6 rounded-xl text-left w-full border border-base-300 font-normal">
+                <h4 class="font-bold mb-4 uppercase text-xs opacity-50 tracking-widest">Setup Guide</h4>
+                <ol class="list-decimal pl-5 space-y-2 opacity-80 text-sm">
+                  <li>Install the PCLink companion app from your app store.</li>
+                  <li>Press the button above to generate a secure code.</li>
+                  <li>Scan the code and approve the request here.</li>
+                </ol>
+              </div>
             </div>
-          </div>
-          <div class="bg-base-200 p-3 flex flex-wrap gap-3 items-center border-b border-base-300">
-            <div class="flex-1 relative min-w-[150px]">
-              <i data-feather="search" class="w-4 h-4 absolute left-3 top-2.5 opacity-50"></i>
-              <input type="text" id="phoneFileSearch" class="input input-sm input-bordered w-full pl-9" placeholder="Search..." oninput="handlePhoneSearch(this.value)">
-            </div>
-            <select id="phoneFileSort" class="select select-sm select-bordered" onchange="handlePhoneSort(this.value)">
-              <option value="name_asc">Name A-Z</option>
-              <option value="size_desc">Largest</option>
-              <option value="date_desc">Newest</option>
-            </select>
-            <label class="label cursor-pointer gap-2"><span class="label-text text-xs font-bold uppercase opacity-50">Hidden</span><input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="showHiddenFiles" onchange="handleToggleHidden(this.checked)"></label>
-          </div>
-          <div class="flex-1 flex flex-col overflow-hidden">
-            <div id="phoneBreadcrumb" class="bg-base-200 p-2 text-[10px] font-mono truncate border-b border-base-300 opacity-60">Path: /</div>
-            <div id="uploadProgressContainer" class="p-2 space-y-2 border-b border-base-300 empty:hidden"></div>
-            <div id="phoneFileList" class="flex-1 overflow-y-auto"></div>
           </div>
         </div>
-      </div>
 
-      <!-- Access Control (Replaced Services) -->
-      <div class="tab-content" id="services">
-        <div class="max-w-4xl mx-auto">
+        <!-- Phone Files -->
+        <div class="tab-content h-full" id="phone-files">
+          <div class="card bg-base-100 shadow-sm border border-base-300 flex-1 flex flex-col overflow-hidden w-full">
+            <div class="p-3 border-b border-base-300 flex flex-wrap justify-between gap-3 items-center">
+              <div class="flex items-center gap-2">
+                <i data-feather="folder" class="text-primary w-4 h-4"></i>
+                <span id="phoneReadOnlyBadge"
+                  class="badge badge-warning hidden font-bold uppercase text-[9px]">Read-Only</span>
+                <select id="phoneDeviceSelector" class="select select-bordered select-xs w-[160px]"
+                  onchange="handlePhoneDeviceChange(this.value)">
+                  <option value="">Select Device...</option>
+                </select>
+              </div>
+              <div class="flex gap-2 items-center">
+                <div class="join">
+                  <button class="btn btn-xs join-item" onclick="goBackPhoneFiles()" id="phoneBackBtn" disabled><i
+                      data-feather="arrow-left" class="w-3"></i></button>
+                  <button class="btn btn-xs join-item" onclick="goForwardPhoneFiles()" id="phoneForwardBtn" disabled><i
+                      data-feather="arrow-right" class="w-3"></i></button>
+                  <button class="btn btn-xs join-item" onclick="refreshPhoneFiles()"><i data-feather="refresh-cw"
+                      class="w-3"></i></button>
+                </div>
+                <button class="btn btn-xs btn-primary text-white font-bold" id="phoneUploadBtn"
+                  onclick="triggerUpload()"><i data-feather="upload" class="w-3"></i> Upload</button>
+                <input type="file" id="phoneUploadInput" class="hidden" multiple onchange="handlePhoneUpload(this)">
+              </div>
+            </div>
+            <div class="bg-base-200 p-3 flex flex-wrap gap-3 items-center border-b border-base-300">
+              <div class="flex-1 relative min-w-[150px]">
+                <i data-feather="search" class="w-4 h-4 absolute left-3 top-2.5 opacity-50"></i>
+                <input type="text" id="phoneFileSearch" class="input input-sm input-bordered w-full pl-9"
+                  placeholder="Search..." oninput="handlePhoneSearch(this.value)">
+              </div>
+              <select id="phoneFileSort" class="select select-sm select-bordered"
+                onchange="handlePhoneSort(this.value)">
+                <option value="name_asc">Name A-Z</option>
+                <option value="size_desc">Largest</option>
+                <option value="date_desc">Newest</option>
+              </select>
+              <label class="label cursor-pointer gap-2"><span
+                  class="label-text text-xs font-bold uppercase opacity-50">Hidden</span><input type="checkbox"
+                  class="checkbox checkbox-sm checkbox-primary" id="showHiddenFiles"
+                  onchange="handleToggleHidden(this.checked)"></label>
+            </div>
+            <div class="flex-1 flex flex-col overflow-hidden">
+              <div id="phoneBreadcrumb"
+                class="bg-base-200 p-2 text-[10px] font-mono truncate border-b border-base-300 opacity-60">Path: /</div>
+              <div id="uploadProgressContainer" class="p-2 space-y-2 border-b border-base-300 empty:hidden"></div>
+              <div id="phoneFileList" class="flex-1 overflow-y-auto"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Access Control -->
+        <div class="tab-content" id="services">
+          <div class="w-full">
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                <div class="flex items-center gap-3">
-                    <span class="badge badge-error badge-outline font-bold text-[9px] uppercase">Firewall Mode</span>
-                    <span class="text-[10px] font-black uppercase opacity-30 tracking-widest">Global Security Policies</span>
-                </div>
-                <div class="tabs tabs-boxed bg-base-300/50 p-1 rounded-xl">
-                    <button class="sub-tab tab tab-xs font-black uppercase tracking-widest active bg-primary text-white" onclick="switchSubTab('security', this)">Firewall</button>
-                    <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50" onclick="switchSubTab('blacklist', this)">Blacklist</button>
-                    <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50" onclick="switchSubTab('policies', this)">Policies</button>
-                </div>
+              <div class="flex items-center gap-3">
+                <span class="badge badge-error badge-outline font-bold text-[9px] uppercase">Firewall Mode</span>
+                <span class="text-[10px] font-black uppercase opacity-30 tracking-widest">Global Security
+                  Policies</span>
+              </div>
+              <div class="tabs tabs-boxed bg-base-300/50 p-1 rounded-xl">
+                <button class="sub-tab tab tab-xs font-black uppercase tracking-widest active bg-primary text-white"
+                  onclick="switchSubTab('security', this)">Firewall</button>
+                <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50"
+                  onclick="switchSubTab('blacklist', this)">Blacklist</button>
+                <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50"
+                  onclick="switchSubTab('policies', this)">Policies</button>
+              </div>
             </div>
 
             <div id="subtab-security" class="subtab-content active space-y-6">
-                <!-- Global Kill Switches -->
-                <div class="card bg-base-100 shadow-sm border border-base-300">
-                    <div class="card-body p-5">
-                        <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="alert-triangle" class="w-4"></i> Global Kill Switches</h3>
-                        <p class="text-sm opacity-60 mb-4">Disabling a service here turns it off for <strong>ALL</strong> devices, regardless of permissions.</p>
-                        <div id="globalServicesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
-                        </div>
-                    </div>
+              <!-- Global Kill Switches -->
+              <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+                <div class="card-body p-5">
+                  <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i
+                      data-feather="alert-triangle" class="w-4"></i> Global Kill Switches</h3>
+                  <p class="text-sm opacity-60 mb-4">Disabling a service here turns it off for <strong>ALL</strong>
+                    devices, regardless of permissions.</p>
+                  <div id="globalServicesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                  </div>
                 </div>
+              </div>
             </div>
 
             <div id="subtab-blacklist" class="subtab-content hidden space-y-6">
-               <!-- Hardware Blacklist -->
-                <div class="card bg-base-100 shadow-sm border border-base-300">
-                    <div class="card-body p-5">
-                        <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="user-x" class="w-4"></i> Hardware Blacklist</h3>
-                        <p class="text-sm opacity-60 mb-4">Banned hardware IDs cannot re-pair or connect.</p>
-                        <div id="blacklistContainer" class="space-y-2 max-h-[500px] overflow-y-auto pr-2">
-                            <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
-                        </div>
-                        <div class="card-actions justify-end mt-4">
-                            <button class="btn btn-sm btn-ghost border-base-300 font-bold text-xs" onclick="window.loadBlacklist()"><i data-feather="refresh-cw" class="w-3"></i> Refresh</button>
-                        </div>
-                    </div>
+              <!-- Hardware Blacklist -->
+              <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+                <div class="card-body p-5">
+                  <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i
+                      data-feather="user-x" class="w-4"></i> Hardware Blacklist</h3>
+                  <p class="text-sm opacity-60 mb-4">Banned hardware IDs cannot re-pair or connect.</p>
+                  <div id="blacklistContainer" class="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+                    <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                  </div>
+                  <div class="card-actions justify-end mt-4">
+                    <button class="btn btn-sm btn-ghost border-base-300 font-bold text-xs"
+                      onclick="window.loadBlacklist()"><i data-feather="refresh-cw" class="w-3"></i> Refresh</button>
+                  </div>
                 </div>
+              </div>
             </div>
 
             <div id="subtab-policies" class="subtab-content hidden space-y-6">
-                <!-- Default Policy -->
-                <div class="card bg-base-100 shadow-sm border border-base-300">
-                    <div class="card-body p-5">
-                        <h3 class="card-title text-sm font-black uppercase text-primary tracking-widest mb-4"><i data-feather="shield" class="w-4"></i> New Device Policy</h3>
-                        <p class="text-sm opacity-60 mb-2">Permissions granted automatically.</p>
-                        <div class="flex flex-wrap gap-1 mb-4 bg-base-200/50 p-2 rounded-lg border border-base-300/50">
-                            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary" onclick="applyPermissionTemplate('Admin', 'defaultPermsGrid')">Admin</button>
-                            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary" onclick="applyPermissionTemplate('Viewer', 'defaultPermsGrid')">Viewer</button>
-                            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary" onclick="applyPermissionTemplate('Media', 'defaultPermsGrid')">Media</button>
-                        </div>
-                        <div id="defaultPermsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                            <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
-                        </div>
-                        <div class="card-actions justify-between items-center mt-4">
-                            <button class="btn btn-xs btn-outline btn-ghost font-bold text-[9px] opacity-40 hover:opacity-100" onclick="saveCurrentAsTemplate('defaultPermsGrid')">Template</button>
-                            <button class="btn btn-sm btn-primary text-white font-bold" onclick="saveDefaultPermissions()">Save Policy</button>
-                        </div>
+              <!-- Default Policy -->
+              <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+                <div class="card-body p-5">
+                  <h3 class="card-title text-sm font-black uppercase text-primary tracking-widest mb-4"><i
+                      data-feather="shield" class="w-4"></i> New Device Policy</h3>
+                  <p class="text-sm opacity-60 mb-2">Permissions granted automatically.</p>
+                  <div class="flex flex-wrap gap-1 mb-4 bg-base-200/50 p-2 rounded-lg border border-base-300/50">
+                    <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary"
+                      onclick="applyPermissionTemplate('Admin', 'defaultPermsGrid')">Admin</button>
+                    <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary"
+                      onclick="applyPermissionTemplate('Viewer', 'defaultPermsGrid')">Viewer</button>
+                    <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary"
+                      onclick="applyPermissionTemplate('Media', 'defaultPermsGrid')">Media</button>
+                  </div>
+                  <div id="defaultPermsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+                  </div>
+                  <div class="card-actions justify-between items-center mt-4">
+                    <button class="btn btn-xs btn-outline btn-ghost font-bold text-[9px] opacity-40 hover:opacity-100"
+                      onclick="saveCurrentAsTemplate('defaultPermsGrid')">Template</button>
+                    <button class="btn btn-sm btn-primary text-white font-bold" onclick="saveDefaultPermissions()">Save
+                      Policy</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings -->
+        <div class="tab-content" id="settings">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start w-full">
+            <div class="flex flex-col gap-6 w-full">
+              <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+                <div class="card-body p-5">
+                  <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-2"><i
+                      data-feather="monitor" class="w-4"></i> UI Theme</h3>
+                  <select id="themeSelector" class="select select-sm select-bordered w-full"
+                    onchange="changeTheme(this.value)">
+                    <option value="system">System Auto</option>
+                    <optgroup label="Dark Modes">
+                      <option value="dark">PCLink Dark</option>
+                      <option value="dracula">Dracula</option>
+                      <option value="synthwave">Retro Future</option>
+                      <option value="black">Pure Black</option>
+                      <option value="business">Enterprise</option>
+                      <option value="night">Night Owl</option>
+                      <option value="dim">Dimmed</option>
+                    </optgroup>
+                    <optgroup label="Light Modes">
+                      <option value="light">PCLink Light</option>
+                      <option value="cupcake">Soft Pink</option>
+                      <option value="emerald">Nature Green</option>
+                      <option value="corporate">Office Blue</option>
+                      <option value="cyberpunk">Cyberpunk Yellow</option>
+                      <option value="winter">Winter Blue</option>
+                      <option value="nord">Nord Gray</option>
+                    </optgroup>
+                  </select>
+                </div>
+              </div>
+
+              <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+                <div class="card-body p-5">
+                  <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
+                      data-feather="settings" class="w-4"></i> Server Configuration</h3>
+                  <div class="form-control w-full mb-3">
+                    <label class="label py-1">
+                      <span class="label-text font-bold text-xs opacity-60">Server Port (Requires Restart)</span>
+                      <a href="#" class="text-[9px] uppercase font-black text-primary hover:underline"
+                        onclick="document.querySelector('[data-tab=guide]').click()">Need Help?</a>
+                    </label>
+                    <input type="number" id="serverPortInput" class="input input-sm input-bordered w-full font-bold" />
+                  </div>
+                  <div class="flex flex-col gap-2 mb-4">
+                    <label
+                      class="cursor-pointer flex items-center gap-3 bg-base-200 p-2 rounded-lg hover:bg-base-300 transition-colors">
+                      <input type="checkbox" id="autoStartCheckbox" class="toggle toggle-sm toggle-primary" />
+                      <span class="label-text font-bold text-xs">Start with system</span>
+                    </label>
+                  </div>
+                  <button class="btn btn-sm btn-primary w-full shadow-sm text-white font-bold uppercase"
+                    onclick="saveSettings()"><i data-feather="save" class="w-4"></i> Save Settings</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex flex-col gap-6 w-full">
+              <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+                <div class="card-body p-5">
+                  <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
+                      data-feather="lock" class="w-4"></i> Access Control</h3>
+                  <div class="space-y-2 mb-4 font-bold">
+                    <input type="password" id="currentPassword" placeholder="Current Password"
+                      class="input input-sm input-bordered w-full text-xs" />
+                    <input type="password" id="newPassword" placeholder="New Password"
+                      class="input input-sm input-bordered w-full text-xs" />
+                    <input type="password" id="confirmNewPassword" placeholder="Confirm New"
+                      class="input input-sm input-bordered w-full text-xs" />
+                  </div>
+                  <button class="btn btn-sm btn-outline w-full uppercase text-xs" onclick="changePassword()"><i
+                      data-feather="key" class="w-4"></i> Change Password</button>
+                </div>
+              </div>
+
+              <div class="card bg-base-100 shadow-sm border border-base-300 font-bold w-full">
+                <div class="card-body p-5">
+                  <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
+                      data-feather="bell" class="w-4"></i> Notifications</h3>
+                  <div class="flex flex-col gap-2 mb-4">
+                    <label
+                      class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input
+                        type="checkbox" id="notifyDeviceConnect"
+                        class="checkbox checkbox-sm checkbox-primary" /><span>Device Connected</span></label>
+                    <label
+                      class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input
+                        type="checkbox" id="notifyDeviceDisconnect"
+                        class="checkbox checkbox-sm checkbox-primary" /><span>Device Disconnected</span></label>
+                    <label
+                      class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input
+                        type="checkbox" id="notifyPairingRequest"
+                        class="checkbox checkbox-sm checkbox-primary" /><span>Pairing Requests</span></label>
+                    <label
+                      class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input
+                        type="checkbox" id="notifyUpdates" class="checkbox checkbox-sm checkbox-primary" /><span>Update
+                        Available</span></label>
+                  </div>
+                  <button class="btn btn-sm btn-secondary w-full text-white font-bold"
+                    onclick="saveNotificationSettings()">Save Preferences</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logs -->
+        <div class="tab-content h-full" id="logs">
+          <div class="card bg-base-100 shadow-sm border border-base-300 flex-1 flex flex-col overflow-hidden w-full">
+            <div class="p-3 border-b border-base-300 flex flex-wrap justify-between items-center bg-base-200 gap-2">
+              <h3 class="font-bold flex items-center gap-2"><i data-feather="file-text" class="text-primary w-5"></i>
+                System Logs</h3>
+              <div class="flex items-center gap-2">
+                <button class="btn btn-sm btn-ghost border-base-300" onclick="refreshLogs()"><i
+                    data-feather="refresh-cw" class="w-4"></i></button>
+                <button class="btn btn-sm btn-ghost border-base-300" onclick="clearLogs()"><i data-feather="trash-2"
+                    class="w-4"></i></button>
+                <button class="btn btn-sm btn-outline font-bold" id="autoRefreshToggle" onclick="toggleAutoRefresh()"><i
+                    data-feather="pause" class="w-4"></i> <span class="hidden sm:inline">Auto</span></button>
+              </div>
+            </div>
+            <div id="logContainer" class="flex-1 overflow-auto p-4 bg-[#0b1120] text-gray-300 log-container">
+              <pre id="logContent">Streaming logs...</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Guide -->
+        <div class="tab-content" id="guide">
+          <div class="w-full space-y-4">
+            <div class="mb-4">
+              <span class="text-[10px] font-black uppercase opacity-30 tracking-widest">Documentation & Support</span>
+            </div>
+
+            <!-- 1. Network Requirements -->
+            <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+              <input type="checkbox" checked="checked" />
+              <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="wifi"
+                  class="text-primary w-5"></i> 1. Network Configuration</div>
+              <div class="collapse-content space-y-4 pt-2">
+                <ul class="list-disc pl-5 space-y-2 text-sm opacity-80">
+                  <li>Ensure both your PC and mobile device are on the <b>Same WiFi network</b>.</li>
+                  <li>Disable any active <b>VPN or Proxy</b> services while pairing.</li>
+                  <li>Router setting "<b>AP Isolation</b>" must be turned <b>OFF</b>.</li>
+                  <li>Check that your network is set to "<b>Private</b>" and not "Public" in OS settings.</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- 2. Firewall -->
+            <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+              <input type="checkbox" />
+              <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="shield"
+                  class="text-primary w-5"></i> 2. Firewall Troubleshooting</div>
+              <div class="collapse-content space-y-4 pt-2">
+                <p class="text-xs opacity-70">If the companion app cannot see your PC, run these commands in
+                  CMD/Powershell as Administrator.</p>
+                <div class="space-y-2">
+                  <p class="text-[10px] uppercase font-black opacity-50">Check existing rule</p>
+                  <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                    onclick="copyCommand(this)">
+                    <pre data-prefix="$"><code>netsh advfirewall firewall show rule name="PCLink"</code></pre>
+                  </div>
+                </div>
+                <div class="space-y-2">
+                  <p class="text-[10px] uppercase font-black opacity-50">Manually add allow rule</p>
+                  <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                    onclick="copyCommand(this)">
+                    <pre data-prefix="$"
+                      class="text-warning"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow program="C:\path\to\pclink.exe" enable=yes</code></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. Port Configuration -->
+            <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+              <input type="checkbox" />
+              <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="terminal"
+                  class="text-primary w-5"></i> 3. Server Port Management</div>
+              <div class="collapse-content space-y-4 pt-2">
+                <p class="text-xs opacity-70">Changing the port requires updating your system firewall manually to allow
+                  the new traffic.</p>
+
+                <div class="space-y-2">
+                  <p class="text-[10px] uppercase font-black opacity-50">Windows (netsh)</p>
+                  <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                    onclick="copyCommand(this)">
+                    <pre
+                      data-prefix="$"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow protocol=TCP localport=<span class="current-port">38080</span></code></pre>
+                  </div>
+                </div>
+
+                <div class="space-y-2">
+                  <p class="text-[10px] uppercase font-black opacity-50">Linux (UFW)</p>
+                  <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                    onclick="copyCommand(this)">
+                    <pre data-prefix="$"><code>sudo ufw allow <span class="current-port">38080</span>/tcp</code></pre>
+                  </div>
+                </div>
+
+                <div class="space-y-2">
+                  <p class="text-[10px] uppercase font-black opacity-50">Linux (Firewalld)</p>
+                  <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                    onclick="copyCommand(this)">
+                    <pre
+                      data-prefix="$"><code>sudo firewall-cmd --permanent --add-port=<span class="current-port">38080</span>/tcp && sudo firewall-cmd --reload</code></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. CLI Controls -->
+            <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+              <input type="checkbox" />
+              <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="terminal"
+                  class="text-primary w-5"></i> 4. CLI - Server Control</div>
+              <div class="collapse-content space-y-3 pt-2 text-xs">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="space-y-2">
+                    <p class="text-[9px] uppercase font-black opacity-40">Service Actions</p>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink start</code></pre>
                     </div>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink stop</code></pre>
+                    </div>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink restart</code></pre>
+                    </div>
+                  </div>
+                  <div class="space-y-2">
+                    <p class="text-[9px] uppercase font-black opacity-40">Observation</p>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink status</code></pre>
+                    </div>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink logs -f</code></pre>
+                    </div>
+                  </div>
                 </div>
-            </div>
-        </div>
-      </div>
-
-      <!-- Settings -->
-      <div class="tab-content" id="settings">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          <div class="flex flex-col gap-6">
-            <div class="card bg-base-100 shadow-sm border border-base-300">
-              <div class="card-body p-5">
-                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-2"><i data-feather="monitor" class="w-4"></i> UI Theme</h3>
-                <select id="themeSelector" class="select select-sm select-bordered w-full" onchange="changeTheme(this.value)">
-                  <option value="system">System Auto</option>
-                  <optgroup label="Dark Modes">
-                    <option value="dark">PCLink Dark</option>
-                    <option value="dracula">Dracula</option>
-                    <option value="synthwave">Retro Future</option>
-                    <option value="black">Pure Black</option>
-                    <option value="business">Enterprise</option>
-                    <option value="night">Night Owl</option>
-                    <option value="dim">Dimmed</option>
-                  </optgroup>
-                  <optgroup label="Light Modes">
-                    <option value="light">PCLink Light</option>
-                    <option value="cupcake">Soft Pink</option>
-                    <option value="emerald">Nature Green</option>
-                    <option value="corporate">Office Blue</option>
-                    <option value="cyberpunk">Cyberpunk Yellow</option>
-                    <option value="winter">Winter Blue</option>
-                    <option value="nord">Nord Gray</option>
-                  </optgroup>
-                </select>
               </div>
             </div>
 
-            <div class="card bg-base-100 shadow-sm border border-base-300">
-              <div class="card-body p-5">
-                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="settings" class="w-4"></i> Server Configuration</h3>
-                <div class="form-control w-full mb-3">
-                  <label class="label py-1">
-                    <span class="label-text font-bold text-xs opacity-60">Server Port (Requires Restart)</span>
-                    <a href="#" class="text-[9px] uppercase font-black text-primary hover:underline" onclick="document.querySelector('[data-tab=guide]').click()">Need Help?</a>
-                  </label>
-                  <input type="number" id="serverPortInput" class="input input-sm input-bordered w-full font-bold" />
+            <!-- 5. CLI Device Mgmt -->
+            <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+              <input type="checkbox" />
+              <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="smartphone"
+                  class="text-primary w-5"></i> 5. CLI - Device & Permissions</div>
+              <div class="collapse-content space-y-3 pt-2 text-xs">
+                <div class="space-y-3">
+                  <p class="text-[10px] uppercase font-black opacity-50">Fleet Management</p>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink device list</code></pre>
+                    </div>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink device revoke [id]</code></pre>
+                    </div>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink device ban [id]</code></pre>
+                    </div>
+                  </div>
                 </div>
-                <div class="flex flex-col gap-2 mb-4">
-                  <label class="cursor-pointer flex items-center gap-3 bg-base-200 p-2 rounded-lg hover:bg-base-300 transition-colors">
-                    <input type="checkbox" id="autoStartCheckbox" class="toggle toggle-sm toggle-primary" />
-                    <span class="label-text font-bold text-xs">Start with system</span>
-                  </label>
+                <div class="space-y-2 pt-2">
+                  <p class="text-[10px] uppercase font-black opacity-50">Role Assignment</p>
+                  <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                    onclick="copyCommand(this)">
+                    <pre data-prefix="$"><code>pclink device perm [id] admin</code></pre>
+                  </div>
+                  <p class="text-[8px] opacity-40 font-bold uppercase">Roles: admin | viewer | media | remote | none</p>
                 </div>
-                <button class="btn btn-sm btn-primary w-full shadow-sm text-white font-bold uppercase" onclick="saveSettings()"><i data-feather="save" class="w-4"></i> Save Settings</button>
               </div>
             </div>
-          </div>
 
-          <div class="flex flex-col gap-6">
-            <div class="card bg-base-100 shadow-sm border border-base-300">
-              <div class="card-body p-5">
-                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="lock" class="w-4"></i> Access Control</h3>
-                <div class="space-y-2 mb-4 font-bold">
-                  <input type="password" id="currentPassword" placeholder="Current Password" class="input input-sm input-bordered w-full text-xs" />
-                  <input type="password" id="newPassword" placeholder="New Password" class="input input-sm input-bordered w-full text-xs" />
-                  <input type="password" id="confirmNewPassword" placeholder="Confirm New" class="input input-sm input-bordered w-full text-xs" />
+            <!-- 6. CLI Identity -->
+            <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
+              <input type="checkbox" />
+              <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="settings"
+                  class="text-primary w-5"></i> 6. CLI - System & Identity</div>
+              <div class="collapse-content space-y-3 pt-2 text-xs">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="space-y-2">
+                    <p class="text-[9px] uppercase font-black opacity-40">Startup & UI</p>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink startup enable</code></pre>
+                    </div>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink tray disable</code></pre>
+                    </div>
+                  </div>
+                  <div class="space-y-2">
+                    <p class="text-[9px] uppercase font-black opacity-40">Utility</p>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink qr</code></pre>
+                    </div>
+                    <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer"
+                      onclick="copyCommand(this)">
+                      <pre data-prefix="$"><code>pclink fix-wayland</code></pre>
+                    </div>
+                  </div>
                 </div>
-                <button class="btn btn-sm btn-outline w-full uppercase text-xs" onclick="changePassword()"><i data-feather="key" class="w-4"></i> Change Password</button>
               </div>
             </div>
 
-            <div class="card bg-base-100 shadow-sm border border-base-300 font-bold">
-              <div class="card-body p-5">
-                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="bell" class="w-4"></i> Notifications</h3>
-                <div class="flex flex-col gap-2 mb-4">
-                  <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input type="checkbox" id="notifyDeviceConnect" class="checkbox checkbox-sm checkbox-primary" /><span>Device Connected</span></label>
-                  <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input type="checkbox" id="notifyDeviceDisconnect" class="checkbox checkbox-sm checkbox-primary" /><span>Device Disconnected</span></label>
-                  <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input type="checkbox" id="notifyPairingRequest" class="checkbox checkbox-sm checkbox-primary" /><span>Pairing Requests</span></label>
-                  <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input type="checkbox" id="notifyUpdates" class="checkbox checkbox-sm checkbox-primary" /><span>Update Available</span></label>
-                </div>
-                <button class="btn btn-sm btn-secondary w-full text-white font-bold" onclick="saveNotificationSettings()">Save Preferences</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Logs -->
-      <div class="tab-content h-full" id="logs">
-        <div class="card bg-base-100 shadow-sm border border-base-300 flex-1 flex flex-col overflow-hidden">
-          <div class="p-3 border-b border-base-300 flex flex-wrap justify-between items-center bg-base-200 gap-2">
-            <h3 class="font-bold flex items-center gap-2"><i data-feather="file-text" class="text-primary w-5"></i> System Logs</h3>
-            <div class="flex items-center gap-2">
-              <button class="btn btn-sm btn-ghost border-base-300" onclick="refreshLogs()"><i data-feather="refresh-cw" class="w-4"></i></button>
-              <button class="btn btn-sm btn-ghost border-base-300" onclick="clearLogs()"><i data-feather="trash-2" class="w-4"></i></button>
-              <button class="btn btn-sm btn-outline font-bold" id="autoRefreshToggle" onclick="toggleAutoRefresh()"><i data-feather="pause" class="w-4"></i> <span class="hidden sm:inline">Auto</span></button>
-            </div>
-          </div>
-          <div id="logContainer" class="flex-1 overflow-auto p-4 bg-[#0b1120] text-gray-300 log-container">
-            <pre id="logContent">Streaming logs...</pre>
           </div>
         </div>
-      </div>
 
-      <!-- Guide -->
-      <div class="tab-content" id="guide">
-        <div class="max-w-4xl mx-auto space-y-4">
-          <div class="mb-4">
-            <span class="text-[10px] font-black uppercase opacity-30 tracking-widest">Documentation & Support</span>
-          </div>
-          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
-            <input type="checkbox" checked="checked" />
-            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="shield" class="text-primary w-5"></i> Firewall</div>
-            <div class="collapse-content space-y-4 pt-2">
-              <p class="text-xs opacity-70">Run these commands in CMD/Powershell as Admin if connection fails.</p>
-              <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer hover:border-primary border border-transparent" onclick="copyCommand(this)">
-                <pre data-prefix="$"><code>netsh advfirewall firewall show rule name="PCLink"</code></pre>
+        <!-- About -->
+        <div class="tab-content" id="about">
+          <div class="card bg-base-100 shadow-sm border border-base-300 w-full mt-10">
+            <div class="card-body items-center text-center py-10">
+              <div class="bg-primary p-5 rounded-3xl mb-4 shadow-lg">
+                <img src="/ui/assets/pclink.svg" class="w-14 h-14 icon-white" alt="Logo" />
               </div>
-              <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer hover:border-primary border border-transparent" onclick="copyCommand(this)">
-                <pre data-prefix="$" class="text-warning"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow program="C:\path\to\pclink.exe" enable=yes</code></pre>
+              <h2 class="text-3xl font-black tracking-tight">PCLink</h2>
+              <p class="opacity-60 font-bold uppercase tracking-widest text-[10px] mb-8">Node Control Panel</p>
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-2 w-full mb-8 font-bold">
+                <a href="https://bytedz.com" target="_blank"
+                  class="btn btn-xs btn-ghost bg-base-200 border-base-300">Website</a>
+                <a href="https://github.com/BYTEDz/PCLink" target="_blank"
+                  class="btn btn-xs btn-ghost bg-base-200 border-base-300">GitHub</a>
+                <a href="https://github.com/BYTEDz/PCLink/issues" target="_blank"
+                  class="btn btn-xs btn-ghost bg-base-200 border-base-300">Support</a>
+                <a href="https://bytedz.com/legal/?doc=pclink-privacy" target="_blank"
+                  class="btn btn-xs btn-ghost bg-base-200 border-base-300">Legal</a>
               </div>
-            </div>
-          </div>
-          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
-            <input type="checkbox" />
-            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="terminal" class="text-primary w-5"></i> Server Port</div>
-            <div class="collapse-content space-y-4 pt-2">
-              <p class="text-xs opacity-70">Changing the port requires updating your system firewall manually to allow the new traffic.</p>
-
-              <div class="space-y-2">
-                <p class="text-[10px] uppercase font-black opacity-50">Linux (UFW)</p>
-                <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
-                  <pre data-prefix="$"><code>sudo ufw allow <span class="current-port">38080</span>/tcp</code></pre>
-                </div>
-              </div>
-
-              <div class="space-y-2">
-                <p class="text-[10px] uppercase font-black opacity-50">Linux (Firewalld)</p>
-                <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
-                  <pre data-prefix="$"><code>sudo firewall-cmd --permanent --add-port=<span class="current-port">38080</span>/tcp && sudo firewall-cmd --reload</code></pre>
-                </div>
-              </div>
-
-              <div class="space-y-2">
-                <p class="text-[10px] uppercase font-black opacity-50">Windows (netsh)</p>
-                <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
-                  <pre data-prefix="$"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow protocol=TCP localport=<span class="current-port">38080</span></code></pre>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
-            <input type="checkbox" />
-            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="terminal" class="text-primary w-5"></i> CLI - Server Control</div>
-            <div class="collapse-content space-y-3 pt-2 text-xs">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div class="space-y-1">
-                  <p class="text-[9px] uppercase font-black opacity-40">Service Control</p>
-                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink start</code>
-                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink stop</code>
-                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink restart</code>
-                </div>
-                <div class="space-y-1">
-                  <p class="text-[9px] uppercase font-black opacity-40">Status & Logs</p>
-                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink status</code>
-                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink logs -f</code>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
-            <input type="checkbox" />
-            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="smartphone" class="text-primary w-5"></i> CLI - Device Management</div>
-            <div class="collapse-content space-y-3 pt-2 text-xs">
-              <div class="space-y-2">
-                <p class="text-[10px] uppercase font-black opacity-50">Pairing Management</p>
-                <div class="flex gap-2">
-                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink pair list</code>
-                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink pair approve 1</code>
-                </div>
-              </div>
-              <div class="space-y-2">
-                <p class="text-[10px] uppercase font-black opacity-50">Revoke / Ban / Index</p>
-                <div class="flex gap-2">
-                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink device list</code>
-                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink device revoke 1</code>
-                </div>
-                <div class="flex gap-2">
-                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink device ban 1</code>
-                  <code class="bg-neutral p-1.5 rounded text-neutral-content cursor-pointer flex-1" onclick="copyCommand(this)">pclink device unban 1</code>
-                </div>
-              </div>
-              <div class="space-y-2">
-                <p class="text-[10px] uppercase font-black opacity-50">Role-Based Perms</p>
-                <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer mb-1" onclick="copyCommand(this)">pclink device perm 1 admin</code>
-                <p class="text-[8px] opacity-40 font-bold uppercase">Roles: admin | viewer | media | remote | none</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
-            <input type="checkbox" />
-            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="settings" class="text-primary w-5"></i> CLI - System & Identity</div>
-            <div class="collapse-content space-y-3 pt-2 text-xs">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div class="space-y-1">
-                  <p class="text-[9px] uppercase font-black opacity-40">System Integration</p>
-                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink startup enable</code>
-                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink tray disable</code>
-                </div>
-                <div class="space-y-1">
-                  <p class="text-[9px] uppercase font-black opacity-40">Identity & Utils</p>
-                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink qr</code>
-                  <code class="block bg-neutral p-2 rounded text-neutral-content cursor-pointer" onclick="copyCommand(this)">pclink fix-wayland</code>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
-            <input type="checkbox" />
-            <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="wifi" class="text-primary w-5"></i> Network</div>
-            <div class="collapse-content space-y-4 pt-2">
-              <ul class="list-disc pl-5 space-y-2 text-sm opacity-80">
-                <li>Same WiFi required</li>
-                <li>Disable VPN while pairing</li>
-                <li>AP Isolation must be OFF</li>
-              </ul>
+              <div class="divider opacity-10 my-2"></div>
+              <p class="text-[10px] font-black opacity-30 tracking-[0.3em] uppercase">© <span
+                  id="copyrightYear">2026</span> BYTEDZ, INC.</p>
+              <p class="text-[9px] uppercase tracking-widest opacity-40 mt-1 font-black">🕊️ Free Palestine • 🇩🇿 Made
+                in Algeria</p>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- About -->
-      <div class="tab-content" id="about">
-        <div class="card bg-base-100 shadow-sm border border-base-300 max-w-2xl mx-auto mt-10">
-          <div class="card-body items-center text-center py-10">
-            <div class="bg-primary p-5 rounded-3xl mb-4 shadow-lg">
-              <img src="/ui/assets/pclink.svg" class="w-14 h-14 icon-white" alt="Logo" />
-            </div>
-            <h2 class="text-3xl font-black tracking-tight">PCLink</h2>
-            <p class="opacity-60 font-bold uppercase tracking-widest text-[10px] mb-8">Node Control Panel</p>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 w-full mb-8 font-bold">
-              <a href="https://bytedz.com" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Website</a>
-              <a href="https://github.com/BYTEDz/PCLink" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">GitHub</a>
-              <a href="https://github.com/BYTEDz/PCLink/issues" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Support</a>
-              <a href="https://bytedz.com/legal/?doc=pclink-privacy" target="_blank" class="btn btn-xs btn-ghost bg-base-200 border-base-300">Legal</a>
-            </div>
-            <div class="divider opacity-10 my-2"></div>
-            <p class="text-[10px] font-black opacity-30 tracking-[0.3em] uppercase">© <span id="copyrightYear">2026</span> BYTEDZ, INC.</p>
-            <p class="text-[9px] uppercase tracking-widest opacity-40 mt-1 font-black">🕊️ Free Palestine • 🇩🇿 Made in Algeria</p>
-          </div>
-        </div>
-      </div>
-
-    </main>
-  </div>
-
-  <div class="drawer-side z-50">
-    <label for="main-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
-    <aside class="w-64 min-h-full bg-base-100 border-r border-base-300 flex flex-col">
-      <div class="p-6 flex items-center gap-3">
-        <div class="bg-primary p-2 rounded-lg shadow-md"><img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" /></div>
-        <h1 class="text-xl font-bold tracking-tighter">PCLink</h1>
-      </div>
-      <nav class="sidebar-nav menu flex-1 px-3 gap-1 font-bold">
-        <button class="nav-item active btn btn-ghost justify-start gap-3 w-full" data-tab="dashboard" onclick="closeDrawer()"><i data-feather="home" class="w-4"></i> Dashboard</button>
-        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="devices" onclick="closeDrawer()"><i data-feather="smartphone" class="w-4"></i> Devices</button>
-        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="pairing" onclick="closeDrawer()"><i data-feather="link" class="w-4"></i> Pairing</button>
-        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="phone-files" onclick="closeDrawer()"><i data-feather="folder" class="w-4"></i> Phone Files</button>
-        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="services" onclick="closeDrawer()"><i data-feather="shield" class="w-4"></i> Access Control</button>
-        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="settings" onclick="closeDrawer()"><i data-feather="settings" class="w-4"></i> Settings</button>
-        <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="logs" onclick="closeDrawer()"><i data-feather="terminal" class="w-4"></i> Logs</button>
-        <div class="divider my-2 opacity-20"></div>
-        <button class="nav-item btn btn-ghost justify-start gap-3 w-full opacity-70" data-tab="guide" onclick="closeDrawer()"><i data-feather="book-open" class="w-4"></i> Guide</button>
-        <button class="nav-item btn btn-ghost justify-start gap-3 w-full opacity-70" data-tab="about" onclick="closeDrawer()"><i data-feather="help-circle" class="w-4"></i> About</button>
-      </nav>
-      <div class="p-4 border-t border-base-300">
-        <a href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink" target="_blank" class="flex items-center gap-3 p-3 bg-base-200 rounded-xl hover:bg-base-300 transition-all font-bold">
-          <div class="text-success"><i data-feather="download"></i></div>
-          <div class="leading-tight"><p class="text-xs">Companion App</p><p class="text-[10px] opacity-40">Google Play</p></div>
-        </a>
-      </div>
-    </aside>
-  </div>
-</div>
-
-<!-- Modal: Pairing -->
-<dialog id="pairingModal" class="modal font-bold">
-  <div class="modal-box">
-    <h3 class="font-black text-lg"><i data-feather="smartphone" class="inline-block mr-2 text-primary"></i> Pair Request</h3>
-    <div id="pairingRequestInfo" class="bg-base-200 p-4 rounded-lg my-4 space-y-1 text-sm font-bold border border-base-300">
-      <p>Device: <span id="requestDeviceName" class="font-black text-primary">-</span></p>
-      <p>IP: <span id="requestDeviceIP" class="font-mono opacity-60">-</span></p>
-      <p>Platform: <span id="requestDevicePlatform" class="opacity-60">-</span></p>
+      </main>
     </div>
-    <div class="modal-action">
-      <button class="btn btn-primary text-white" onclick="approvePairing()">Approve</button>
-      <button class="btn btn-ghost" onclick="denyPairing()">Deny</button>
+
+    <div class="drawer-side z-50">
+      <label for="main-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
+      <aside class="w-64 min-h-full bg-base-100 border-r border-base-300 flex flex-col">
+        <div class="p-6 flex items-center gap-3">
+          <div class="bg-primary p-2 rounded-lg shadow-md"><img src="/ui/assets/pclink.svg"
+              class="w-6 h-6 icon-white" /></div>
+          <h1 class="text-xl font-bold tracking-tighter">PCLink</h1>
+        </div>
+        <nav class="sidebar-nav menu flex-1 px-3 gap-1 font-bold">
+          <button class="nav-item active btn btn-ghost justify-start gap-3 w-full" data-tab="dashboard"
+            onclick="closeDrawer()"><i data-feather="home" class="w-4"></i> Dashboard</button>
+          <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="devices"
+            onclick="closeDrawer()"><i data-feather="smartphone" class="w-4"></i> Devices</button>
+          <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="pairing"
+            onclick="closeDrawer()"><i data-feather="link" class="w-4"></i> Pairing</button>
+          <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="phone-files"
+            onclick="closeDrawer()"><i data-feather="folder" class="w-4"></i> Phone Files</button>
+          <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="services"
+            onclick="closeDrawer()"><i data-feather="shield" class="w-4"></i> Access Control</button>
+          <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="settings"
+            onclick="closeDrawer()"><i data-feather="settings" class="w-4"></i> Settings</button>
+          <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="logs" onclick="closeDrawer()"><i
+              data-feather="terminal" class="w-4"></i> Logs</button>
+          <div class="divider my-2 opacity-20"></div>
+          <button class="nav-item btn btn-ghost justify-start gap-3 w-full opacity-70" data-tab="guide"
+            onclick="closeDrawer()"><i data-feather="book-open" class="w-4"></i> Guide</button>
+          <button class="nav-item btn btn-ghost justify-start gap-3 w-full opacity-70" data-tab="about"
+            onclick="closeDrawer()"><i data-feather="help-circle" class="w-4"></i> About</button>
+        </nav>
+        <div class="p-4 border-t border-base-300">
+          <a href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink" target="_blank"
+            class="flex items-center gap-3 p-3 bg-base-200 rounded-xl hover:bg-base-300 transition-all font-bold">
+            <div class="text-success"><i data-feather="download"></i></div>
+            <div class="leading-tight">
+              <p class="text-xs">Companion App</p>
+              <p class="text-[10px] opacity-40">Google Play</p>
+            </div>
+          </a>
+        </div>
+      </aside>
     </div>
   </div>
-</dialog>
 
-<!-- Modal: Device Permissions -->
-<dialog id="permissionsModal" class="modal">
-  <div class="modal-box border border-base-300">
-    <h3 class="font-black text-xl mb-4 flex items-center gap-2" id="permModalTitle">
-        <i data-feather="shield" class="text-primary w-5"></i> <span class="opacity-50 text-xs font-black uppercase tracking-widest">Access Control</span>
-    </h3>
-    <div class="flex flex-wrap gap-2 mb-6 bg-base-200/50 p-3 rounded-xl border border-base-300/50">
+  <!-- Modal: Pairing -->
+  <dialog id="pairingModal" class="modal font-bold">
+    <div class="modal-box">
+      <h3 class="font-black text-lg"><i data-feather="smartphone" class="inline-block mr-2 text-primary"></i> Pair
+        Request</h3>
+      <div id="pairingRequestInfo"
+        class="bg-base-200 p-4 rounded-lg my-4 space-y-1 text-sm font-bold border border-base-300">
+        <p>Device: <span id="requestDeviceName" class="font-black text-primary">-</span></p>
+        <p>IP: <span id="requestDeviceIP" class="font-mono opacity-60">-</span></p>
+        <p>Platform: <span id="requestDevicePlatform" class="opacity-60">-</span></p>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-primary text-white" onclick="approvePairing()">Approve</button>
+        <button class="btn btn-ghost" onclick="denyPairing()">Deny</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal: Device Permissions -->
+  <dialog id="permissionsModal" class="modal">
+    <div class="modal-box border border-base-300">
+      <h3 class="font-black text-xl mb-4 flex items-center gap-2" id="permModalTitle">
+        <i data-feather="shield" class="text-primary w-5"></i> <span
+          class="opacity-50 text-xs font-black uppercase tracking-widest">Access Control</span>
+      </h3>
+      <div class="flex flex-wrap gap-2 mb-6 bg-base-200/50 p-3 rounded-xl border border-base-300/50">
         <span class="text-xs font-black uppercase opacity-30 mr-2 self-center">Quick Select:</span>
-        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Admin', 'permList')">Admin</button>
-        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Viewer', 'permList')">Viewer</button>
-        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Media', 'permList')">Media</button>
-        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Remote', 'permList')">Remote</button>
-        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-error" onclick="applyPermissionTemplate('None', 'permList')">None</button>
-    </div>
-    <div id="customPermTemplates" class="flex flex-wrap gap-1 mb-4"></div>
-    <div id="permList" class="grid grid-cols-2 gap-3 mb-6">
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary"
+          onclick="applyPermissionTemplate('Admin', 'permList')">Admin</button>
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary"
+          onclick="applyPermissionTemplate('Viewer', 'permList')">Viewer</button>
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary"
+          onclick="applyPermissionTemplate('Media', 'permList')">Media</button>
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary"
+          onclick="applyPermissionTemplate('Remote', 'permList')">Remote</button>
+        <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-error"
+          onclick="applyPermissionTemplate('None', 'permList')">None</button>
+      </div>
+      <div id="customPermTemplates" class="flex flex-wrap gap-1 mb-4"></div>
+      <div id="permList" class="grid grid-cols-2 gap-3 mb-6">
         <!-- JS injects checkboxes here -->
+      </div>
+      <div class="modal-action justify-between items-center border-t border-base-300 pt-4">
+        <button class="btn btn-xs btn-outline btn-ghost font-bold text-xs opacity-40 hover:opacity-100"
+          onclick="saveCurrentAsTemplate('permList')">Save current as Template</button>
+        <form method="dialog">
+          <button class="btn btn-sm btn-ghost font-bold uppercase text-xs">Close</button>
+        </form>
+      </div>
     </div>
-    <div class="modal-action justify-between items-center border-t border-base-300 pt-4">
-      <button class="btn btn-xs btn-outline btn-ghost font-bold text-xs opacity-40 hover:opacity-100" onclick="saveCurrentAsTemplate('permList')">Save current as Template</button>
-      <form method="dialog">
-        <button class="btn btn-sm btn-ghost font-bold uppercase text-xs">Close</button>
-      </form>
+  </dialog>
+
+  <div id="batchActionBar"
+    class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-base-100 border border-primary px-4 py-3 rounded-full shadow-2xl flex flex-wrap justify-center items-center gap-4 transition-all duration-300 translate-y-32 z-50 w-11/12 max-w-lg">
+    <div class="font-black text-sm border-r border-base-300 pr-4"><span id="selectedCount" class="text-primary">0</span>
+      Items</div>
+    <div class="flex gap-2">
+      <button class="btn btn-sm btn-error text-white" onclick="deleteSelectedItems()"><i data-feather="trash-2"
+          class="w-3"></i></button>
+      <button class="btn btn-sm btn-primary text-white" onclick="downloadSelectedItems()"><i data-feather="download"
+          class="w-3"></i> Download</button>
+      <button class="btn btn-sm btn-ghost" onclick="clearSelection()">Cancel</button>
     </div>
   </div>
-</dialog>
 
-<div id="batchActionBar" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-base-100 border border-primary px-4 py-3 rounded-full shadow-2xl flex flex-wrap justify-center items-center gap-4 transition-all duration-300 translate-y-32 z-50 w-11/12 max-w-lg">
-  <div class="font-black text-sm border-r border-base-300 pr-4"><span id="selectedCount" class="text-primary">0</span> Items</div>
-  <div class="flex gap-2">
-    <button class="btn btn-sm btn-error text-white" onclick="deleteSelectedItems()"><i data-feather="trash-2" class="w-3"></i></button>
-    <button class="btn btn-sm btn-primary text-white" onclick="downloadSelectedItems()"><i data-feather="download" class="w-3"></i> Download</button>
-    <button class="btn btn-sm btn-ghost" onclick="clearSelection()">Cancel</button>
-  </div>
-</div>
+  <div id="toast-container"></div>
 
-<div id="toast-container"></div>
-
-<script src="/ui/static/qrcode.min.js"></script>
-<script src="/ui/static/feather.min.js"></script>
-<script src="/ui/static/app.js"></script>
+  <script src="/ui/static/qrcode.min.js"></script>
+  <script src="/ui/static/feather.min.js"></script>
+  <script src="/ui/static/app.js"></script>
 </body>
+
 </html>
