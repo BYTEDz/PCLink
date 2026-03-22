@@ -136,6 +136,7 @@ class PCLinkWebUI {
             case 'logs': await this.loadLogs(); break;
             case 'services': await this.loadServices(); await this.loadBlacklist(); break;
             case 'phone-files': await this.loadDevices(); await this.loadPhoneFiles(this.currentPhonePath); break;
+            case 'extensions': await this.loadExtensions(); break;
         }
         if (window.feather) feather.replace();
     }
@@ -678,6 +679,110 @@ class PCLinkWebUI {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
+
+    // --- Extensions ---
+
+    async loadExtensions() {
+        const list = document.getElementById('extList');
+        const disabledAlert = document.getElementById('extGlobalDisabledAlert');
+        const safeModeAlert = document.getElementById('extSafeModeAlert');
+        if (!list) return;
+        list.innerHTML = '<div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>';
+        try {
+            const res = await this.webUICall('/ui/extensions/');
+            if (!res.ok) { list.innerHTML = '<div class="alert alert-error text-xs">Failed to load extensions</div>'; return; }
+            const data = await res.json();
+            const enabled = data.extensions_enabled;
+
+            if (disabledAlert) disabledAlert.classList.toggle('hidden', enabled);
+            // safe_mode is not in the API response directly; hide the alert by default
+            if (safeModeAlert) safeModeAlert.classList.add('hidden');
+
+            // update sidebar badge
+            const badge = document.getElementById('extBadgeCount');
+            if (badge) {
+                const count = (data.extensions || []).length;
+                if (count > 0) { badge.textContent = count; badge.classList.remove('hidden'); }
+                else badge.classList.add('hidden');
+            }
+
+            this.renderExtensions(data.extensions || [], enabled);
+        } catch (e) {
+            list.innerHTML = '<div class="alert alert-error text-xs">Connection error</div>';
+        }
+    }
+
+    renderExtensions(extensions, globalEnabled) {
+        const list = document.getElementById('extList');
+        if (!list) return;
+        if (extensions.length === 0) {
+            list.innerHTML = '<div class="col-span-full py-10 text-center opacity-40 font-black uppercase text-[10px] tracking-widest bg-base-200 border border-dashed border-base-300 rounded-xl"><p>No extensions installed</p><p class="mt-2 normal-case text-[9px]">Install a .zip bundle above to get started</p></div>';
+            return;
+        }
+        list.innerHTML = extensions.map(ext => {
+            const id = ext.name;
+            const isLoaded = ext.enabled;
+            const needsConsent = ext.security_consent_needed;
+            const permissions = ext.permissions || [];
+            const hasDangerous = permissions.some(p => ['system.exec','filesystem.read','filesystem.write','input.inject','input.monitor'].includes(p));
+            const categoryColor = { 'Utility': 'badge-ghost', 'Security': 'badge-error', 'Media': 'badge-secondary', 'Productivity': 'badge-primary', 'Developer': 'badge-accent' }[ext.category] || 'badge-ghost';
+
+            return `
+            <div class="card bg-base-100 shadow-sm border ${needsConsent ? 'border-warning' : 'border-base-300'} w-full transition-all" id="ext-card-${id}">
+                ${needsConsent ? `
+                <div class="alert alert-warning rounded-b-none border-b border-warning/30 py-2 px-5 text-xs">
+                    <i data-feather="alert-triangle" class="w-3 shrink-0"></i>
+                    <span class="font-black">Requires approval — requests dangerous permissions: <span class="font-mono">${permissions.filter(p => ['system.exec','filesystem.read','filesystem.write','input.inject','input.monitor'].includes(p)).join(', ')}</span></span>
+                </div>` : ''}
+                <div class="card-body p-5">
+                    <div class="flex items-start gap-4">
+                        <div class="shrink-0 bg-base-200 rounded-xl border border-base-300 text-primary w-14 h-14 flex items-center justify-center overflow-hidden">
+                            ${ext.icon
+                                ? (ext.theme_aware_icon
+                                    ? `<div class="w-full h-full rounded-xl" style="background-color:oklch(var(--a));-webkit-mask-image:url('/extensions/${id}/icon');mask-image:url('/extensions/${id}/icon');mask-size:60%;mask-repeat:no-repeat;mask-position:center;"></div>`
+                                    : `<img src="/extensions/${id}/icon" alt="" class="w-14 h-14 object-contain rounded-xl" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div style="display:none" class="w-full h-full items-center justify-center"><i data-feather="package" class="w-7 h-7"></i></div>`)
+                                : `<i data-feather="package" class="w-7 h-7"></i>`}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex flex-wrap items-center gap-2 mb-1">
+                                <h4 class="font-black text-sm leading-tight">${ext.display_name || id}</h4>
+                                <span class="badge badge-xs ${categoryColor} font-bold">${ext.category || 'Utility'}</span>
+                                <span class="badge badge-xs badge-ghost font-mono opacity-60">v${ext.version}</span>
+                                ${hasDangerous ? '<span class="badge badge-xs badge-error font-bold">High Risk</span>' : ''}
+                            </div>
+                            <p class="text-xs opacity-60 mb-2 leading-relaxed">${ext.description || ''}</p>
+                            <p class="text-[10px] font-bold uppercase opacity-40 tracking-wider">by ${ext.author || 'Unknown'}</p>
+                            ${permissions.length > 0 ? `
+                            <div class="flex flex-wrap gap-1 mt-2">
+                                ${permissions.map(p => `<span class="badge badge-xs badge-outline font-mono">${p}</span>`).join('')}
+                            </div>` : ''}
+                        </div>
+                        <div class="shrink-0 flex flex-col gap-2 items-end">
+                            <label class="cursor-pointer flex items-center gap-2" title="${isLoaded ? 'Disable' : 'Enable'}">
+                                <input type="checkbox" class="toggle toggle-sm toggle-primary" ${isLoaded ? 'checked' : ''}
+                                    ${!globalEnabled ? 'disabled title="Enable extensions globally first"' : ''}
+                                    onchange="window.toggleExtension('${id}', this.checked, this)" />
+                            </label>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-4 border-t border-base-300 pt-4">
+                        <button class="btn btn-xs btn-ghost border-base-300 font-bold" onclick="window.openExtLogs('${id}', '${ext.display_name || id}')">
+                            <i data-feather="terminal" class="w-3"></i> Logs
+                        </button>
+                        <div class="flex-1"></div>
+                        ${needsConsent && !isLoaded ? `
+                        <button class="btn btn-xs btn-warning font-bold" onclick="window.approveExtension('${id}')">
+                            <i data-feather="check" class="w-3"></i> Approve & Enable
+                        </button>` : ''}
+                        <button class="btn btn-xs btn-ghost btn-error border-base-300 font-bold" onclick="window.deleteExtension('${id}', '${ext.display_name || id}')">
+                            <i data-feather="trash-2" class="w-3"></i> Remove
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+        if (window.feather) feather.replace();
+    }
 }
 
 // global window helpers
@@ -1050,6 +1155,178 @@ window.loadNotificationSettings = () => {
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.checked = v; };
     set('notifyDeviceConnect', s.deviceConnect); set('notifyDeviceDisconnect', s.deviceDisconnect);
     set('notifyPairingRequest', s.pairingRequest); set('notifyUpdates', s.updates);
+};
+
+// --- Extension global helpers ---
+
+window.loadExtensions = () => { if (window.pclinkUI) window.pclinkUI.loadExtensions(); };
+
+window.toggleExtension = async (id, enabled, toggleEl) => {
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}/toggle?enabled=${enabled}`, { method: 'POST' });
+        if (res.ok) {
+            window.pclinkUI.showToast(enabled ? 'Enabled' : 'Disabled', `Extension '${id}' ${enabled ? 'loaded' : 'unloaded'}`, 'success');
+            await window.pclinkUI.loadExtensions();
+        } else {
+            toggleEl.checked = !enabled; // revert
+            window.pclinkUI.showToast('Error', 'Failed to toggle extension', 'error');
+        }
+    } catch (e) {
+        toggleEl.checked = !enabled;
+        window.pclinkUI.showToast('Error', 'Connection error', 'error');
+    }
+};
+
+window.deleteExtension = async (id, name) => {
+    if (!await window.confirmDialog(`Permanently remove '${name}'? This cannot be undone.`, { title: 'Remove Extension', danger: true })) return;
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            window.pclinkUI.showToast('Removed', `Extension '${name}' deleted`, 'success');
+            await window.pclinkUI.loadExtensions();
+        } else {
+            window.pclinkUI.showToast('Error', 'Failed to remove extension', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Connection error', 'error');
+    }
+};
+
+window.approveExtension = async (id) => {
+    // user explicitly approves dangerous perms — enable it
+    if (!await window.confirmDialog(
+        'This extension requests high-risk permissions (e.g. system.exec, filesystem access). Only approve if you trust the source.',
+        { title: 'Approve Dangerous Extension', danger: true }
+    )) return;
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}/toggle?enabled=true`, { method: 'POST' });
+        if (res.ok) {
+            window.pclinkUI.showToast('Approved', `Extension '${id}' enabled`, 'success');
+            await window.pclinkUI.loadExtensions();
+        } else {
+            window.pclinkUI.showToast('Error', 'Enable failed', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Connection error', 'error');
+    }
+};
+
+window._currentExtLogsId = null;
+
+window.openExtLogs = async (id, name) => {
+    window._currentExtLogsId = id;
+    const modal = document.getElementById('extLogsModal');
+    const title = document.getElementById('extLogsModalTitle');
+    const content = document.getElementById('extLogsContent');
+    if (!modal) return;
+    if (title) title.textContent = `${name} — Logs`;
+    if (content) content.textContent = 'Loading...';
+    modal.showModal();
+    await window.refreshExtLogs();
+};
+
+window.refreshExtLogs = async () => {
+    const id = window._currentExtLogsId;
+    if (!id) return;
+    const content = document.getElementById('extLogsContent');
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}/logs`);
+        if (res.ok) {
+            const data = await res.json();
+            const logs = data.logs || [];
+            if (content) content.textContent = logs.length > 0 ? logs.join('\n') : '--- no logs ---';
+        }
+    } catch (e) {
+        if (content) content.textContent = 'Error loading logs';
+    }
+};
+
+window.clearExtLogs = async () => {
+    const id = window._currentExtLogsId;
+    if (!id) return;
+    try {
+        await window.pclinkUI.webUICall(`/ui/extensions/${id}/logs`, { method: 'DELETE' });
+        const content = document.getElementById('extLogsContent');
+        if (content) content.textContent = '--- cleared ---';
+        window.pclinkUI.showToast('Cleared', 'Extension logs purged', 'success');
+    } catch (e) { }
+};
+
+window._extInstallBusy = false;
+
+window._doExtInstallFile = async (file) => {
+    if (window._extInstallBusy) return;
+    window._extInstallBusy = true;
+    const progress = document.getElementById('extInstallProgress');
+    const msg = document.getElementById('extInstallMsg');
+    const zone = document.getElementById('extDropZone');
+    if (progress) progress.classList.remove('hidden');
+    if (msg) msg.textContent = `Installing ${file.name}...`;
+    if (zone) zone.classList.add('opacity-50', 'pointer-events-none');
+    try {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/ui/extensions/install', { method: 'POST', body: form, credentials: 'include' });
+        if (res.ok) {
+            window.pclinkUI.showToast('Installed', `${file.name} has been installed`, 'success');
+            await window.pclinkUI.loadExtensions();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            window.pclinkUI.showToast('Error', err.detail || 'Install failed', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Connection error during install', 'error');
+    } finally {
+        window._extInstallBusy = false;
+        if (progress) progress.classList.add('hidden');
+        if (zone) zone.classList.remove('opacity-50', 'pointer-events-none');
+        const input = document.getElementById('extFileInput');
+        if (input) input.value = '';
+    }
+};
+
+window.handleExtFileSelect = (input) => {
+    if (input.files && input.files[0]) window._doExtInstallFile(input.files[0]);
+};
+
+window.handleExtDrop = (event) => {
+    event.preventDefault();
+    const zone = document.getElementById('extDropZone');
+    if (zone) zone.classList.remove('border-primary', 'bg-primary/5');
+    const file = event.dataTransfer?.files?.[0];
+    if (file && file.name.endsWith('.zip')) window._doExtInstallFile(file);
+    else window.pclinkUI.showToast('Invalid', 'Only .zip bundles are supported', 'error');
+};
+
+window.installExtFromUrl = async () => {
+    const input = document.getElementById('extUrlInput');
+    const url = input?.value?.trim();
+    if (!url || !url.startsWith('http')) {
+        window.pclinkUI.showToast('Error', 'Enter a valid http(s) URL', 'error');
+        return;
+    }
+    if (window._extInstallBusy) return;
+    window._extInstallBusy = true;
+    const progress = document.getElementById('extInstallProgress');
+    const msg = document.getElementById('extInstallMsg');
+    if (progress) progress.classList.remove('hidden');
+    if (msg) msg.textContent = 'Downloading and installing...';
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/install/url?url=${encodeURIComponent(url)}`, { method: 'POST' });
+        if (res.ok) {
+            window.pclinkUI.showToast('Installed', 'Extension installed from URL', 'success');
+            if (input) input.value = '';
+            await window.pclinkUI.loadExtensions();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            window.pclinkUI.showToast('Error', err.detail || 'Install failed', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Connection error', 'error');
+    } finally {
+        window._extInstallBusy = false;
+        if (progress) progress.classList.add('hidden');
+    }
 };
 
 document.addEventListener('DOMContentLoaded', () => { window.pclinkUI = new PCLinkWebUI(); });

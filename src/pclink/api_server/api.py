@@ -252,6 +252,7 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
 
     app.include_router(mgmt_router, prefix="/api/extensions", dependencies=MOBILE_API)
     app.include_router(runtime_router, prefix="/extensions", dependencies=MOBILE_API)
+    app.include_router(mgmt_router, prefix="/ui/extensions", dependencies=[WEB_AUTH])
 
     from .middleware import setup_app_middleware
 
