@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-03-23
+
+# PCLink 4.0.0 — Codename “Cortex”
+
+This release, **“Cortex”**, represents a massive architectural refactor. We have moved toward a modular, scalable router architecture and introduced granular permission management, headless pairing capabilities, and a safer, more robust server lifecycle.
+
+## 🧠 Architectural Overhaul (The “Cortex” Core)
+*   **Modular Router Architecture:** The API has been reorganized into discrete `routers/` (e.g., `auth`, `devices`, `pairing`, `transfers`, `websocket_routes`), significantly improving maintainability and startup speed.
+*   **Permission Middleware:** Introduced a powerful `service_enforcement_middleware` that handles global "kill switches" and device-specific permission checks dynamically, preventing unauthorized access at the gateway level.
+*   **Websocket Manager:** Centralized WebSocket lifecycle management for both Mobile and Web UI clients into a robust `ws_manager`.
+*   **Headless Device Management:** Added dedicated CLI commands (`pclink device ...`) to list, revoke, ban, and assign roles to paired devices without needing the Web UI.
+
+## 🚀 New Features
+*   **Headless Pairing:** You can now manage pairing requests directly from the CLI or via the `pairing/` router API, perfect for headless/server-only deployments.
+*   **Permission Roles:** Added predefined roles (`admin`, `viewer`, `media`, `remote`, `none`) for bulk device permission assignment.
+*   **Hardware Blacklisting:** Added a new `device ban` system to permanently block hardware IDs from re-pairing to your server.
+*   **Factory Reset:** Added a secure, local-only Factory Reset feature via the Web UI to completely purge server data, auth credentials, and extensions when starting fresh.
+*   **Headless-Friendly Notification Handlers:** Improved notification dispatch for Linux/Windows to ensure trays and native toasts work reliably in background service contexts.
+
+## 🛠 Improvements & Infrastructure
+*   **Dependency Migration:** Upgraded `pre-commit` to v4.6.0 and fully migrated from `flake8`/`isort`/`autoflake` to **Ruff** for high-performance linting and formatting.
+*   **Extension Hot-Loading:** Added `extension_runtime_middleware` to allow hot-loading extensions on-demand if the manifest is found, without restarting the server.
+*   **Terminal Stability:** Refactored terminal service logic into a dedicated router for better reliability.
+*   **Robust Startup:** Added a `StartupManager` class to handle cross-platform boot persistence more reliably than legacy systemd scripts.
+*   **Pathing:** Standardized path management for configuration and data files to prevent cross-platform issues.
+
+## 🐛 Bug Fixes & Refactors
+*   **Session Restoration:** Fixed issues with transfer session recovery on startup; sessions now properly cleanup after a configurable threshold.
+*   **XML Parsing:** Fixed WebDAV-related XML parsing issues for more reliable phone file browsing.
+*   **Logging:** Introduced a `fatal.log` hook to catch and persist crash traces in the config directory, aiding in debugging background service failures.
+*   **DPI Awareness:** Added explicit DPI awareness settings for Windows to prevent blurry UI on high-resolution displays.
+*   **Cleanup:** Removed `controller.py` in favor of more direct, granular service interactions.
+*   **Security:** Enforced local-only constraints for destructive operations like the Factory Reset to ensure the security of the host machine.
+
+## 📦 Maintenance
+*   Updated `pyproject.toml` dependencies.
+*   Switched to a more consistent naming convention for build artifacts.
+*   Removed legacy `api_key` and `port` files; settings are now exclusively managed through the consolidated `config.json`.
+
+---
+*Note: As this version renames several internal API routes, please ensure your mobile companion app is updated to the latest version to maintain compatibility with the new router structure.*
+
 ## [3.6.0] - 2026-03-11
 
 # Release v3.6.0
