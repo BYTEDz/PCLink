@@ -249,24 +249,36 @@ class PCLinkWebUI {
         el.innerHTML = this.devices.map(device => {
             const perms = Array.isArray(device.permissions) ? device.permissions : (device.permissions || "").split(',').filter(p => p.trim());
             const permCount = perms.length;
+            const isApproved = device.is_approved !== false; // handle null/undefined as true for backward compatibility
+
+            const badgeClass = isApproved ? 'badge-ghost opacity-70' : 'badge-warning font-black';
+            const badgeText = isApproved ? `${permCount} Perms` : 'Discovery Mode';
 
             return `
-            <div class="card bg-base-100 border border-base-300 shadow-sm transition-all hover:border-primary">
+            <div class="card bg-base-100 border ${isApproved ? 'border-base-300' : 'border-warning/30 bg-warning/5'} shadow-sm transition-all hover:border-primary">
                 <div class="card-body p-5 flex-row items-center justify-between gap-2 overflow-hidden">
                     <div class="flex items-center gap-4 overflow-hidden">
-                        <div class="bg-primary/10 text-primary p-3 rounded-xl shrink-0"><i data-feather="smartphone" class="w-5 h-5"></i></div>
+                        <div class="${isApproved ? 'bg-primary/10 text-primary' : 'bg-warning/20 text-warning-content'} p-3 rounded-xl shrink-0">
+                            <i data-feather="${isApproved ? 'smartphone' : 'radio'}" class="w-5 h-5"></i>
+                        </div>
                         <div class="overflow-hidden">
                             <h4 class="font-bold text-lg leading-tight truncate">${device.name}</h4>
                             <div class="flex items-center gap-2 mt-1">
                                 <span class="text-[10px] font-bold uppercase opacity-50 tracking-wider truncate">${device.ip}</span>
-                                <span class="badge badge-xs badge-ghost opacity-70">${permCount} Perms</span>
+                                <span class="badge badge-xs ${badgeClass}">${badgeText}</span>
                             </div>
                         </div>
                     </div>
                     <div class="flex gap-1 shrink-0">
-                        <button class="btn btn-square btn-ghost btn-sm" onclick="openPermissions('${device.id}')" title="Manage Permissions"><i data-feather="shield" class="w-4"></i></button>
-                        <button class="btn btn-square btn-ghost btn-sm text-error" onclick="banDevice('${device.id}')" title="Ban Hardware ID"><i data-feather="user-x" class="w-4"></i></button>
-                        <button class="btn btn-square btn-ghost btn-sm text-error" onclick="revokeDevice('${device.id}')" title="Revoke Session"><i data-feather="trash-2" class="w-4"></i></button>
+                        ${isApproved ? `
+                            <button class="btn btn-square btn-ghost btn-sm" onclick="openPermissions('${device.id}')" title="Manage Permissions"><i data-feather="shield" class="w-4"></i></button>
+                            <button class="btn btn-square btn-ghost btn-sm text-error" onclick="banDevice('${device.id}')" title="Ban Hardware ID"><i data-feather="user-x" class="w-4"></i></button>
+                            <button class="btn btn-square btn-ghost btn-sm text-error" onclick="revokeDevice('${device.id}')" title="Revoke Session"><i data-feather="trash-2" class="w-4"></i></button>
+                        ` : `
+                            <div class="tooltip tooltip-left" data-tip="Device seen on network but not paired">
+                                <i data-feather="info" class="w-4 opacity-40 mr-2"></i>
+                            </div>
+                        `}
                     </div>
                 </div>
             </div>`;

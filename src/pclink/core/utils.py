@@ -366,16 +366,18 @@ def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False
     log.warning(
         f"🚀 FACTORY RESET INITIATED (wipe_auth={wipe_auth}, wipe_extensions={wipe_extensions})"
     )
+    log.warning("FACTORY RESET INITIATED. PURGING SYSTEM DATA...")
 
-    # Files and directories to purge
+    # Files to always delete in a factory reset
     items_to_delete = [
         constants.CONFIG_FILE,
         constants.APP_DATA_PATH / "devices.db",
+        constants.APP_DATA_PATH / "logs",
         constants.APP_DATA_PATH / ".extension_crashes",
     ]
 
     if wipe_auth:
-        log.warning("Wiping authentication configuration and TLS certificates...")
+        log.warning("Wiping ALL authentication data (Password & SSL)...")
         items_to_delete.extend(
             [
                 constants.APP_DATA_PATH / "web_auth.json",
@@ -386,9 +388,7 @@ def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False
 
     if wipe_extensions:
         log.warning("Wiping ALL installed extensions...")
-        from ...core.constants import APP_DATA_PATH
-
-        items_to_delete.append(APP_DATA_PATH / "extensions")
+        items_to_delete.append(constants.APP_DATA_PATH / "extensions")
 
     # 1. Clean up items
     for item in items_to_delete:

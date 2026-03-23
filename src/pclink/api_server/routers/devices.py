@@ -1,6 +1,5 @@
 # src/pclink/api_server/routers/devices.py
 import logging
-import time
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -17,7 +16,6 @@ router = APIRouter(prefix="/ui/devices", tags=["Devices"], dependencies=[WEB_AUT
 @router.get("")
 async def get_connected_devices(request: Request):
     """List all paired devices and their online status."""
-    connected_devices = getattr(request.app.state, "connected_devices", {})
     devices = []
 
     # 1. Fetch approved devices from DB
@@ -32,26 +30,10 @@ async def get_connected_devices(request: Request):
                     "client_version": device.client_version,
                     "last_seen": device.last_seen.isoformat(),
                     "permissions": ",".join(device.permissions),
+                    "is_approved": True,
                 }
             )
 
-    # 2. Append active connections not in DB (e.g. legacy/anonymous)
-    for ip, info in connected_devices.items():
-        if not any(d["ip"] == ip for d in devices):
-            devices.append(
-                {
-                    "id": ip,
-                    "name": info.get("name", "Unknown Device"),
-                    "ip": ip,
-                    "platform": info.get("platform", "Unknown"),
-                    "last_seen": time.strftime(
-                        "%Y-%m-%dT%H:%M:%S",
-                        time.localtime(info.get("last_seen", 0)),
-                    ),
-                    "client_version": info.get("client_version", "Unknown"),
-                    "permissions": "",
-                }
-            )
     return {"devices": devices}
 
 
