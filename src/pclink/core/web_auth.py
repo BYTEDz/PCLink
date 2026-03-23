@@ -254,6 +254,7 @@ class WebAuthManager:
             "setup_completed": self.is_setup_completed(),
             "active_sessions": active_count,
             "session_timeout_hours": SESSION_TIMEOUT // 3600,
+            "data_path": str(constants.APP_DATA_PATH),
         }
 
 

@@ -36,6 +36,7 @@ class ServerController:
         self.mobile_api_enabled = False
         self._shutdown_callback = shutdown_callback
         self.status = "stopped"
+        self.start_time = time.time()
 
         # Initialize Startup Manager
         self.startup_manager = StartupManager()

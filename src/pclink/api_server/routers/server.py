@@ -62,6 +62,7 @@ async def server_status(request: Request):
         "server_id": DiscoveryService.generate_server_id(),
         "port": getattr(request.app.state, "host_port", 38080),
         "platform": sys.platform,
+        "start_time": getattr(controller, "start_time", time.time()),
     }
 
 
@@ -461,3 +462,20 @@ async def announce_device(request: Request, payload: AnnouncePayload):
         log.info(f"Device announced: {payload.name} ({client_ip})")
 
     return {"status": "announced"}
+
+
+@mgmt_router.post("/open-data-dir")
+async def open_data_dir(request: Request):
+    """pop the native file explorer on the host machine to show the config path."""
+    client_ip = request.client.host if request.client else None
+    if client_ip not in ("127.0.0.1", "::1", "localhost"):
+        # prevent remote clients from popping windows on the pc unexpectedly.
+        log.warning(f"BLOCKED: Remote attempt to open data directory from {client_ip}")
+        raise HTTPException(
+            status_code=403, detail="Local access only via host machine."
+        )
+
+    from ...core.utils import open_directory
+
+    open_directory(constants.APP_DATA_PATH)
+    return {"status": "success", "path": str(constants.APP_DATA_PATH)}

@@ -77,6 +77,14 @@ class PCLinkWebUI {
         setTimeout(() => window.renderCustomTemplates(), 500);
 
         if (window.feather) feather.replace();
+
+        setTimeout(() => {
+            const loader = document.getElementById('fullScreenLoader');
+            if (loader) {
+                loader.style.opacity = '0';
+                setTimeout(() => { if (loader) loader.classList.add('hidden'); }, 500);
+            }
+        }, 400);
     }
 
     setupEventListeners() {
@@ -206,6 +214,7 @@ class PCLinkWebUI {
             if (res.ok) {
                 const data = await res.json();
                 if (verEl && data.version) verEl.textContent = `v${data.version}`;
+                if (data.start_time) this.serverStartTime = data.start_time * 1000;
             }
         } catch (e) { }
     }
@@ -789,7 +798,7 @@ class PCLinkWebUI {
 
 // confirmDialog: replaces native confirm() with a daisyui modal
 // danger=true → red btn, false/default → primary btn
-window.confirmDialog = function (message, { title = 'Confirm', danger = false } = {}) {
+window.confirmDialog = function (message, { title = 'Confirm', danger = false, requiredWord = null } = {}) {
     return new Promise(resolve => {
         const modal = document.getElementById('confirmModal');
         const titleEl = document.getElementById('confirmModalTitle');
@@ -797,6 +806,8 @@ window.confirmDialog = function (message, { title = 'Confirm', danger = false } 
         const iconEl = document.getElementById('confirmModalIcon');
         const okBtn = document.getElementById('confirmModalOk');
         const cancelBtn = document.getElementById('confirmModalCancel');
+        const inputWrapper = document.getElementById('confirmModalInputWrapper');
+        const input = document.getElementById('confirmModalInput');
 
         titleEl.textContent = title;
         msgEl.textContent = message;
@@ -807,10 +818,22 @@ window.confirmDialog = function (message, { title = 'Confirm', danger = false } 
         okBtn.className = `btn btn-sm font-bold text-white ${danger ? 'btn-error' : 'btn-primary'}`;
         if (window.feather) feather.replace();
 
+        // required word check
+        if (requiredWord) {
+            inputWrapper.classList.remove('hidden');
+            input.value = "";
+            okBtn.disabled = true;
+            input.oninput = () => { okBtn.disabled = input.value.trim().toUpperCase() !== requiredWord.toUpperCase(); };
+        } else {
+            inputWrapper.classList.add('hidden');
+            okBtn.disabled = false;
+        }
+
         const cleanup = (result) => {
             okBtn.removeEventListener('click', onOk);
             cancelBtn.removeEventListener('click', onCancel);
             modal.removeEventListener('cancel', onCancel);
+            input.oninput = null;
             modal.close();
             resolve(result);
         };
@@ -821,6 +844,7 @@ window.confirmDialog = function (message, { title = 'Confirm', danger = false } 
         cancelBtn.addEventListener('click', onCancel, { once: true });
         modal.addEventListener('cancel', onCancel, { once: true });
         modal.showModal();
+        if (requiredWord) setTimeout(() => input.focus(), 100);
     });
 };
 
@@ -1330,3 +1354,90 @@ window.installExtFromUrl = async () => {
 };
 
 document.addEventListener('DOMContentLoaded', () => { window.pclinkUI = new PCLinkWebUI(); });
+
+// --- Factory Reset & Path Help ---
+
+
+window.toggleResetModal = function(show) {
+    const modal = document.getElementById('resetModal');
+    if (!modal) return;
+    if (show) {
+        modal.showModal ? modal.showModal() : modal.classList.add('modal-open');
+        fetchConfigPath();
+    } else {
+        modal.close ? modal.close() : modal.classList.remove('modal-open');
+    }
+}
+
+async function fetchConfigPath() {
+    try {
+        const response = await fetch('/auth/status');
+        if (response.ok) {
+            const data = await response.json();
+            const el = document.getElementById('p_dataDir');
+            if (el) el.innerText = data.data_path || "~/.config/pclink";
+        }
+    } catch (e) {
+        const el = document.getElementById('p_dataDir');
+        if (el) el.innerText = "Check ~/.config/pclink";
+    }
+}
+
+
+window.openConfigFolder = async function() {
+    try {
+        const response = await fetch('/open-data-dir', { method: 'POST', credentials: 'include' });
+        if (!response.ok) {
+            if (response.status === 403) alert("Opening folder only works if you are on the host machine (localhost).");
+            else alert("Failed to open folder (404/500).");
+        }
+    } catch (e) {
+        alert("Error connecting to server.");
+    }
+}
+
+window.resetServerRequest = async function() {
+    window.toggleResetModal(true);
+}
+
+window.handleFactoryReset = async function(event) {
+    event.preventDefault();
+    const password = document.getElementById('resetPassword').value;
+    const wipeAuth = document.getElementById('wipeAuthCheckbox').checked;
+    const wipeExtensions = document.getElementById('wipeExtensionsCheckbox')?.checked || false;
+
+    if (!await window.confirmDialog("FINAL WARNING: This will PERMANENTLY delete server data. Type 'YES' to confirm you understand the risks.", { title: 'Factory Reset Security Check', danger: true, requiredWord: 'YES' })) {
+        return;
+    }
+
+    const btn = document.getElementById('resetButton');
+    const originalText = btn.innerText;
+    btn.disabled = true;
+    btn.innerText = "RESETTING...";
+
+    try {
+        const response = await fetch('/auth/factory-reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password, wipe_auth: wipeAuth, wipe_extensions: wipeExtensions }),
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            localStorage.clear();
+            document.getElementById('resetSuccessOverlay').classList.remove('hidden');
+            if (window.feather) feather.replace();
+            if (window.toggleResetModal) window.toggleResetModal(false);
+        } else {
+            const data = await response.json();
+            alert("Reset failed: " + (data.detail || "Unknown error"));
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
+    } catch (e) {
+        localStorage.clear();
+        document.getElementById('resetSuccessOverlay').classList.remove('hidden');
+        if (window.feather) feather.replace();
+        if (window.toggleResetModal) window.toggleResetModal(false);
+    }
+}
