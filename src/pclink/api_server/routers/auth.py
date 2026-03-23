@@ -1,4 +1,6 @@
 # src/pclink/api_server/routers/auth.py
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -6,6 +8,7 @@ from pydantic import BaseModel
 from ...core.web_auth import web_auth_manager
 from .dependencies import WEB_AUTH
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -106,3 +109,34 @@ async def change_password(payload: ChangePasswordPayload):
     if not web_auth_manager.change_password(payload.old_password, payload.new_password):
         raise HTTPException(status_code=400, detail="Invalid old password")
     return {"status": "success", "message": "Password changed successfully"}
+
+
+class FactoryResetPayload(BaseModel):
+    password: str
+    wipe_auth: bool
+    wipe_extensions: bool = False
+
+
+@router.post("/factory-reset")
+async def factory_reset(payload: FactoryResetPayload, request: Request):
+    """Destructive operation: wipes server configuration and logic."""
+    # Safety Check: Request must originate from local machine
+    client_ip = request.client.host if request.client else None
+    if client_ip not in ("127.0.0.1", "::1", "localhost"):
+        log.warning(f"BLOCKED: Factory reset attempt from external IP: {client_ip}")
+        raise HTTPException(
+            status_code=403, detail="Factory reset only allowed from local machine."
+        )
+
+    # Verify Password
+    if not web_auth_manager.verify_password(payload.password):
+        log.error(f"BLOCKED: Failed password for factory reset from {client_ip}")
+        raise HTTPException(status_code=401, detail="Invalid password.")
+
+    from ...core.utils import perform_factory_reset
+
+    # Trigger reset — this will terminate the server process.
+    perform_factory_reset(
+        wipe_auth=payload.wipe_auth, wipe_extensions=payload.wipe_extensions
+    )
+    return {"status": "success", "message": "Server reset initiating..."}

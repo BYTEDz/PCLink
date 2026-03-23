@@ -19,6 +19,13 @@
 </head>
 
 <body class="bg-base-300">
+  <div id="fullScreenLoader"
+    class="fixed inset-0 bg-base-300 z-[10000] flex items-center justify-center transition-opacity duration-500">
+    <div class="flex flex-col items-center gap-4">
+      <div class="loading loading-spinner loading-lg text-primary"></div>
+      <span class="text-xs font-black uppercase tracking-widest opacity-50">Initializing PCLink...</span>
+    </div>
+  </div>
 
   <div class="drawer lg:drawer-open">
     <input id="main-drawer" type="checkbox" class="drawer-toggle" />
@@ -294,7 +301,9 @@
               <i data-feather="alert-triangle" class="w-5 shrink-0"></i>
               <div>
                 <h4 class="font-black text-sm">Extensions are globally disabled</h4>
-                <p class="text-xs opacity-80">Enable them via <button class="underline font-black" onclick="document.querySelector('[data-tab=services]').click()">Access Control → Firewall</button> first.</p>
+                <p class="text-xs opacity-80">Enable them via <button class="underline font-black"
+                    onclick="document.querySelector('[data-tab=services]').click()">Access Control → Firewall</button>
+                  first.</p>
               </div>
             </div>
 
@@ -303,14 +312,16 @@
               <i data-feather="shield-off" class="w-5 shrink-0"></i>
               <div>
                 <h4 class="font-black text-sm">Safe Mode Active</h4>
-                <p class="text-xs opacity-80">Extensions were disabled after repeated startup crashes. Delete the crash lock file and restart to recover.</p>
+                <p class="text-xs opacity-80">Extensions were disabled after repeated startup crashes. Delete the crash
+                  lock file and restart to recover.</p>
               </div>
             </div>
 
             <!-- Install card -->
             <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
               <div class="card-body p-5">
-                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="package" class="w-4"></i> Install Extension</h3>
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
+                    data-feather="package" class="w-4"></i> Install Extension</h3>
 
                 <!-- Drag & Drop zone -->
                 <div id="extDropZone"
@@ -320,8 +331,10 @@
                   ondragleave="this.classList.remove('border-primary','bg-primary/5')"
                   ondrop="window.handleExtDrop(event)">
                   <i data-feather="upload-cloud" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
-                  <p class="text-xs font-bold opacity-60">Drop <span class="text-primary">.zip</span> bundle here or click to browse</p>
-                  <input type="file" id="extFileInput" class="hidden" accept=".zip" onchange="window.handleExtFileSelect(this)">
+                  <p class="text-xs font-bold opacity-60">Drop <span class="text-primary">.zip</span> bundle here or
+                    click to browse</p>
+                  <input type="file" id="extFileInput" class="hidden" accept=".zip"
+                    onchange="window.handleExtFileSelect(this)">
                 </div>
 
                 <!-- URL install -->
@@ -359,107 +372,138 @@
 
         <!-- Settings -->
         <div class="tab-content" id="settings">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start w-full">
-            <div class="flex flex-col gap-6 w-full">
-              <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
-                <div class="card-body p-5">
-                  <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-2"><i
-                      data-feather="monitor" class="w-4"></i> UI Theme</h3>
-                  <select id="themeSelector" class="select select-sm select-bordered w-full"
-                    onchange="changeTheme(this.value)">
-                    <option value="system">System Auto</option>
-                    <optgroup label="Dark Modes">
-                      <option value="dark">PCLink Dark</option>
-                      <option value="dracula">Dracula</option>
-                      <option value="synthwave">Retro Future</option>
-                      <option value="black">Pure Black</option>
-                      <option value="business">Enterprise</option>
-                      <option value="night">Night Owl</option>
-                      <option value="dim">Dimmed</option>
-                    </optgroup>
-                    <optgroup label="Light Modes">
-                      <option value="light">PCLink Light</option>
-                      <option value="cupcake">Soft Pink</option>
-                      <option value="emerald">Nature Green</option>
-                      <option value="corporate">Office Blue</option>
-                      <option value="cyberpunk">Cyberpunk Yellow</option>
-                      <option value="winter">Winter Blue</option>
-                      <option value="nord">Nord Gray</option>
-                    </optgroup>
-                  </select>
-                </div>
-              </div>
+          <div class="columns-1 lg:columns-2 gap-6 w-full space-y-6">
 
-              <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
-                <div class="card-body p-5">
-                  <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
-                      data-feather="settings" class="w-4"></i> Server Configuration</h3>
-                  <div class="form-control w-full mb-3">
-                    <label class="label py-1">
-                      <span class="label-text font-bold text-xs opacity-60">Server Port (Requires Restart)</span>
-                      <a href="#" class="text-[9px] uppercase font-black text-primary hover:underline"
-                        onclick="document.querySelector('[data-tab=guide]').click()">Need Help?</a>
-                    </label>
-                    <input type="number" id="serverPortInput" class="input input-sm input-bordered w-full font-bold" />
-                  </div>
-                  <div class="flex flex-col gap-2 mb-4">
-                    <label
-                      class="cursor-pointer flex items-center gap-3 bg-base-200 p-2 rounded-lg hover:bg-base-300 transition-colors">
-                      <input type="checkbox" id="autoStartCheckbox" class="toggle toggle-sm toggle-primary" />
-                      <span class="label-text font-bold text-xs">Start with system</span>
-                    </label>
-                  </div>
-                  <button class="btn btn-sm btn-primary w-full shadow-sm text-white font-bold uppercase"
-                    onclick="saveSettings()"><i data-feather="save" class="w-4"></i> Save Settings</button>
+            <!-- UI Theme -->
+            <div class="card bg-base-100 shadow-sm border border-base-300 w-full break-inside-avoid mb-6">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-2"><i
+                    data-feather="monitor" class="w-4"></i> UI Theme</h3>
+                <select id="themeSelector" class="select select-sm select-bordered w-full"
+                  onchange="changeTheme(this.value)">
+                  <option value="system">System Auto</option>
+                  <optgroup label="Dark Modes">
+                    <option value="dark">PCLink Dark</option>
+                    <option value="dracula">Dracula</option>
+                    <option value="synthwave">Retro Future</option>
+                    <option value="black">Pure Black</option>
+                    <option value="business">Enterprise</option>
+                    <option value="night">Night Owl</option>
+                    <option value="dim">Dimmed</option>
+                  </optgroup>
+                  <optgroup label="Light Modes">
+                    <option value="light">PCLink Light</option>
+                    <option value="cupcake">Soft Pink</option>
+                    <option value="emerald">Nature Green</option>
+                    <option value="corporate">Office Blue</option>
+                    <option value="cyberpunk">Cyberpunk Yellow</option>
+                    <option value="winter">Winter Blue</option>
+                    <option value="nord">Nord Gray</option>
+                  </optgroup>
+                </select>
+              </div>
+            </div>
+
+            <!-- Server Configuration -->
+            <div class="card bg-base-100 shadow-sm border border-base-300 w-full break-inside-avoid mb-6">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
+                    data-feather="settings" class="w-4"></i> Server Configuration</h3>
+                <div class="form-control w-full mb-3">
+                  <label class="label py-1">
+                    <span class="label-text font-bold text-xs opacity-60">Server Port (Requires Restart)</span>
+                    <a href="#" class="text-[9px] uppercase font-black text-primary hover:underline"
+                      onclick="document.querySelector('[data-tab=guide]').click()">Need Help?</a>
+                  </label>
+                  <input type="number" id="serverPortInput" class="input input-sm input-bordered w-full font-bold" />
+                </div>
+                <div class="flex flex-col gap-2 mb-4">
+                  <label
+                    class="cursor-pointer flex items-center gap-3 bg-base-200 p-2 rounded-lg hover:bg-base-300 transition-colors">
+                    <input type="checkbox" id="autoStartCheckbox" class="toggle toggle-sm toggle-primary" />
+                    <span class="label-text font-bold text-xs">Start with system</span>
+                  </label>
+                </div>
+                <button class="btn btn-sm btn-primary w-full shadow-sm text-white font-bold uppercase"
+                  onclick="saveSettings()"><i data-feather="save" class="w-4"></i> Save Settings</button>
+              </div>
+            </div>
+
+            <!-- Access Control -->
+            <div class="card bg-base-100 shadow-sm border border-base-300 w-full break-inside-avoid mb-6">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
+                    data-feather="lock" class="w-4"></i> Access Control</h3>
+                <div class="space-y-2 mb-4 font-bold">
+                  <input type="password" id="currentPassword" placeholder="Current Password"
+                    class="input input-sm input-bordered w-full text-xs" />
+                  <input type="password" id="newPassword" placeholder="New Password"
+                    class="input input-sm input-bordered w-full text-xs" />
+                  <input type="password" id="confirmNewPassword" placeholder="Confirm New"
+                    class="input input-sm input-bordered w-full text-xs" />
+                </div>
+                <button class="btn btn-sm btn-outline w-full uppercase text-xs" onclick="changePassword()"><i
+                    data-feather="key" class="w-4"></i> Change Password</button>
+              </div>
+            </div>
+
+            <!-- Notifications -->
+            <div class="card bg-base-100 shadow-sm border border-base-300 font-bold w-full break-inside-avoid mb-6">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
+                    data-feather="bell" class="w-4"></i> Notifications</h3>
+                <div class="flex flex-col gap-2 mb-4">
+                  <label
+                    class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
+                    <input type="checkbox" id="notifyDeviceConnect" class="checkbox checkbox-sm checkbox-primary" />
+                    <span>Device Connected</span>
+                  </label>
+                  <label
+                    class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
+                    <input type="checkbox" id="notifyDeviceDisconnect" class="checkbox checkbox-sm checkbox-primary" />
+                    <span>Device Disconnected</span>
+                  </label>
+                  <label
+                    class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
+                    <input type="checkbox" id="notifyPairingRequest" class="checkbox checkbox-sm checkbox-primary" />
+                    <span>Pairing Requests</span>
+                  </label>
+                  <label
+                    class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
+                    <input type="checkbox" id="notifyUpdates" class="checkbox checkbox-sm checkbox-primary" />
+                    <span>Update Available</span>
+                  </label>
+                </div>
+                <button class="btn btn-sm btn-secondary w-full text-white font-bold"
+                  onclick="saveNotificationSettings()">Save Preferences</button>
+              </div>
+            </div>
+
+            <!-- Danger Zone -->
+            <div class="card bg-base-100 shadow-sm border border-error/20 font-bold w-full break-inside-avoid mb-6">
+              <div class="card-body p-5">
+                <h3 class="card-title text-xs font-bold uppercase text-error tracking-widest mb-3"><i
+                    data-feather="alert-octagon" class="w-4"></i> Danger Zone</h3>
+                <p class="text-[10px] opacity-40 uppercase mb-4 leading-tight">Proceed with extreme caution. These
+                  actions cannot be undone.</p>
+                <div class="space-y-3">
+                  <button class="btn btn-sm btn-outline btn-error w-full font-black uppercase text-xs"
+                    onclick="resetServerRequest()">
+                    <i data-feather="refresh-ccw" class="w-3"></i> Factory Reset Server
+                  </button>
+                  <button class="btn btn-sm btn-ghost btn-xs w-full opacity-40 hover:opacity-100 uppercase text-[9px]"
+                    onclick="openConfigFolder()">
+                    <i data-feather="folder" class="w-3"></i> Open Config Location
+                  </button>
+                  <button
+                    class="btn btn-sm btn-ghost btn-xs w-full opacity-40 hover:opacity-100 uppercase text-[9px] mt-1"
+                    onclick="window.location.reload(true)">
+                    <i data-feather="refresh-cw" class="w-2"></i> Force Client Update (Clear Cache)
+                  </button>
                 </div>
               </div>
             </div>
 
-            <div class="flex flex-col gap-6 w-full">
-              <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
-                <div class="card-body p-5">
-                  <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
-                      data-feather="lock" class="w-4"></i> Access Control</h3>
-                  <div class="space-y-2 mb-4 font-bold">
-                    <input type="password" id="currentPassword" placeholder="Current Password"
-                      class="input input-sm input-bordered w-full text-xs" />
-                    <input type="password" id="newPassword" placeholder="New Password"
-                      class="input input-sm input-bordered w-full text-xs" />
-                    <input type="password" id="confirmNewPassword" placeholder="Confirm New"
-                      class="input input-sm input-bordered w-full text-xs" />
-                  </div>
-                  <button class="btn btn-sm btn-outline w-full uppercase text-xs" onclick="changePassword()"><i
-                      data-feather="key" class="w-4"></i> Change Password</button>
-                </div>
-              </div>
-
-              <div class="card bg-base-100 shadow-sm border border-base-300 font-bold w-full">
-                <div class="card-body p-5">
-                  <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i
-                      data-feather="bell" class="w-4"></i> Notifications</h3>
-                  <div class="flex flex-col gap-2 mb-4">
-                    <label
-                      class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input
-                        type="checkbox" id="notifyDeviceConnect"
-                        class="checkbox checkbox-sm checkbox-primary" /><span>Device Connected</span></label>
-                    <label
-                      class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input
-                        type="checkbox" id="notifyDeviceDisconnect"
-                        class="checkbox checkbox-sm checkbox-primary" /><span>Device Disconnected</span></label>
-                    <label
-                      class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input
-                        type="checkbox" id="notifyPairingRequest"
-                        class="checkbox checkbox-sm checkbox-primary" /><span>Pairing Requests</span></label>
-                    <label
-                      class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300"><input
-                        type="checkbox" id="notifyUpdates" class="checkbox checkbox-sm checkbox-primary" /><span>Update
-                        Available</span></label>
-                  </div>
-                  <button class="btn btn-sm btn-secondary w-full text-white font-bold"
-                    onclick="saveNotificationSettings()">Save Preferences</button>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -815,8 +859,10 @@
           <span id="extLogsModalTitle">Extension Logs</span>
         </h3>
         <div class="flex gap-2">
-          <button class="btn btn-xs btn-ghost border-base-300" onclick="window.refreshExtLogs()"><i data-feather="refresh-cw" class="w-3"></i></button>
-          <button class="btn btn-xs btn-ghost border-base-300 text-error" onclick="window.clearExtLogs()"><i data-feather="trash-2" class="w-3"></i></button>
+          <button class="btn btn-xs btn-ghost border-base-300" onclick="window.refreshExtLogs()"><i
+              data-feather="refresh-cw" class="w-3"></i></button>
+          <button class="btn btn-xs btn-ghost border-base-300 text-error" onclick="window.clearExtLogs()"><i
+              data-feather="trash-2" class="w-3"></i></button>
         </div>
       </div>
       <div class="bg-[#0b1120] rounded-xl p-4 max-h-80 overflow-y-auto font-mono text-xs">
@@ -836,6 +882,10 @@
         <div>
           <h3 class="font-black text-base" id="confirmModalTitle">Confirm Action</h3>
           <p class="text-sm opacity-70 mt-1 font-normal" id="confirmModalMessage"></p>
+          <div id="confirmModalInputWrapper" class="mt-4 hidden">
+            <input type="text" id="confirmModalInput"
+              class="input input-sm input-bordered w-full font-black text-center" placeholder="Type YES to confirm">
+          </div>
         </div>
       </div>
       <div class="modal-action mt-4 gap-2">
@@ -863,6 +913,77 @@
   <script src="/ui/static/qrcode.min.js"></script>
   <script src="/ui/static/feather.min.js"></script>
   <script src="/ui/static/app.js"></script>
+  <!-- Modal: Factory Reset -->
+  <dialog id="resetModal" class="modal font-bold">
+    <div class="modal-box border-2 border-error/30 shadow-2xl items-center text-center p-8 relative">
+      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+        onclick="toggleResetModal(false)">✕</button>
+      <h3 class="font-black text-2xl mb-2 text-error">Factory Reset</h3>
+      <p class="text-sm opacity-60 mb-8 px-4 leading-6 font-normal">This will PERMANENTLY delete server data. Extensions
+        can be optionally wiped.</p>
+
+      <form onsubmit="handleFactoryReset(event)" class="space-y-4 font-bold flex flex-col items-center">
+        <input type="password" id="resetPassword" placeholder="Confirm with Master Password"
+          class="input input-bordered w-full text-center" required>
+
+        <div class="space-y-2 w-full">
+          <div class="form-control w-full p-2 bg-base-200/50 rounded-xl border border-base-300">
+            <label class="label cursor-pointer px-4">
+              <span class="label-text font-black text-[10px] uppercase opacity-70">Wipe My Password Too</span>
+              <input type="checkbox" id="wipeAuthCheckbox"
+                class="checkbox checkbox-primary checkbox-sm border-2 rounded-lg ml-4">
+            </label>
+          </div>
+
+          <div class="form-control w-full p-2 bg-error/5 rounded-xl border border-error/20">
+            <label class="label cursor-pointer px-4">
+              <span class="label-text font-black text-[10px] uppercase text-error opacity-80">Wipe All Extensions</span>
+              <input type="checkbox" id="wipeExtensionsCheckbox"
+                class="checkbox checkbox-error checkbox-sm border-2 rounded-lg ml-4">
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-action w-full flex-col gap-2 m-0">
+          <button type="submit" class="btn btn-error w-full text-white font-black uppercase shadow-lg"
+            id="resetButton">Initiate Reset</button>
+          <button type="button" class="btn btn-ghost w-full font-bold opacity-50"
+            onclick="toggleResetModal(false)">Cancel</button>
+        </div>
+      </form>
+
+      <div class="divider text-[9px] font-black uppercase opacity-20 my-6 tracking-widest">Manual Reset</div>
+      <div class="bg-base-300/50 p-3 rounded-lg border border-base-300 font-mono text-[10px] opacity-50 select-all mb-2"
+        id="p_dataDir">Loading...</div>
+      <button class="btn btn-ghost btn-xs opacity-40 uppercase font-black" onclick="openConfigFolder()">Open Host
+        Folder</button>
+    </div>
+    <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm" onclick="toggleResetModal(false)">
+      <button>close</button>
+    </form>
+  </dialog>
+
+  <!-- Factory Reset Success Overlay -->
+  <div id="resetSuccessOverlay"
+    class="fixed inset-0 bg-base-300 z-[9999] hidden flex items-center justify-center p-6 text-center">
+    <div class="max-w-md w-full animate-in fade-in zoom-in duration-500">
+      <div
+        class="bg-success/10 text-success p-6 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-8 shadow-inner">
+        <i data-feather="check-circle" class="w-12 h-12"></i>
+      </div>
+      <h2 class="text-4xl font-black mb-4">Factory Reset Complete</h2>
+      <p class="text-lg opacity-60 mb-10 leading-relaxed font-bold">The server has been purged and successfully shut
+        down. To continue, please start the PCLink server manually from your host machine.</p>
+      <div class="space-y-4">
+        <div class="bg-base-100 p-4 rounded-xl border border-base-300 text-sm font-mono opacity-50 select-all">
+          # Start PCLink again<br>
+          pclink
+        </div>
+        <button onclick="window.location.reload()"
+          class="btn btn-primary btn-block text-white font-black shadow-lg">Refresh After Restart</button>
+      </div>
+    </div>
+  </div>
 </body>
 
 </html>

@@ -330,3 +330,88 @@ class DummyTty:
 
     def __exit__(self, *args):
         pass
+
+
+def open_directory(path: Union[str, Path]):
+    """Opens a directory in the system's file manager."""
+    try:
+        path = Path(path).resolve()
+        if not path.exists():
+            log.warning(f"Attempted to open non-existent directory: {path}")
+            return
+
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(path)], check=False)
+        else:
+            # Linux: try xdg-open as primary, fallback to common alternatives
+            try:
+                subprocess.run(["xdg-open", str(path)], check=False)
+            except (FileNotFoundError, subprocess.SubprocessError):
+                log.error("Could not find xdg-open to open directory.")
+    except Exception as e:
+        log.error(f"Error opening directory {path}: {e}")
+
+
+def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False):
+    """
+    Purges server configuration and data.
+    If wipe_auth is True, also deletes authentication credentials.
+    If wipe_extensions is True, also deletes the extensions directory.
+    """
+    import shutil
+    import time
+
+    log.warning(
+        f"🚀 FACTORY RESET INITIATED (wipe_auth={wipe_auth}, wipe_extensions={wipe_extensions})"
+    )
+
+    # Files and directories to purge
+    items_to_delete = [
+        constants.CONFIG_FILE,
+        constants.APP_DATA_PATH / "devices.db",
+        constants.APP_DATA_PATH / ".extension_crashes",
+    ]
+
+    if wipe_auth:
+        log.warning("Wiping authentication configuration and TLS certificates...")
+        items_to_delete.extend(
+            [
+                constants.APP_DATA_PATH / "web_auth.json",
+                constants.CERT_FILE,
+                constants.KEY_FILE,
+            ]
+        )
+
+    if wipe_extensions:
+        log.warning("Wiping ALL installed extensions...")
+        from ...core.constants import APP_DATA_PATH
+
+        items_to_delete.append(APP_DATA_PATH / "extensions")
+
+    # 1. Clean up items
+    for item in items_to_delete:
+        try:
+            if item.exists():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+                log.debug(f"Purged: {item}")
+        except Exception as e:
+            log.error(f"Failed to delete {item}: {e}")
+
+    # 2. Clean up transfers directory (always purge)
+    if constants.TRANSFERS_PATH.exists():
+        try:
+            shutil.rmtree(constants.TRANSFERS_PATH)
+            log.debug(f"Purged transfers directory: {constants.TRANSFERS_PATH}")
+        except Exception as e:
+            log.error(f"Failed to delete transfers path: {e}")
+
+    log.info("Factory reset sequence complete. Terminating process for restart.")
+
+    # Small delay to ensure logs are flushed and response can be sent-ish
+    time.sleep(0.5)
+    os._exit(0)
