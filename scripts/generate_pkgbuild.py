@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """generates PKGBUILD for arch linux from project metadata."""
-import sys; import argparse
+
+import argparse
+import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 try:
     from pclink.core.version import version_info
+
     VERSION = version_info.version
-    PKGVER = VERSION.replace('-', '_')
+    PKGVER = VERSION.replace("-", "_")
 except ImportError:
-    VERSION = "0.0.0"; PKGVER = "0.0.0"
+    VERSION = "0.0.0"
+    PKGVER = "0.0.0"
 
 PKGBUILD_TEMPLATE = """# Maintainer: AZHAR ZOUHIR <support@bytedz.com>
 # Co-maintainer: Mark Wagie <mark dot wagie at proton dot me>
@@ -107,9 +111,12 @@ package() {{
 }}
 """
 
+
 def main():
     parser = argparse.ArgumentParser(description="Generate PKGBUILD for PCLink")
-    parser.add_argument("--sha256", default="SKIP", help="SHA256 hash of the source tarball")
+    parser.add_argument(
+        "--sha256", default="SKIP", help="SHA256 hash of the source tarball"
+    )
     parser.add_argument("--output", default="PKGBUILD", help="Output filename")
     args = parser.parse_args()
 
@@ -118,8 +125,9 @@ def main():
     )
 
     output_path = Path(args.output)
-    output_path.write_text(content, encoding='utf-8')
+    output_path.write_text(content, encoding="utf-8")
     print(f"[OK] Generated {args.output} for version {VERSION}")
+
 
 if __name__ == "__main__":
     main()

@@ -25,7 +25,7 @@ class PCLinkWebUI {
         this.apiKey = null;
         this.apiKeyVisible = false;
         this.baseUrl = window.location.origin;
-        this.devices =[];
+        this.devices = [];
         this.websocket = null;
         this.serverStartTime = Date.now();
         this.currentPhonePath = '/';
@@ -36,7 +36,7 @@ class PCLinkWebUI {
         this.phoneSortMode = 'name_asc';
         this.phoneShowHidden = false;
         this.phoneSelectedItems = new Set();
-        this.phoneFileItems =[];
+        this.phoneFileItems = [];
         this.currentPhoneDeviceId = null;
         this.autoRefreshEnabled = true;
         this.lastActivity = Date.now();
@@ -44,7 +44,7 @@ class PCLinkWebUI {
     }
 
     async init() {
-        window.loadTheme();
+        await this.loadSettings();
         const yearEl = document.getElementById('copyrightYear');
         if (yearEl) yearEl.textContent = new Date().getFullYear();
         this.setupEventListeners();
@@ -75,8 +75,16 @@ class PCLinkWebUI {
         setTimeout(() => window.checkForUpdates(), 5000);
         setTimeout(() => window.loadNotificationSettings(), 1000);
         setTimeout(() => window.renderCustomTemplates(), 500);
-        
+
         if (window.feather) feather.replace();
+
+        setTimeout(() => {
+            const loader = document.getElementById('fullScreenLoader');
+            if (loader) {
+                loader.style.opacity = '0';
+                setTimeout(() => { if (loader) loader.classList.add('hidden'); }, 500);
+            }
+        }, 400);
     }
 
     setupEventListeners() {
@@ -86,11 +94,11 @@ class PCLinkWebUI {
                 if (btn) this.switchTab(btn.dataset.tab);
             });
         });
-        
+
         ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'].forEach(type => {
             document.addEventListener(type, () => { this.lastActivity = Date.now(); }, { passive: true });
         });
-        
+
         setInterval(async () => {
             if (Date.now() - this.lastActivity > 900000) { // 15 Minutes
                 await fetch('/auth/logout', { method: 'POST' });
@@ -134,8 +142,9 @@ class PCLinkWebUI {
             case 'devices': await this.loadDevices(); break;
             case 'settings': await this.loadSettings(); break;
             case 'logs': await this.loadLogs(); break;
-            case 'services': await this.loadServices(); break;
+            case 'services': await this.loadServices(); await this.loadBlacklist(); break;
             case 'phone-files': await this.loadDevices(); await this.loadPhoneFiles(this.currentPhonePath); break;
+            case 'extensions': await this.loadExtensions(); break;
         }
         if (window.feather) feather.replace();
     }
@@ -148,7 +157,7 @@ class PCLinkWebUI {
                 this.apiKey = data.apiKey;
                 this.updateApiKeyDisplay();
             }
-        } catch (e) {}
+        } catch (e) { }
     }
 
     updateApiKeyDisplay() {
@@ -182,10 +191,10 @@ class PCLinkWebUI {
         try {
             const data = await this.apiCall('/qr-payload');
             const el = document.getElementById('hostIP');
-            if(el) el.textContent = data.ip || window.location.hostname;
+            if (el) el.textContent = data.ip || window.location.hostname;
         } catch (e) {
             const el = document.getElementById('hostIP');
-            if(el) el.textContent = window.location.hostname;
+            if (el) el.textContent = window.location.hostname;
         }
         await this.updateServerStatus();
         this.updateActivity();
@@ -205,13 +214,14 @@ class PCLinkWebUI {
             if (res.ok) {
                 const data = await res.json();
                 if (verEl && data.version) verEl.textContent = `v${data.version}`;
+                if (data.start_time) this.serverStartTime = data.start_time * 1000;
             }
         } catch (e) { }
     }
 
     async loadDevices() {
         try {
-            const res = await this.webUICall('/devices');
+            const res = await this.webUICall('/ui/devices');
             if (res.ok) {
                 const data = await res.json();
                 this.devices = data.devices || [];
@@ -225,7 +235,7 @@ class PCLinkWebUI {
             await this.loadPendingRequests();
         } catch (e) {
             const el = document.getElementById('deviceList');
-            if(el) el.innerHTML = '<div class="alert alert-error col-span-full">Failed to load devices</div>';
+            if (el) el.innerHTML = '<div class="alert alert-error col-span-full">Failed to load devices</div>';
         }
     }
 
@@ -237,30 +247,43 @@ class PCLinkWebUI {
             return;
         }
         el.innerHTML = this.devices.map(device => {
-        const perms = Array.isArray(device.permissions) ? device.permissions : (device.permissions || "").split(',').filter(p => p.trim());
-        const permCount = perms.length;
-            
+            const perms = Array.isArray(device.permissions) ? device.permissions : (device.permissions || "").split(',').filter(p => p.trim());
+            const permCount = perms.length;
+            const isApproved = device.is_approved !== false; // handle null/undefined as true for backward compatibility
+
+            const badgeClass = isApproved ? 'badge-ghost opacity-70' : 'badge-warning font-black';
+            const badgeText = isApproved ? `${permCount} Perms` : 'Discovery Mode';
+
             return `
-            <div class="card bg-base-100 border border-base-300 shadow-sm transition-all hover:border-primary">
+            <div class="card bg-base-100 border ${isApproved ? 'border-base-300' : 'border-warning/30 bg-warning/5'} shadow-sm transition-all hover:border-primary">
                 <div class="card-body p-5 flex-row items-center justify-between gap-2 overflow-hidden">
                     <div class="flex items-center gap-4 overflow-hidden">
-                        <div class="bg-primary/10 text-primary p-3 rounded-xl shrink-0"><i data-feather="smartphone" class="w-5 h-5"></i></div>
+                        <div class="${isApproved ? 'bg-primary/10 text-primary' : 'bg-warning/20 text-warning-content'} p-3 rounded-xl shrink-0">
+                            <i data-feather="${isApproved ? 'smartphone' : 'radio'}" class="w-5 h-5"></i>
+                        </div>
                         <div class="overflow-hidden">
                             <h4 class="font-bold text-lg leading-tight truncate">${device.name}</h4>
                             <div class="flex items-center gap-2 mt-1">
                                 <span class="text-[10px] font-bold uppercase opacity-50 tracking-wider truncate">${device.ip}</span>
-                                <span class="badge badge-xs badge-ghost opacity-70">${permCount} Perms</span>
+                                <span class="badge badge-xs ${badgeClass}">${badgeText}</span>
                             </div>
                         </div>
                     </div>
                     <div class="flex gap-1 shrink-0">
-                        <button class="btn btn-square btn-ghost btn-sm" onclick="openPermissions('${device.id}')" title="Manage Permissions"><i data-feather="shield" class="w-4"></i></button>
-                        <button class="btn btn-square btn-ghost btn-sm text-error" onclick="revokeDevice('${device.id}')" title="Revoke"><i data-feather="trash-2" class="w-4"></i></button>
+                        ${isApproved ? `
+                            <button class="btn btn-square btn-ghost btn-sm" onclick="openPermissions('${device.id}')" title="Manage Permissions"><i data-feather="shield" class="w-4"></i></button>
+                            <button class="btn btn-square btn-ghost btn-sm text-error" onclick="banDevice('${device.id}')" title="Ban Hardware ID"><i data-feather="user-x" class="w-4"></i></button>
+                            <button class="btn btn-square btn-ghost btn-sm text-error" onclick="revokeDevice('${device.id}')" title="Revoke Session"><i data-feather="trash-2" class="w-4"></i></button>
+                        ` : `
+                            <div class="tooltip tooltip-left" data-tip="Device seen on network but not paired">
+                                <i data-feather="info" class="w-4 opacity-40 mr-2"></i>
+                            </div>
+                        `}
                     </div>
                 </div>
             </div>`;
         }).join('');
-        if(window.feather) feather.replace();
+        if (window.feather) feather.replace();
     }
 
     async loadPendingRequests() {
@@ -270,7 +293,7 @@ class PCLinkWebUI {
                 const data = await res.json();
                 const container = document.getElementById('pendingRequests');
                 if (!container) return;
-                const requests = data.requests ||[];
+                const requests = data.requests || [];
                 if (requests.length === 0) {
                     container.innerHTML = '<p class="opacity-50 text-sm font-bold">No pending access requests</p>';
                     return;
@@ -290,39 +313,103 @@ class PCLinkWebUI {
                         </div>
                     </div>
                 `).join('');
-                if(window.feather) feather.replace();
+                if (window.feather) feather.replace();
             }
-        } catch (error) {}
+        } catch (error) { }
     }
 
     async loadServices() {
         try {
             const res = await this.webUICall('/ui/services/list');
+            const container = document.getElementById('globalServicesGrid');
+            if (!container) return;
+
             if (res.ok) {
                 const data = await res.json();
-                const container = document.getElementById('globalServicesGrid');
-                if (!container) return;
-                
                 const services = data.services || {};
                 container.innerHTML = Object.entries(PERMISSION_MAP).map(([key, info]) => `
                     <label class="cursor-pointer label border border-base-300 rounded-lg p-4 hover:bg-base-200 transition-colors flex items-center justify-between gap-4">
                         <div class="flex flex-col text-left">
-                            <span class="label-text font-black text-xs uppercase tracking-wider">${info.title}</span> 
+                            <span class="label-text font-black text-xs uppercase tracking-wider">${info.title}</span>
                             <span class="text-[10px] opacity-50 font-bold uppercase tracking-tighter mt-0.5">${info.desc}</span>
                         </div>
                         <input type="checkbox" class="toggle toggle-sm ${key === 'terminal' || key === 'command' ? 'toggle-error' : 'toggle-primary'}" ${services[key] ? 'checked' : ''} onchange="window.toggleService('${key}', this.checked)" />
                     </label>
                 `).join('');
-                if(window.feather) feather.replace();
+                if (window.feather) feather.replace();
+            } else {
+                container.innerHTML = '<div class="alert alert-error text-xs col-span-full">Failed to load services</div>';
             }
         } catch (e) {
             console.error("Failed to load global services:", e);
         }
     }
 
+    async loadBlacklist() {
+        const container = document.getElementById('blacklistContainer');
+        if (!container) return;
+        try {
+            const res = await this.webUICall('/ui/devices/blacklist');
+            if (res.ok) {
+                const data = await res.json();
+                this.displayBlacklist(data.blacklist || []);
+            } else {
+                container.innerHTML = '<p class="opacity-50 text-xs font-bold py-4 text-center">Failed to load blacklist</p>';
+            }
+        } catch (e) {
+            container.innerHTML = '<div class="alert alert-error text-xs">Connection error</div>';
+        }
+    }
+
+    displayBlacklist(blacklist) {
+        const container = document.getElementById('blacklistContainer');
+        if (!container) return;
+        if (blacklist.length === 0) {
+            container.innerHTML = '<p class="opacity-50 text-xs font-bold py-4 text-center">Blacklist is empty</p>';
+            return;
+        }
+        container.innerHTML = blacklist.map(item => `
+            <div class="flex items-center justify-between p-3 bg-base-200 rounded-lg border border-base-300">
+                <div class="overflow-hidden">
+                    <p class="text-xs font-mono font-black truncate">${item.hardware_id}</p>
+                    <p class="text-[9px] opacity-50 uppercase font-bold">Banned on: ${new Date(item.banned_at).toLocaleDateString()}</p>
+                </div>
+                <button class="btn btn-xs btn-ghost text-success font-black" onclick="window.unbanHardware('${item.hardware_id}')">Unban</button>
+            </div>
+        `).join('');
+        if (window.feather) feather.replace();
+    }
+
+    async banDevice(deviceId) {
+        if (!await window.confirmDialog('Ban this device? It will be disconnected and cannot re-pair.', { title: 'Ban Hardware ID', danger: true })) return;
+        try {
+            const res = await this.webUICall(`/ui/devices/ban?device_id=${deviceId}`, { method: 'POST' });
+            if (res.ok) {
+                this.showToast('Banned', 'Hardware ID added to blacklist', 'success');
+                this.loadDevices();
+                this.loadBlacklist();
+            }
+        } catch (e) {
+            this.showToast('Error', 'Failed to ban device', 'error');
+        }
+    }
+
+    async unbanHardware(hardwareId) {
+        if (!await window.confirmDialog(`Unban hardware ID: ${hardwareId}?`, { title: 'Unban Hardware' })) return;
+        try {
+            const res = await this.webUICall(`/ui/devices/unban?hardware_id=${hardwareId}`, { method: 'POST' });
+            if (res.ok) {
+                this.showToast('Unbanned', 'Hardware ID removed from blacklist', 'success');
+                this.loadBlacklist();
+            }
+        } catch (e) {
+            this.showToast('Error', 'Failed to unban hardware', 'error');
+        }
+    }
+
     async loadDefaultPermissions() {
         try {
-            const res = await this.webUICall('/settings/defaults/permissions');
+            const res = await this.webUICall('/ui/devices/settings/defaults/permissions');
             if (res.ok) {
                 const data = await res.json();
                 const container = document.getElementById('defaultPermsGrid');
@@ -332,7 +419,7 @@ class PCLinkWebUI {
                 container.innerHTML = Object.entries(PERMISSION_MAP).map(([key, info]) => `
                     <label class="cursor-pointer label border border-base-300 rounded-lg p-3 hover:bg-base-200 transition-colors flex items-center justify-between gap-3">
                         <div class="flex flex-col text-left">
-                            <span class="label-text font-black text-xs uppercase tracking-tight">${info.title}</span> 
+                            <span class="label-text font-black text-xs uppercase tracking-tight">${info.title}</span>
                             <span class="text-[9px] opacity-50 font-bold uppercase tracking-tighter mt-0.5">${info.desc}</span>
                     </div>
                     <input type="checkbox" class="toggle toggle-sm toggle-primary" data-perm="${key}" ${perms.includes(key) ? 'checked' : ''} />
@@ -393,14 +480,14 @@ class PCLinkWebUI {
         if (breadcrumb) breadcrumb.textContent = `Path: ${cleanPath}`;
         if (backBtn) backBtn.disabled = this.phoneHistoryIndex <= 0;
         if (forwardBtn) forwardBtn.disabled = this.phoneHistoryIndex >= this.phoneNavHistory.length - 1;
-        
+
         try {
             let url = `/phone/files/.browse${cleanPath}`;
             if (this.currentPhoneDeviceId) url += `?device_id=${encodeURIComponent(this.currentPhoneDeviceId)}`;
             const res = await fetch(url, { headers: this.getHeaders() });
             if (res.ok) {
                 const data = await res.json();
-                this.phoneFileItems = data.items ||[];
+                this.phoneFileItems = data.items || [];
                 this.phoneIsReadOnly = data.readOnly || false;
                 this.updatePhoneUIPermissions();
                 this.displayPhoneFiles();
@@ -457,7 +544,7 @@ class PCLinkWebUI {
         const uploadBtn = document.getElementById('phoneUploadBtn');
         const badge = document.getElementById('phoneReadOnlyBadge');
         if (uploadBtn) uploadBtn.style.display = this.phoneIsReadOnly ? 'none' : 'flex';
-        if (badge) { if(this.phoneIsReadOnly) badge.classList.remove('hidden'); else badge.classList.add('hidden'); }
+        if (badge) { if (this.phoneIsReadOnly) badge.classList.remove('hidden'); else badge.classList.add('hidden'); }
     }
 
     async uploadFile(file) {
@@ -467,7 +554,7 @@ class PCLinkWebUI {
         try {
             const cleanBasePath = this.currentPhonePath.endsWith('/') ? this.currentPhonePath : this.currentPhonePath + '/';
             const xhr = new XMLHttpRequest();
-            xhr.open('PUT', `/phone/files${cleanBasePath}${file.name}${this.currentPhoneDeviceId ? '?device_id='+encodeURIComponent(this.currentPhoneDeviceId) : ''}`, true);
+            xhr.open('PUT', `/phone/files${cleanBasePath}${file.name}${this.currentPhoneDeviceId ? '?device_id=' + encodeURIComponent(this.currentPhoneDeviceId) : ''}`, true);
             if (this.apiKey) xhr.setRequestHeader('X-API-Key', this.apiKey);
             xhr.upload.onprogress = (e) => { if (e.lengthComputable) { const pct = Math.round((e.loaded / e.total) * 100); const el = document.getElementById(uploadId); if (el) { el.querySelector('.progress').value = pct; el.querySelector('.progress-text').textContent = pct + '%'; } } };
             const promise = new Promise((res, rej) => { xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? res() : rej(); xhr.onerror = rej; });
@@ -479,8 +566,8 @@ class PCLinkWebUI {
     }
 
     async deletePhoneItems(paths) {
-        if (!confirm(`Delete ${paths.length} items permanently?`)) return;
-        for (const p of paths) { try { await fetch(`/phone/files${p.startsWith('/')?p:'/'+p}${this.currentPhoneDeviceId?'?device_id='+encodeURIComponent(this.currentPhoneDeviceId):''}`, { method: 'DELETE', headers: this.getHeaders() }); } catch(e){} }
+        if (!await window.confirmDialog(`Permanently delete ${paths.length} item${paths.length !== 1 ? 's' : ''}? This cannot be undone.`, { title: 'Delete Files', danger: true })) return;
+        for (const p of paths) { try { await fetch(`/phone/files${p.startsWith('/') ? p : '/' + p}${this.currentPhoneDeviceId ? '?device_id=' + encodeURIComponent(this.currentPhoneDeviceId) : ''}`, { method: 'DELETE', headers: this.getHeaders() }); } catch (e) { } }
         this.phoneSelectedItems.clear(); this.updateBatchActionBar(); this.loadPhoneFiles(this.currentPhonePath);
     }
 
@@ -502,7 +589,7 @@ class PCLinkWebUI {
             const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
             const res = await this.webUICall('/logs');
             if (res.ok) { const data = await res.json(); content.textContent = data.logs || '--- clear ---'; if (isAtBottom) container.scrollTop = container.scrollHeight; }
-        } catch (e) {}
+        } catch (e) { }
     }
 
     showToast(title, message, type = 'info') {
@@ -531,7 +618,12 @@ class PCLinkWebUI {
             if (res.ok) {
                 const config = await res.json();
                 const portInput = document.getElementById('serverPortInput');
-                if (portInput) portInput.value = window.location.port || '38080';
+                if (portInput) portInput.value = config.server_port || window.location.port || '38080';
+
+                // Update all port placeholders in the UI (Guide tab)
+                const currentPort = config.server_port || window.location.port || '38080';
+                document.querySelectorAll('.current-port').forEach(el => el.textContent = currentPort);
+
                 const autoStart = document.getElementById('autoStartCheckbox');
                 if (autoStart && config.auto_start !== undefined) autoStart.checked = config.auto_start;
                 await this.loadTransferSettings();
@@ -543,10 +635,14 @@ class PCLinkWebUI {
                         updates: config.notifications.updates ?? true
                     };
                 }
-                this.loadApiKey();
+                if (config.theme) {
+                    const sel = document.getElementById('themeSelector');
+                    if (sel) sel.value = config.theme;
+                    window.changeTheme(config.theme, false); // false = don't save back to server during load
+                }
                 window.loadNotificationSettings();
             }
-        } catch (e) {}
+        } catch (e) { }
     }
 
     async loadTransferSettings() {
@@ -559,7 +655,7 @@ class PCLinkWebUI {
                 const statusText = document.getElementById('cleanupStatusText');
                 if (statusText) statusText.innerHTML = `Found <strong>${data.total_stale}</strong> stale items.`;
             }
-        } catch (e) {}
+        } catch (e) { }
     }
 
     connectWebSocket() {
@@ -576,16 +672,16 @@ class PCLinkWebUI {
                     document.getElementById('requestDeviceIP').textContent = data.data.ip || '-';
                     document.getElementById('requestDevicePlatform').textContent = data.data.platform || '-';
                     document.getElementById('pairingModal').showModal();
-                } else if (data.type === 'notification') { 
+                } else if (data.type === 'notification') {
                     const title = data.data.title || "";
                     if (title.includes("Connected") && !this.notificationSettings.deviceConnect) return;
                     if (title.includes("Disconnected") && !this.notificationSettings.deviceDisconnect) return;
-                    this.showToast(data.data.title, data.data.message || data.data.body); 
+                    this.showToast(data.data.title, data.data.message || data.data.body);
                 }
                 else if (data.type === 'server_status') { this.updateConnectionStatus(); }
             };
             this.websocket.onclose = () => setTimeout(() => this.connectWebSocket(), 5000);
-        } catch (e) {}
+        } catch (e) { }
     }
 
     formatUptime(milliseconds) {
@@ -600,26 +696,195 @@ class PCLinkWebUI {
     }
 
     formatFileSize(bytes) {
-        if (bytes === 0) return '0 B'; const k = 1024; const sizes =['B', 'KB', 'MB', 'GB', 'TB'];
+        if (bytes === 0) return '0 B'; const k = 1024; const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    // --- Extensions ---
+
+    async loadExtensions() {
+        const list = document.getElementById('extList');
+        const disabledAlert = document.getElementById('extGlobalDisabledAlert');
+        const safeModeAlert = document.getElementById('extSafeModeAlert');
+        if (!list) return;
+        list.innerHTML = '<div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>';
+        try {
+            const res = await this.webUICall('/ui/extensions/');
+            if (!res.ok) { list.innerHTML = '<div class="alert alert-error text-xs">Failed to load extensions</div>'; return; }
+            const data = await res.json();
+            const enabled = data.extensions_enabled;
+
+            if (disabledAlert) disabledAlert.classList.toggle('hidden', enabled);
+            // safe_mode is not in the API response directly; hide the alert by default
+            if (safeModeAlert) safeModeAlert.classList.add('hidden');
+
+            // update sidebar badge
+            const badge = document.getElementById('extBadgeCount');
+            if (badge) {
+                const count = (data.extensions || []).length;
+                if (count > 0) { badge.textContent = count; badge.classList.remove('hidden'); }
+                else badge.classList.add('hidden');
+            }
+
+            this.renderExtensions(data.extensions || [], enabled);
+        } catch (e) {
+            list.innerHTML = '<div class="alert alert-error text-xs">Connection error</div>';
+        }
+    }
+
+    renderExtensions(extensions, globalEnabled) {
+        const list = document.getElementById('extList');
+        if (!list) return;
+        if (extensions.length === 0) {
+            list.innerHTML = '<div class="col-span-full py-10 text-center opacity-40 font-black uppercase text-[10px] tracking-widest bg-base-200 border border-dashed border-base-300 rounded-xl"><p>No extensions installed</p><p class="mt-2 normal-case text-[9px]">Install a .zip bundle above to get started</p></div>';
+            return;
+        }
+        list.innerHTML = extensions.map(ext => {
+            const id = ext.name;
+            const isLoaded = ext.enabled;
+            const needsConsent = ext.security_consent_needed;
+            const permissions = ext.permissions || [];
+            const hasDangerous = permissions.some(p => ['system.exec','filesystem.read','filesystem.write','input.inject','input.monitor'].includes(p));
+            const categoryColor = { 'Utility': 'badge-ghost', 'Security': 'badge-error', 'Media': 'badge-secondary', 'Productivity': 'badge-primary', 'Developer': 'badge-accent' }[ext.category] || 'badge-ghost';
+
+            return `
+            <div class="card bg-base-100 shadow-sm border ${needsConsent ? 'border-warning' : 'border-base-300'} w-full transition-all" id="ext-card-${id}">
+                ${needsConsent ? `
+                <div class="alert alert-warning rounded-b-none border-b border-warning/30 py-2 px-5 text-xs">
+                    <i data-feather="alert-triangle" class="w-3 shrink-0"></i>
+                    <span class="font-black">Requires approval — requests dangerous permissions: <span class="font-mono">${permissions.filter(p => ['system.exec','filesystem.read','filesystem.write','input.inject','input.monitor'].includes(p)).join(', ')}</span></span>
+                </div>` : ''}
+                <div class="card-body p-5">
+                    <div class="flex items-start gap-4">
+                        <div class="shrink-0 bg-base-200 rounded-xl border border-base-300 text-primary w-14 h-14 flex items-center justify-center overflow-hidden">
+                            ${ext.icon
+                                ? (ext.theme_aware_icon
+                                    ? `<div class="w-full h-full rounded-xl" style="background-color:oklch(var(--a));-webkit-mask-image:url('/extensions/${id}/icon');mask-image:url('/extensions/${id}/icon');mask-size:60%;mask-repeat:no-repeat;mask-position:center;"></div>`
+                                    : `<img src="/extensions/${id}/icon" alt="" class="w-14 h-14 object-contain rounded-xl" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div style="display:none" class="w-full h-full items-center justify-center"><i data-feather="package" class="w-7 h-7"></i></div>`)
+                                : `<i data-feather="package" class="w-7 h-7"></i>`}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex flex-wrap items-center gap-2 mb-1">
+                                <h4 class="font-black text-sm leading-tight">${ext.display_name || id}</h4>
+                                <span class="badge badge-xs ${categoryColor} font-bold">${ext.category || 'Utility'}</span>
+                                <span class="badge badge-xs badge-ghost font-mono opacity-60">v${ext.version}</span>
+                                ${hasDangerous ? '<span class="badge badge-xs badge-error font-bold">High Risk</span>' : ''}
+                            </div>
+                            <p class="text-xs opacity-60 mb-2 leading-relaxed">${ext.description || ''}</p>
+                            <p class="text-[10px] font-bold uppercase opacity-40 tracking-wider">by ${ext.author || 'Unknown'}</p>
+                            ${permissions.length > 0 ? `
+                            <div class="flex flex-wrap gap-1 mt-2">
+                                ${permissions.map(p => `<span class="badge badge-xs badge-outline font-mono">${p}</span>`).join('')}
+                            </div>` : ''}
+                        </div>
+                        <div class="shrink-0 flex flex-col gap-2 items-end">
+                            <label class="cursor-pointer flex items-center gap-2" title="${isLoaded ? 'Disable' : 'Enable'}">
+                                <input type="checkbox" class="toggle toggle-sm toggle-primary" ${isLoaded ? 'checked' : ''}
+                                    ${!globalEnabled ? 'disabled title="Enable extensions globally first"' : ''}
+                                    onchange="window.toggleExtension('${id}', this.checked, this)" />
+                            </label>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-4 border-t border-base-300 pt-4">
+                        <button class="btn btn-xs btn-ghost border-base-300 font-bold" onclick="window.openExtLogs('${id}', '${ext.display_name || id}')">
+                            <i data-feather="terminal" class="w-3"></i> Logs
+                        </button>
+                        <div class="flex-1"></div>
+                        ${needsConsent && !isLoaded ? `
+                        <button class="btn btn-xs btn-warning font-bold" onclick="window.approveExtension('${id}')">
+                            <i data-feather="check" class="w-3"></i> Approve & Enable
+                        </button>` : ''}
+                        <button class="btn btn-xs btn-ghost btn-error border-base-300 font-bold" onclick="window.deleteExtension('${id}', '${ext.display_name || id}')">
+                            <i data-feather="trash-2" class="w-3"></i> Remove
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+        if (window.feather) feather.replace();
     }
 }
 
 // global window helpers
-window.closeDrawer = function() { const d = document.getElementById('main-drawer'); if(d) d.checked = false; };
-window.toggleApiKeyVisibility = function() { if(window.pclinkUI) { window.pclinkUI.apiKeyVisible = !window.pclinkUI.apiKeyVisible; window.pclinkUI.updateApiKeyDisplay(); } };
-window.copyApiKey = async function() { if(window.pclinkUI && window.pclinkUI.apiKey) { await navigator.clipboard.writeText(window.pclinkUI.apiKey); window.pclinkUI.showToast('Copied', 'Access key added to clipboard', 'success'); } };
-window.copyCommand = async function(el) { const c = el.querySelector('code'); if (c) { await navigator.clipboard.writeText(c.textContent); window.pclinkUI.showToast('Copied', 'Command added to clipboard'); } };
 
-window.loadTheme = function() {
+// confirmDialog: replaces native confirm() with a daisyui modal
+// danger=true → red btn, false/default → primary btn
+window.confirmDialog = function (message, { title = 'Confirm', danger = false, requiredWord = null } = {}) {
+    return new Promise(resolve => {
+        const modal = document.getElementById('confirmModal');
+        const titleEl = document.getElementById('confirmModalTitle');
+        const msgEl = document.getElementById('confirmModalMessage');
+        const iconEl = document.getElementById('confirmModalIcon');
+        const okBtn = document.getElementById('confirmModalOk');
+        const cancelBtn = document.getElementById('confirmModalCancel');
+        const inputWrapper = document.getElementById('confirmModalInputWrapper');
+        const input = document.getElementById('confirmModalInput');
+
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        // icon setup
+        const iconName = danger ? 'alert-triangle' : 'help-circle';
+        const iconColor = danger ? 'text-error' : 'text-primary';
+        iconEl.innerHTML = `<i data-feather="${iconName}" class="w-5 h-5 ${iconColor}"></i>`;
+        okBtn.className = `btn btn-sm font-bold text-white ${danger ? 'btn-error' : 'btn-primary'}`;
+        if (window.feather) feather.replace();
+
+        // required word check
+        if (requiredWord) {
+            inputWrapper.classList.remove('hidden');
+            input.value = "";
+            okBtn.disabled = true;
+            input.oninput = () => { okBtn.disabled = input.value.trim().toUpperCase() !== requiredWord.toUpperCase(); };
+        } else {
+            inputWrapper.classList.add('hidden');
+            okBtn.disabled = false;
+        }
+
+        const cleanup = (result) => {
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('cancel', onCancel);
+            input.oninput = null;
+            modal.close();
+            resolve(result);
+        };
+        const onOk = () => cleanup(true);
+        const onCancel = () => cleanup(false);
+
+        okBtn.addEventListener('click', onOk, { once: true });
+        cancelBtn.addEventListener('click', onCancel, { once: true });
+        modal.addEventListener('cancel', onCancel, { once: true });
+        modal.showModal();
+        if (requiredWord) setTimeout(() => input.focus(), 100);
+    });
+};
+
+window.closeDrawer = function () { const d = document.getElementById('main-drawer'); if (d) d.checked = false; };
+window.toggleApiKeyVisibility = function () { if (window.pclinkUI) { window.pclinkUI.apiKeyVisible = !window.pclinkUI.apiKeyVisible; window.pclinkUI.updateApiKeyDisplay(); } };
+window.copyApiKey = async function () { if (window.pclinkUI && window.pclinkUI.apiKey) { await navigator.clipboard.writeText(window.pclinkUI.apiKey); window.pclinkUI.showToast('Copied', 'Access key added to clipboard', 'success'); } };
+window.switchSubTab = function (id, btn) {
+    document.querySelectorAll('.subtab-content').forEach(c => c.classList.add('hidden'));
+    const target = document.getElementById(`subtab-${id}`);
+    if (target) target.classList.remove('hidden');
+
+    document.querySelectorAll('.sub-tab').forEach(b => {
+        b.classList.remove('active', 'bg-primary', 'text-white');
+        b.classList.add('opacity-50');
+    });
+    btn.classList.add('active', 'bg-primary', 'text-white');
+    btn.classList.remove('opacity-50');
+};
+window.copyCommand = async function (el) { const c = el.querySelector('code'); if (c) { await navigator.clipboard.writeText(c.textContent); window.pclinkUI.showToast('Copied', 'Command added to clipboard'); } };
+
+window.loadTheme = function () {
     const saved = localStorage.getItem('pclink_theme') || 'system';
     const sel = document.getElementById('themeSelector');
     if (sel) sel.value = saved;
     window.changeTheme(saved);
 };
 
-window.changeTheme = function(theme) {
+window.changeTheme = async function (theme, saveToServer = true) {
     if (theme === 'system') {
         const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
@@ -627,30 +892,40 @@ window.changeTheme = function(theme) {
         document.documentElement.setAttribute('data-theme', theme);
     }
     localStorage.setItem('pclink_theme', theme);
+
+    if (saveToServer && window.pclinkUI) {
+        try {
+            await fetch('/settings/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ theme: theme })
+            });
+        } catch (e) { }
+    }
 };
 
-window.openPermissions = async function(deviceId) {
+window.openPermissions = async function (deviceId) {
     const device = window.pclinkUI.devices.find(d => d.id === deviceId);
     if (!device) return;
 
     const list = document.getElementById('permList');
     const perms = (device.permissions || "").split(',').map(s => s.trim());
-    
+
     // Available permission nodes
     list.innerHTML = Object.entries(PERMISSION_MAP).map(([key, info]) => `
         <label class="cursor-pointer label border border-base-300 rounded-lg p-3 hover:bg-base-200 transition-colors flex items-center justify-between gap-3">
             <div class="flex flex-col text-left">
-                <span class="label-text font-black text-xs uppercase tracking-tight">${info.title}</span> 
+                <span class="label-text font-black text-xs uppercase tracking-tight">${info.title}</span>
                 <span class="text-[9px] opacity-50 font-bold uppercase tracking-tighter mt-0.5">${info.desc}</span>
             </div>
             <input type="checkbox" class="toggle toggle-sm toggle-primary" data-perm="${key}" ${perms.includes(key) ? 'checked' : ''} onchange="window.updateDevicePerm('${deviceId}', '${key}', this.checked)" />
         </label>
     `).join('');
-    
+
     document.getElementById('permissionsModal').showModal();
 };
 
-window.applyPermissionTemplate = function(tplName, containerId) {
+window.applyPermissionTemplate = function (tplName, containerId) {
     const defaultTemplates = {
         'Admin': ['files_browse', 'files_download', 'files_upload', 'files_delete', 'processes', 'power', 'info', 'mouse', 'keyboard', 'media', 'volume', 'terminal', 'macros', 'extensions', 'apps', 'clipboard', 'screenshot', 'command', 'wol'],
         'Viewer': ['files_browse', 'info', 'apps'],
@@ -660,10 +935,10 @@ window.applyPermissionTemplate = function(tplName, containerId) {
     };
     const customTemplates = JSON.parse(localStorage.getItem('pclink_custom_templates') || '{}');
     const tpl = defaultTemplates[tplName] || customTemplates[tplName] || [];
-    
+
     const container = document.getElementById(containerId);
     if (!container) return;
-    
+
     container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
         const pid = cb.getAttribute('data-perm');
         const state = tpl.includes(pid);
@@ -674,13 +949,13 @@ window.applyPermissionTemplate = function(tplName, containerId) {
     });
 };
 
-window.saveCurrentAsTemplate = function(containerId) {
+window.saveCurrentAsTemplate = function (containerId) {
     const name = prompt("Enter Template Name:");
     if (!name) return;
-    
+
     const container = document.getElementById(containerId);
     const checked = Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.getAttribute('data-perm'));
-    
+
     const custom = JSON.parse(localStorage.getItem('pclink_custom_templates') || '{}');
     custom[name] = checked;
     localStorage.setItem('pclink_custom_templates', JSON.stringify(custom));
@@ -688,10 +963,10 @@ window.saveCurrentAsTemplate = function(containerId) {
     window.pclinkUI.showToast('Saved', `Template '${name}' stored`, 'success');
 };
 
-window.renderCustomTemplates = function() {
+window.renderCustomTemplates = function () {
     const custom = JSON.parse(localStorage.getItem('pclink_custom_templates') || '{}');
     const containers = ['customPermTemplates', 'customPolicyTemplates'];
-    
+
     containers.forEach(cid => {
         const el = document.getElementById(cid);
         if (!el) return;
@@ -703,45 +978,45 @@ window.renderCustomTemplates = function() {
             </div>
         `).join('');
     });
-    if(window.feather) feather.replace();
+    if (window.feather) feather.replace();
 };
 
-window.deleteTemplate = function(name) {
-    if (!confirm(`Delete template '${name}'?`)) return;
+window.deleteTemplate = async function (name) {
+    if (!await window.confirmDialog(`Delete template '${name}'?`, { title: 'Delete Template', danger: true })) return;
     const custom = JSON.parse(localStorage.getItem('pclink_custom_templates') || '{}');
     delete custom[name];
     localStorage.setItem('pclink_custom_templates', JSON.stringify(custom));
     window.renderCustomTemplates();
 };
 
-window.updateDevicePerm = async function(deviceId, perm, enabled) {
+window.updateDevicePerm = async function (deviceId, perm, enabled) {
     try {
-        await window.pclinkUI.webUICall(`/devices/${deviceId}/permissions`, {
+        await window.pclinkUI.webUICall(`/ui/devices/${deviceId}/permissions`, {
             method: 'POST',
             body: JSON.stringify({ permission: perm, enabled: enabled })
         });
         window.pclinkUI.loadDevices(); // Refresh list to update badges
-    } catch(e) {
+    } catch (e) {
         window.pclinkUI.showToast('Error', 'Failed to update permission', 'error');
     }
 };
 
-window.saveDefaultPermissions = async function() {
+window.saveDefaultPermissions = async function () {
     try {
         const checkboxes = document.querySelectorAll('#defaultPermsGrid input[type="checkbox"]');
         const perms = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.getAttribute('data-perm'));
-        
-        const res = await window.pclinkUI.webUICall('/settings/defaults/permissions', {
+
+        const res = await window.pclinkUI.webUICall('/ui/devices/settings/defaults/permissions', {
             method: 'POST',
             body: JSON.stringify({ permissions: perms })
         });
-        
+
         if (res.ok) {
             window.pclinkUI.showToast('Success', 'Default policy updated', 'success');
         } else {
             throw new Error("Failed to save policy");
         }
-    } catch(e) {
+    } catch (e) {
         window.pclinkUI.showToast('Error', 'Failed to update policy', 'error');
     }
 };
@@ -752,33 +1027,36 @@ window.generateQRCode = async () => {
         const container = document.getElementById('qrCodeDisplay');
         container.innerHTML = `<div id="qrCodeContainer"></div>`;
         if (typeof QRCode !== 'undefined') new QRCode(document.getElementById('qrCodeContainer'), { text: JSON.stringify(data), width: 200, height: 200 });
-    } catch (e) {}
+    } catch (e) { }
 };
 window.regenerateQRCode = () => window.generateQRCode();
 window.refreshDevices = () => window.pclinkUI.loadDevices();
 window.refreshLogs = () => window.pclinkUI.loadLogs();
 window.toggleAutoRefresh = () => {
-    if(window.pclinkUI) {
+    if (window.pclinkUI) {
         window.pclinkUI.autoRefreshEnabled = !window.pclinkUI.autoRefreshEnabled;
         const btn = document.getElementById('autoRefreshToggle');
         if (btn) btn.innerHTML = `<i data-feather="${window.pclinkUI.autoRefreshEnabled ? 'pause' : 'play'}" class="w-4 h-4"></i> <span class="hidden sm:inline">Auto</span>`;
-        if(window.feather) feather.replace();
+        if (window.feather) feather.replace();
     }
 };
 
 window.saveSettings = async () => {
-    const body = { auto_start: document.getElementById('autoStartCheckbox')?.checked };
+    const body = {
+        auto_start: document.getElementById('autoStartCheckbox')?.checked,
+        server_port: parseInt(document.getElementById('serverPortInput')?.value || 38080)
+    };
     try {
         const res = await window.pclinkUI.webUICall('/settings/save', { method: 'POST', body: JSON.stringify(body) });
         if (res.ok) window.pclinkUI.showToast('Saved', 'Configuration updated', 'success');
-    } catch (e) {}
+    } catch (e) { }
 };
 
 window.changePassword = async () => {
     const cur = document.getElementById('currentPassword');
     const n1 = document.getElementById('newPassword');
     const n2 = document.getElementById('confirmNewPassword');
-    
+
     if (!cur.value || !n1.value) return window.pclinkUI.showToast('Error', 'Missing fields', 'error');
     if (n1.value !== n2.value) return window.pclinkUI.showToast('Error', 'Passwords do not match', 'error');
     if (n1.value.length < 8) return window.pclinkUI.showToast('Error', 'Min 8 characters required', 'error');
@@ -806,17 +1084,17 @@ window.saveTransferSettings = async () => {
     try {
         const res = await fetch('/transfers/cleanup/config', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ threshold }) });
         if (res.ok) { window.pclinkUI.showToast('Saved', 'Threshold value updated', 'success'); window.pclinkUI.loadTransferSettings(); }
-    } catch (e) {}
+    } catch (e) { }
 };
 
 window.executeCleanup = async () => {
     try {
         const res = await fetch('/transfers/cleanup/execute', { method: 'POST' });
         if (res.ok) { const data = await res.json(); window.pclinkUI.showToast('Done', `Cleaned ${data.cleaned.uploads + data.cleaned.downloads} sessions`, 'success'); window.pclinkUI.loadTransferSettings(); }
-    } catch (e) {}
+    } catch (e) { }
 };
 
-window.toggleService = async (id, enabled) => { if(window.pclinkUI) await window.pclinkUI.toggleService(id, enabled); };
+window.toggleService = async (id, enabled) => { if (window.pclinkUI) await window.pclinkUI.toggleService(id, enabled); };
 
 window.navigatePhone = (p) => {
     if (window.pclinkUI) {
@@ -830,56 +1108,59 @@ window.navigatePhone = (p) => {
         window.pclinkUI.loadPhoneFiles(p);
     }
 };
-window.refreshPhoneFiles = () => { if(window.pclinkUI) window.pclinkUI.loadPhoneFiles(window.pclinkUI.currentPhonePath); };
+window.refreshPhoneFiles = () => { if (window.pclinkUI) window.pclinkUI.loadPhoneFiles(window.pclinkUI.currentPhonePath); };
 window.goBackPhoneFiles = () => { if (window.pclinkUI && window.pclinkUI.phoneHistoryIndex > 0) { window.pclinkUI.phoneHistoryIndex--; window.navigatePhone(window.pclinkUI.phoneNavHistory[window.pclinkUI.phoneHistoryIndex]); } };
 window.goForwardPhoneFiles = () => { if (window.pclinkUI && window.pclinkUI.phoneHistoryIndex < window.pclinkUI.phoneNavHistory.length - 1) { window.pclinkUI.phoneHistoryIndex++; window.navigatePhone(window.pclinkUI.phoneNavHistory[window.pclinkUI.phoneHistoryIndex]); } };
 window.toggleItemSelection = (p) => { if (window.pclinkUI) { window.pclinkUI.phoneSelectedItems.has(p) ? window.pclinkUI.phoneSelectedItems.delete(p) : window.pclinkUI.phoneSelectedItems.add(p); window.pclinkUI.updateBatchActionBar(); window.pclinkUI.displayPhoneFiles(); } };
-window.clearSelection = () => { if(window.pclinkUI) { window.pclinkUI.phoneSelectedItems.clear(); window.pclinkUI.updateBatchActionBar(); window.pclinkUI.displayPhoneFiles(); } };
+window.clearSelection = () => { if (window.pclinkUI) { window.pclinkUI.phoneSelectedItems.clear(); window.pclinkUI.updateBatchActionBar(); window.pclinkUI.displayPhoneFiles(); } };
 window.handleFileItemClick = (e, path, isDir) => { if (e.ctrlKey || e.metaKey) window.toggleItemSelection(path); else if (isDir) window.navigatePhone(path); else window.toggleItemSelection(path); };
-window.handlePhoneSearch = (q) => { if(window.pclinkUI) { window.pclinkUI.phoneSearchQuery = q; window.pclinkUI.displayPhoneFiles(); } };
-window.handlePhoneSort = (m) => { if(window.pclinkUI) { window.pclinkUI.phoneSortMode = m; window.pclinkUI.displayPhoneFiles(); } };
-window.handleToggleHidden = (s) => { if(window.pclinkUI) { window.pclinkUI.phoneShowHidden = s; window.pclinkUI.displayPhoneFiles(); } };
+window.handlePhoneSearch = (q) => { if (window.pclinkUI) { window.pclinkUI.phoneSearchQuery = q; window.pclinkUI.displayPhoneFiles(); } };
+window.handlePhoneSort = (m) => { if (window.pclinkUI) { window.pclinkUI.phoneSortMode = m; window.pclinkUI.displayPhoneFiles(); } };
+window.handleToggleHidden = (s) => { if (window.pclinkUI) { window.pclinkUI.phoneShowHidden = s; window.pclinkUI.displayPhoneFiles(); } };
 window.triggerUpload = () => document.getElementById('phoneUploadInput').click();
 window.handlePhoneUpload = async (input) => { if (!input.files || input.files.length === 0) return; if (window.pclinkUI) { for (const f of input.files) await window.pclinkUI.uploadFile(f); window.refreshPhoneFiles(); input.value = ''; } };
 window.deleteSelectedItems = () => { if (window.pclinkUI) { const paths = Array.from(window.pclinkUI.phoneSelectedItems); window.pclinkUI.deletePhoneItems(paths); } };
 window.downloadSelectedItems = () => { if (window.pclinkUI) { Array.from(window.pclinkUI.phoneSelectedItems).forEach(p => window.downloadPhoneFile(p)); } };
-window.downloadPhoneFile = (p) => { window.location.href = `/phone/files${p.startsWith('/')?p:'/'+p}${window.pclinkUI?.currentPhoneDeviceId ? '?device_id='+encodeURIComponent(window.pclinkUI.currentPhoneDeviceId) : ''}`; };
-window.handlePhoneDeviceChange = (id) => { if(window.pclinkUI) window.pclinkUI.handlePhoneDeviceChange(id); };
+window.downloadPhoneFile = (p) => { window.location.href = `/phone/files${p.startsWith('/') ? p : '/' + p}${window.pclinkUI?.currentPhoneDeviceId ? '?device_id=' + encodeURIComponent(window.pclinkUI.currentPhoneDeviceId) : ''}`; };
+window.handlePhoneDeviceChange = (id) => { if (window.pclinkUI) window.pclinkUI.handlePhoneDeviceChange(id); };
 
-window.startRemoteServer = async () => { try { await fetch('/server/start', { method: 'POST' }); window.pclinkUI.showToast('Started', 'Remote API is starting...', 'success'); } catch(e){} };
-window.stopRemoteServer = async () => { try { await fetch('/server/stop', { method: 'POST' }); window.pclinkUI.showToast('Stopped', 'Remote API is stopping...', 'success'); } catch(e){} };
-window.restartRemoteServer = async () => { try { await fetch('/server/restart', { method: 'POST' }); window.pclinkUI.showToast('Restart', 'Rebooting service...', 'success'); } catch(e){} };
-window.shutdownServer = async () => { if (confirm('Shutdown server?')) await fetch('/server/shutdown', { method: 'POST' }); };
-window.logout = async () => { if(confirm('Logout?')) { await fetch('/auth/logout', { method: 'POST' }); window.location.reload(); } };
-window.removeAllDevices = async () => { if (confirm('Remove ALL devices?')) { await window.pclinkUI.webUICall('/devices/remove-all', { method: 'POST' }); window.pclinkUI.loadDevices(); } };
-window.revokeDevice = async (id) => { if (confirm('Revoke access?')) { await window.pclinkUI.webUICall(`/devices/revoke?device_id=${id}`, { method: 'POST' }); window.pclinkUI.loadDevices(); } };
-window.regenerateApiKey = async () => { if (confirm('Regen access key? Clients will disconnect.')) { await window.pclinkUI.webUICall('/auth/regenerate-key', { method: 'POST' }); window.location.reload(); } };
+window.startRemoteServer = async () => { try { await fetch('/server/start', { method: 'POST' }); window.pclinkUI.showToast('Started', 'Remote API is starting...', 'success'); } catch (e) { } };
+window.stopRemoteServer = async () => { try { await fetch('/server/stop', { method: 'POST' }); window.pclinkUI.showToast('Stopped', 'Remote API is stopping...', 'success'); } catch (e) { } };
+window.restartRemoteServer = async () => { try { await fetch('/server/restart', { method: 'POST' }); window.pclinkUI.showToast('Restart', 'Rebooting service...', 'success'); } catch (e) { } };
+window.shutdownServer = async () => { if (await window.confirmDialog('The server process will stop. You will lose access to this panel.', { title: 'Shutdown Server', danger: true })) await fetch('/server/shutdown', { method: 'POST' }); };
+window.logout = async () => { if (await window.confirmDialog('End your current session and return to login?', { title: 'Logout' })) { await fetch('/auth/logout', { method: 'POST' }); window.location.reload(); } };
+window.removeAllDevices = async () => { if (await window.confirmDialog('Remove ALL paired devices? They will need to re-pair to reconnect.', { title: 'Clear Fleet', danger: true })) { await window.pclinkUI.webUICall('/ui/devices/remove-all', { method: 'POST' }); window.pclinkUI.loadDevices(); } };
+window.banDevice = async (id) => { if (window.pclinkUI) await window.pclinkUI.banDevice(id); };
+window.unbanHardware = async (hwid) => { if (window.pclinkUI) await window.pclinkUI.unbanHardware(hwid); };
+window.loadBlacklist = async () => { if (window.pclinkUI) await window.pclinkUI.loadBlacklist(); };
+window.revokeDevice = async (id) => { if (await window.confirmDialog('Revoke this device session? It will be disconnected immediately.', { title: 'Revoke Access', danger: true })) { await window.pclinkUI.webUICall(`/ui/devices/revoke?device_id=${id}`, { method: 'POST' }); window.pclinkUI.loadDevices(); } };
+window.regenerateApiKey = async () => { if (await window.confirmDialog('Regenerate the access key? All connected clients will disconnect.', { title: 'Regenerate Key', danger: true })) { await window.pclinkUI.webUICall('/ui/auth/regenerate-key', { method: 'POST' }); window.location.reload(); } };
 window.approvePairingRequest = (id) => { if (window.pclinkUI.websocket?.readyState === WebSocket.OPEN) { window.pclinkUI.websocket.send(JSON.stringify({ type: 'approve_pair', pairing_id: id })); setTimeout(() => window.pclinkUI.loadPendingRequests(), 500); } };
 window.denyPairingRequest = (id) => { if (window.pclinkUI.websocket?.readyState === WebSocket.OPEN) { window.pclinkUI.websocket.send(JSON.stringify({ type: 'deny_pair', pairing_id: id })); setTimeout(() => window.pclinkUI.loadPendingRequests(), 500); } };
-window.approvePairing = async () => { if (!window.pclinkUI?.pendingPairingRequest) return; await fetch('/pairing/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pairing_id: window.pclinkUI.pendingPairingRequest.pairing_id, approved: true }) }); document.getElementById('pairingModal').close(); window.pclinkUI.loadDevices(); };
-window.denyPairing = async () => { if (!window.pclinkUI?.pendingPairingRequest) return; await fetch('/pairing/deny', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pairing_id: window.pclinkUI.pendingPairingRequest.pairing_id, approved: false }) }); document.getElementById('pairingModal').close(); };
-window.clearLogs = async () => { if(confirm('Purge history?')) { await fetch('/logs/clear', { method: 'POST' }); const c = document.getElementById('logContent'); if(c) c.textContent = '--- cleared ---'; } };
+window.approvePairing = async () => { if (!window.pclinkUI?.pendingPairingRequest) return; await window.pclinkUI.webUICall('/ui/pairing/approve', { method: 'POST', body: JSON.stringify({ pairing_id: window.pclinkUI.pendingPairingRequest.pairing_id, approved: true }) }); document.getElementById('pairingModal').close(); window.pclinkUI.loadDevices(); };
+window.denyPairing = async () => { if (!window.pclinkUI?.pendingPairingRequest) return; await window.pclinkUI.webUICall('/ui/pairing/deny', { method: 'POST', body: JSON.stringify({ pairing_id: window.pclinkUI.pendingPairingRequest.pairing_id, approved: false }) }); document.getElementById('pairingModal').close(); };
+window.clearLogs = async () => { if (await window.confirmDialog('Purge all log history? This cannot be undone.', { title: 'Clear Logs', danger: true })) { await fetch('/logs/clear', { method: 'POST' }); const c = document.getElementById('logContent'); if (c) c.textContent = '--- cleared ---'; } };
 
 window.checkForUpdates = async () => {
     try {
         const res = await fetch('/updates/check');
         if (res.ok) {
             const data = await res.json();
-            if (data.update_available) { 
-                window.updateData = data; 
-                const b = document.getElementById('updateBanner'); 
-                if (b) { 
-                    b.classList.remove('hidden'); 
-                    document.getElementById('updateVersion').textContent = `v${data.latest_version} available`; 
+            if (data.update_available) {
+                window.updateData = data;
+                const b = document.getElementById('updateBanner');
+                if (b) {
+                    b.classList.remove('hidden');
+                    document.getElementById('updateVersion').textContent = `v${data.latest_version} available`;
                     const notes = document.getElementById('updateReleaseNotes');
                     if (notes && data.release_notes) notes.textContent = data.release_notes;
-                } 
+                }
             }
         }
-    } catch(e) {}
+    } catch (e) { }
 };
-window.dismissUpdate = () => { const b = document.getElementById('updateBanner'); if(b) b.classList.add('hidden'); localStorage.setItem('updateDismissed', Date.now().toString()); };
-window.downloadUpdate = () => { if(window.updateData?.download_url) { window.open(window.updateData.download_url, '_blank'); window.dismissUpdate(); } };
+window.dismissUpdate = () => { const b = document.getElementById('updateBanner'); if (b) b.classList.add('hidden'); localStorage.setItem('updateDismissed', Date.now().toString()); };
+window.downloadUpdate = () => { if (window.updateData?.download_url) { window.open(window.updateData.download_url, '_blank'); window.dismissUpdate(); } };
 
 window.saveNotificationSettings = async () => {
     if (!window.pclinkUI) return;
@@ -891,25 +1172,284 @@ window.saveNotificationSettings = async () => {
     };
     window.pclinkUI.notificationSettings = settings;
     try {
-        const res = await window.pclinkUI.webUICall('/settings/save', { 
-            method: 'POST', 
-            body: JSON.stringify({ 
+        const res = await window.pclinkUI.webUICall('/settings/save', {
+            method: 'POST',
+            body: JSON.stringify({
                 notifications: {
                     device_connect: settings.deviceConnect,
                     device_disconnect: settings.deviceDisconnect,
                     pairing_request: settings.pairingRequest,
                     updates: settings.updates
                 }
-            }) 
+            })
         });
         if (res.ok) window.pclinkUI.showToast('Saved', 'Preferences updated', 'success');
     } catch (e) { window.pclinkUI.showToast('Error', 'Failed to save', 'error'); }
 };
 window.loadNotificationSettings = () => {
     const s = window.pclinkUI?.notificationSettings || {};
-    const set = (id, v) => { const el = document.getElementById(id); if(el) el.checked = v; };
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.checked = v; };
     set('notifyDeviceConnect', s.deviceConnect); set('notifyDeviceDisconnect', s.deviceDisconnect);
     set('notifyPairingRequest', s.pairingRequest); set('notifyUpdates', s.updates);
 };
 
+// --- Extension global helpers ---
+
+window.loadExtensions = () => { if (window.pclinkUI) window.pclinkUI.loadExtensions(); };
+
+window.toggleExtension = async (id, enabled, toggleEl) => {
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}/toggle?enabled=${enabled}`, { method: 'POST' });
+        if (res.ok) {
+            window.pclinkUI.showToast(enabled ? 'Enabled' : 'Disabled', `Extension '${id}' ${enabled ? 'loaded' : 'unloaded'}`, 'success');
+            await window.pclinkUI.loadExtensions();
+        } else {
+            toggleEl.checked = !enabled; // revert
+            window.pclinkUI.showToast('Error', 'Failed to toggle extension', 'error');
+        }
+    } catch (e) {
+        toggleEl.checked = !enabled;
+        window.pclinkUI.showToast('Error', 'Connection error', 'error');
+    }
+};
+
+window.deleteExtension = async (id, name) => {
+    if (!await window.confirmDialog(`Permanently remove '${name}'? This cannot be undone.`, { title: 'Remove Extension', danger: true })) return;
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}`, { method: 'DELETE' });
+        if (res.ok) {
+            window.pclinkUI.showToast('Removed', `Extension '${name}' deleted`, 'success');
+            await window.pclinkUI.loadExtensions();
+        } else {
+            window.pclinkUI.showToast('Error', 'Failed to remove extension', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Connection error', 'error');
+    }
+};
+
+window.approveExtension = async (id) => {
+    // user explicitly approves dangerous perms — enable it
+    if (!await window.confirmDialog(
+        'This extension requests high-risk permissions (e.g. system.exec, filesystem access). Only approve if you trust the source.',
+        { title: 'Approve Dangerous Extension', danger: true }
+    )) return;
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}/toggle?enabled=true`, { method: 'POST' });
+        if (res.ok) {
+            window.pclinkUI.showToast('Approved', `Extension '${id}' enabled`, 'success');
+            await window.pclinkUI.loadExtensions();
+        } else {
+            window.pclinkUI.showToast('Error', 'Enable failed', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Connection error', 'error');
+    }
+};
+
+window._currentExtLogsId = null;
+
+window.openExtLogs = async (id, name) => {
+    window._currentExtLogsId = id;
+    const modal = document.getElementById('extLogsModal');
+    const title = document.getElementById('extLogsModalTitle');
+    const content = document.getElementById('extLogsContent');
+    if (!modal) return;
+    if (title) title.textContent = `${name} — Logs`;
+    if (content) content.textContent = 'Loading...';
+    modal.showModal();
+    await window.refreshExtLogs();
+};
+
+window.refreshExtLogs = async () => {
+    const id = window._currentExtLogsId;
+    if (!id) return;
+    const content = document.getElementById('extLogsContent');
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}/logs`);
+        if (res.ok) {
+            const data = await res.json();
+            const logs = data.logs || [];
+            if (content) content.textContent = logs.length > 0 ? logs.join('\n') : '--- no logs ---';
+        }
+    } catch (e) {
+        if (content) content.textContent = 'Error loading logs';
+    }
+};
+
+window.clearExtLogs = async () => {
+    const id = window._currentExtLogsId;
+    if (!id) return;
+    try {
+        await window.pclinkUI.webUICall(`/ui/extensions/${id}/logs`, { method: 'DELETE' });
+        const content = document.getElementById('extLogsContent');
+        if (content) content.textContent = '--- cleared ---';
+        window.pclinkUI.showToast('Cleared', 'Extension logs purged', 'success');
+    } catch (e) { }
+};
+
+window._extInstallBusy = false;
+
+window._doExtInstallFile = async (file) => {
+    if (window._extInstallBusy) return;
+    window._extInstallBusy = true;
+    const progress = document.getElementById('extInstallProgress');
+    const msg = document.getElementById('extInstallMsg');
+    const zone = document.getElementById('extDropZone');
+    if (progress) progress.classList.remove('hidden');
+    if (msg) msg.textContent = `Installing ${file.name}...`;
+    if (zone) zone.classList.add('opacity-50', 'pointer-events-none');
+    try {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/ui/extensions/install', { method: 'POST', body: form, credentials: 'include' });
+        if (res.ok) {
+            window.pclinkUI.showToast('Installed', `${file.name} has been installed`, 'success');
+            await window.pclinkUI.loadExtensions();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            window.pclinkUI.showToast('Error', err.detail || 'Install failed', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Connection error during install', 'error');
+    } finally {
+        window._extInstallBusy = false;
+        if (progress) progress.classList.add('hidden');
+        if (zone) zone.classList.remove('opacity-50', 'pointer-events-none');
+        const input = document.getElementById('extFileInput');
+        if (input) input.value = '';
+    }
+};
+
+window.handleExtFileSelect = (input) => {
+    if (input.files && input.files[0]) window._doExtInstallFile(input.files[0]);
+};
+
+window.handleExtDrop = (event) => {
+    event.preventDefault();
+    const zone = document.getElementById('extDropZone');
+    if (zone) zone.classList.remove('border-primary', 'bg-primary/5');
+    const file = event.dataTransfer?.files?.[0];
+    if (file && file.name.endsWith('.zip')) window._doExtInstallFile(file);
+    else window.pclinkUI.showToast('Invalid', 'Only .zip bundles are supported', 'error');
+};
+
+window.installExtFromUrl = async () => {
+    const input = document.getElementById('extUrlInput');
+    const url = input?.value?.trim();
+    if (!url || !url.startsWith('http')) {
+        window.pclinkUI.showToast('Error', 'Enter a valid http(s) URL', 'error');
+        return;
+    }
+    if (window._extInstallBusy) return;
+    window._extInstallBusy = true;
+    const progress = document.getElementById('extInstallProgress');
+    const msg = document.getElementById('extInstallMsg');
+    if (progress) progress.classList.remove('hidden');
+    if (msg) msg.textContent = 'Downloading and installing...';
+    try {
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/install/url?url=${encodeURIComponent(url)}`, { method: 'POST' });
+        if (res.ok) {
+            window.pclinkUI.showToast('Installed', 'Extension installed from URL', 'success');
+            if (input) input.value = '';
+            await window.pclinkUI.loadExtensions();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            window.pclinkUI.showToast('Error', err.detail || 'Install failed', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Connection error', 'error');
+    } finally {
+        window._extInstallBusy = false;
+        if (progress) progress.classList.add('hidden');
+    }
+};
+
 document.addEventListener('DOMContentLoaded', () => { window.pclinkUI = new PCLinkWebUI(); });
+
+// --- Factory Reset & Path Help ---
+
+
+window.toggleResetModal = function(show) {
+    const modal = document.getElementById('resetModal');
+    if (!modal) return;
+    if (show) {
+        modal.showModal ? modal.showModal() : modal.classList.add('modal-open');
+        fetchConfigPath();
+    } else {
+        modal.close ? modal.close() : modal.classList.remove('modal-open');
+    }
+}
+
+async function fetchConfigPath() {
+    try {
+        const response = await fetch('/auth/status');
+        if (response.ok) {
+            const data = await response.json();
+            const el = document.getElementById('p_dataDir');
+            if (el) el.innerText = data.data_path || "~/.config/pclink";
+        }
+    } catch (e) {
+        const el = document.getElementById('p_dataDir');
+        if (el) el.innerText = "Check ~/.config/pclink";
+    }
+}
+
+
+window.openConfigFolder = async function() {
+    try {
+        const response = await fetch('/open-data-dir', { method: 'POST', credentials: 'include' });
+        if (!response.ok) {
+            if (response.status === 403) alert("Opening folder only works if you are on the host machine (localhost).");
+            else alert("Failed to open folder (404/500).");
+        }
+    } catch (e) {
+        alert("Error connecting to server.");
+    }
+}
+
+window.resetServerRequest = async function() {
+    window.toggleResetModal(true);
+}
+
+window.handleFactoryReset = async function(event) {
+    event.preventDefault();
+    const password = document.getElementById('resetPassword').value;
+    const wipeAuth = document.getElementById('wipeAuthCheckbox').checked;
+    const wipeExtensions = document.getElementById('wipeExtensionsCheckbox')?.checked || false;
+
+    if (!await window.confirmDialog("FINAL WARNING: This will PERMANENTLY delete server data. Type 'YES' to confirm you understand the risks.", { title: 'Factory Reset Security Check', danger: true, requiredWord: 'YES' })) {
+        return;
+    }
+
+    const btn = document.getElementById('resetButton');
+    const originalText = btn.innerText;
+    btn.disabled = true;
+    btn.innerText = "RESETTING...";
+
+    try {
+        const response = await fetch('/auth/factory-reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password, wipe_auth: wipeAuth, wipe_extensions: wipeExtensions }),
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            localStorage.clear();
+            document.getElementById('resetSuccessOverlay').classList.remove('hidden');
+            if (window.feather) feather.replace();
+            if (window.toggleResetModal) window.toggleResetModal(false);
+        } else {
+            const data = await response.json();
+            alert("Reset failed: " + (data.detail || "Unknown error"));
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
+    } catch (e) {
+        localStorage.clear();
+        document.getElementById('resetSuccessOverlay').classList.remove('hidden');
+        if (window.feather) feather.replace();
+        if (window.toggleResetModal) window.toggleResetModal(false);
+    }
+}

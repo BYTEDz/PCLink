@@ -11,7 +11,7 @@
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Play Store](https://img.shields.io/badge/Android-Play%20Store-3DDC84?style=for-the-badge&logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)
 
-PCLink is a modern, **web-first** server designed for **secure remote PC management**.  
+PCLink is a modern, **web-first** server designed for **secure remote PC management**.
 Featuring a high-performance FastAPI backend, a responsive Web UI, and an extensible plugin system.
 
 [**Download Releases**](https://github.com/BYTEDz/PCLink/releases) • [**Mobile App**](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink) • [**Wiki Portal**](https://github.com/BYTEDz/PCLink/wiki)
@@ -46,10 +46,10 @@ pclink
 2. Open the **PCLink Mobile App**.
 3. Scan the QR code displayed on your Web UI and approve the connection.
 
-> [!NOTE]  
+> [!NOTE]
 > New to PCLink? Check out the comprehensive [**Getting Started Guide**](https://github.com/BYTEDz/PCLink/wiki/Getting-Started).
 
-> [!IMPORTANT]  
+> [!IMPORTANT]
 > **Antivirus Notice:** PCLink integrates deeply with your system (remote input, screen capture, terminal access). This can occasionally trigger **False Positive** alerts (e.g., `Wacatac.B!ml`) from Windows Defender. Every release is verified via VirusTotal. This project is 100% Open Source and transparent.
 
 ---
@@ -103,8 +103,8 @@ Join the wider PCLink ecosystem:
   <img src="https://github.com/AzharZouhir.png" width="100px" style="border-radius: 50%; border: 3px solid #3d76ab;" alt="Azhar Zouhir"/>
 </a>
 
-**[Azhar Zouhir](https://github.com/AzharZouhir)**  
-_Creator & Lead Developer_  
+**[Azhar Zouhir](https://github.com/AzharZouhir)**
+_Creator & Lead Developer_
 Building the next generation of PC remote management.
 
 [![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/AzharZouhir) [![Email](https://img.shields.io/badge/Email-D14836?style=flat-square&logo=gmail&logoColor=white)](mailto:support@bytedz.com)

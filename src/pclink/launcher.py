@@ -1,4 +1,4 @@
- # SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 # src/pclink/launcher.py
@@ -8,21 +8,44 @@ PCLink Standalone Launcher
 Handles platform-specific bootstrapping for frozen applications.
 """
 
-import sys
-import os
 import logging
+import os
+import sys
+import traceback
+from datetime import datetime
+from pathlib import Path
+
+
+def _fatal_hook(exc_type, exc_value, tb):
+    try:
+        p = Path.home() / ".config" / "PCLink" / "fatal.log"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(f"\\n[{datetime.now()}] FATAL CRASH:\\n")
+            traceback.print_exception(exc_type, exc_value, tb, file=f)
+    except Exception:
+        pass
+    sys.__excepthook__(exc_type, exc_value, tb)
+
+
+sys.excepthook = _fatal_hook
 
 # Hide console window IMMEDIATELY on Windows frozen builds
 # This must happen before ANY other imports or operations that might output to console
 if sys.platform == "win32" and getattr(sys, "frozen", False):
     try:
-        from pclink.core.windows_console import hide_console_window, setup_console_redirection
+        from pclink.core.windows_console import (
+            hide_console_window,
+            setup_console_redirection,
+        )
+
         hide_console_window()
         setup_console_redirection()
     except ImportError:
         # Fallback: try to hide console directly if import fails
         try:
             import ctypes
+
             kernel32 = ctypes.windll.kernel32
             console_window = kernel32.GetConsoleWindow()
             if console_window != 0:
@@ -33,59 +56,82 @@ if sys.platform == "win32" and getattr(sys, "frozen", False):
 
 log = logging.getLogger(__name__)
 
+
 def set_dpi_awareness():
     """Makes the application DPI-aware on Windows."""
     if sys.platform == "win32":
         try:
             import ctypes
+
             # PROCESS_PER_MONITOR_DPI_AWARE = 2
             ctypes.windll.shcore.SetProcessDpiAwareness(2)
             log.debug("Launcher: Set DPI awareness for Windows 8.1+")
         except (ImportError, AttributeError, OSError):
             try:
                 import ctypes
+
                 ctypes.windll.user32.SetProcessDPIAware()
                 log.debug("Launcher: Set DPI awareness for older Windows")
             except (ImportError, AttributeError, OSError):
                 log.debug("Launcher: Could not set DPI awareness.")
 
+
 def setup_network_permissions():
     """Setup network permissions for Windows firewall."""
-    if sys.platform == "win32" and getattr(sys, 'frozen', False):
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
         try:
             import subprocess
-            
+
             exe_path = sys.executable
             app_name = "PCLink Server"
-            
+
             check_cmd = [
-                "netsh", "advfirewall", "firewall", "show", "rule", 
-                f"name={app_name}", "dir=in"
+                "netsh",
+                "advfirewall",
+                "firewall",
+                "show",
+                "rule",
+                f"name={app_name}",
+                "dir=in",
             ]
-            
-            result = subprocess.run(check_cmd, capture_output=True, text=True, 
-                                  creationflags=subprocess.CREATE_NO_WINDOW)
-            
+
+            result = subprocess.run(
+                check_cmd,
+                capture_output=True,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+
             if "No rules match" in result.stdout:
                 log.info("Launcher: Adding Windows Firewall rule...")
                 add_cmd = [
-                    "netsh", "advfirewall", "firewall", "add", "rule",
+                    "netsh",
+                    "advfirewall",
+                    "firewall",
+                    "add",
+                    "rule",
                     f"name={app_name}",
                     "dir=in",
                     "action=allow",
                     f"program={exe_path}",
-                    "enable=yes"
+                    "enable=yes",
                 ]
-                
-                subprocess.run(add_cmd, capture_output=True, 
-                             creationflags=subprocess.CREATE_NO_WINDOW)
+
+                subprocess.run(
+                    add_cmd,
+                    capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
                 log.info("Launcher: Firewall rule added successfully")
             else:
                 log.debug("Launcher: Firewall rule already exists")
-                
+
         except Exception as e:
             log.warning(f"Launcher: Could not setup firewall rule: {e}")
-            log.warning("Launcher: You may need to manually allow PCLink through Windows Firewall")
+            log.warning(
+                "Launcher: You may need to manually allow PCLink through Windows Firewall"
+            )
+
 
 def main():
     set_dpi_awareness()
@@ -93,7 +139,7 @@ def main():
 
     try:
         # Handle PyInstaller frozen state
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, "frozen", False):
             application_path = sys._MEIPASS
             if application_path not in sys.path:
                 sys.path.insert(0, application_path)
@@ -104,19 +150,23 @@ def main():
 
         try:
             from pclink.main import main as pclink_main
+
             return pclink_main()
         except ImportError as e:
             log.error(f"Failed to import pclink.main: {e}")
             log.error(f"sys.path: {sys.path}")
             log.error(f"Current working directory: {os.getcwd()}")
-            if hasattr(sys, '_MEIPASS'):
+            if hasattr(sys, "_MEIPASS"):
                 log.error(f"PyInstaller temp directory: {sys._MEIPASS}")
-                log.error(f"Contents: {os.listdir(sys._MEIPASS) if os.path.exists(sys._MEIPASS) else 'Not found'}")
+                log.error(
+                    f"Contents: {os.listdir(sys._MEIPASS) if os.path.exists(sys._MEIPASS) else 'Not found'}"
+                )
             return 1
-            
+
     except Exception as e:
         log.error(f"Launcher error: {e}", exc_info=True)
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

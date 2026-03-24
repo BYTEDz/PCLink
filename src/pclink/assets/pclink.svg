@@ -16,12 +16,12 @@
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg"><style
      id="style2"><![CDATA[
-#keylines circle, #keylines rect { 
+#keylines circle, #keylines rect {
    vector-effect: non-scaling-stroke;
    fill: none;
    stroke: #0000FF;
 }
-#mask path, #mask rect, #mask circle, #hatching path { 
+#mask path, #mask rect, #mask circle, #hatching path {
    vector-effect: non-scaling-stroke;
    fill: none;
    stroke: #FF0000;

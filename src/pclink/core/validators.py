@@ -2,11 +2,9 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
-import os
 import re
 import socket
 from pathlib import Path
-from typing import List, Optional
 
 from .exceptions import SecurityError
 
@@ -15,8 +13,6 @@ log = logging.getLogger(__name__)
 
 class ValidationError(ValueError):
     """Custom exception for validation-specific errors."""
-
-    pass
 
 
 def validate_port(port: int) -> int:
@@ -38,14 +34,9 @@ def validate_ip_address(ip: str) -> str:
 def validate_api_key(api_key: str) -> str:
     """
     Validates the API key. It must be a valid UUID.
-    For backward compatibility, it handles and strips the legacy 'API_KEY=' prefix.
     """
     if not api_key:
         raise ValidationError("API key cannot be empty.")
-
-    # Smooth upgrade for legacy API keys.
-    if api_key.startswith("API_KEY="):
-        api_key = api_key.split("=", 1)[1]
 
     # Enforce UUID format (8-4-4-4-12 hex).
     # Format: 8-4-4-4-12 hex characters.

@@ -6,7 +6,7 @@ import logging
 import os
 import subprocess
 import sys
-from pathlib import Path
+
 from .utils import resource_path
 
 log = logging.getLogger(__name__)
@@ -18,34 +18,54 @@ USE_GI_NOTIFY = False
 if sys.platform.startswith("linux"):
     try:
         import gi
+
         try:
-            gi.require_version('Notify', '0.7')
+            gi.require_version("Notify", "0.7")
             from gi.repository import Notify
+
             Notify.init("PCLink")
             NOTIFY_AVAILABLE = True
             USE_GI_NOTIFY = True
             log.info("Linux Notify (libnotify via gi) initialized.")
         except (ImportError, ValueError) as e:
-            log.warning(f"gi.repository.Notify not available: {e}. Falling back to notify-send.")
+            log.warning(
+                f"gi.repository.Notify not available: {e}. Falling back to notify-send."
+            )
             # Check if notify-send exists
             try:
-                if subprocess.run(["which", "notify-send"], capture_output=True).returncode == 0:
+                if (
+                    subprocess.run(
+                        ["which", "notify-send"], capture_output=True
+                    ).returncode
+                    == 0
+                ):
                     NOTIFY_AVAILABLE = True
                     log.info("notify-send found. Using it as fallback.")
                 else:
-                    log.warning("notify-send not found. Native Linux notifications will be disabled.")
+                    log.warning(
+                        "notify-send not found. Native Linux notifications will be disabled."
+                    )
             except Exception:
-                log.warning("Could not check for notify-send. Native Linux notifications will be disabled.")
+                log.warning(
+                    "Could not check for notify-send. Native Linux notifications will be disabled."
+                )
     except ImportError:
         # If gi is not available at all
         try:
-            if subprocess.run(["which", "notify-send"], capture_output=True).returncode == 0:
+            if (
+                subprocess.run(["which", "notify-send"], capture_output=True).returncode
+                == 0
+            ):
                 NOTIFY_AVAILABLE = True
                 log.info("notify-send found. Using it as fallback (gi not available).")
             else:
-                log.warning("gi not available and notify-send not found. Native Linux notifications disabled.")
+                log.warning(
+                    "gi not available and notify-send not found. Native Linux notifications disabled."
+                )
         except Exception:
-            log.warning("gi not available and could not check for notify-send. Native Linux notifications disabled.")
+            log.warning(
+                "gi not available and could not check for notify-send. Native Linux notifications disabled."
+            )
 else:
     log.debug("Not on Linux, Skipping Linux notification initialization.")
 
@@ -57,20 +77,25 @@ class LinuxNotifier:
         self.icon_path = resource_path("src/pclink/assets/icon.png")
         if not self.icon_path.exists():
             self.icon_path = None
-        
+
         # Ensure DBUS_SESSION_BUS_ADDRESS is set if possible
         # This is vital for systemd user services to talk to the desktop notifications
         self._ensure_dbus_env()
 
     def _ensure_dbus_env(self):
         """Try to fix DBUS_SESSION_BUS_ADDRESS if missing."""
-        if sys.platform.startswith("linux") and "DBUS_SESSION_BUS_ADDRESS" not in os.environ:
+        if (
+            sys.platform.startswith("linux")
+            and "DBUS_SESSION_BUS_ADDRESS" not in os.environ
+        ):
             try:
                 uid = os.getuid()
                 dbus_path = f"/run/user/{uid}/bus"
                 if os.path.exists(dbus_path):
                     os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_path}"
-                    log.debug(f"Set DBUS_SESSION_BUS_ADDRESS to {os.environ['DBUS_SESSION_BUS_ADDRESS']}")
+                    log.debug(
+                        f"Set DBUS_SESSION_BUS_ADDRESS to {os.environ['DBUS_SESSION_BUS_ADDRESS']}"
+                    )
             except (AttributeError, Exception) as e:
                 log.debug(f"Could not fix DBUS_SESSION_BUS_ADDRESS: {e}")
 
@@ -81,13 +106,13 @@ class LinuxNotifier:
     def show(self, title: str, message: str) -> bool:
         """
         Shows a native Linux notification.
-        
+
         Returns:
             True if the notification was sent successfully, False otherwise.
         """
         if not NOTIFY_AVAILABLE:
             return False
-            
+
         try:
             if USE_GI_NOTIFY:
                 return self._show_gi(title, message)
@@ -99,7 +124,11 @@ class LinuxNotifier:
 
     def _show_gi(self, title: str, message: str) -> bool:
         try:
-            notification = Notify.Notification.new(title, message, str(self.icon_path) if self.icon_path else "dialog-information")
+            notification = Notify.Notification.new(
+                title,
+                message,
+                str(self.icon_path) if self.icon_path else "dialog-information",
+            )
             # Set app name explicitly (some desktops use this)
             notification.set_hint("desktop-entry", "pclink")
             notification.show()
@@ -116,7 +145,7 @@ class LinuxNotifier:
             cmd = ["notify-send", "-a", "PCLink", title, message]
             if self.icon_path:
                 cmd.extend(["-i", str(self.icon_path)])
-            
+
             subprocess.run(cmd, check=True, capture_output=True)
             log.debug(f"Linux notification sent via notify-send: {title}")
             return True

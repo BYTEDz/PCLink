@@ -5,8 +5,9 @@ LICENSE_HEADER = """# SPDX-License-Identifier: AGPL-3.0-or-later
 
 """
 
+
 def add_header(file_path):
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 
     # Skip files that already have the header (checking first line is usually enough)
@@ -20,9 +21,10 @@ def add_header(file_path):
     else:
         new_content = LICENSE_HEADER + content
 
-    with open(file_path, 'w', encoding='utf-8') as f:
+    with open(file_path, "w", encoding="utf-8") as f:
         f.write(new_content)
     print(f"Added header to: {file_path}")
+
 
 def main():
     root_dir = "src"  # Only modify source files
@@ -30,6 +32,7 @@ def main():
         for file in files:
             if file.endswith(".py"):
                 add_header(os.path.join(root, file))
+
 
 if __name__ == "__main__":
     main()

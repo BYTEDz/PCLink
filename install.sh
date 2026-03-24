@@ -80,7 +80,7 @@ detect_distro() {
 
 detect_pkg_format() {
     local os_identifiers=""
-    
+
     # Safely extract ID and ID_LIKE from os-release to determine the OS "family"
     if [ -f /etc/os-release ]; then
         os_identifiers=$(grep -E '^(ID|ID_LIKE)=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d "'" | tr '\n' ' ' | tr '[:upper:]' '[:lower:]' || true)
@@ -133,7 +133,7 @@ fetch_release_info() {
     else
         fail "Neither curl nor wget found."
     fi
-    
+
     if [[ "$json" != *'"tag_name"'* ]]; then
         fail "GitHub API response invalid or rate-limited.\nResponse: ${json:0:200}..."
     fi
@@ -212,12 +212,12 @@ main() {
     current_v=$(get_current_version)
     arch=$(detect_arch)
     distro=$(detect_distro)
-    
-    pkg_format=$(detect_pkg_format) 
+
+    pkg_format=$(detect_pkg_format)
     ext=$(get_pkg_extension "$pkg_format")
 
     info "System: ${BOLD}${distro}${NC} (${arch}) → ${pkg_format}"
-    
+
     if [[ "$current_v" != "none" ]]; then
         info "Currently installed: ${BOLD}${current_v}${NC}"
     fi
@@ -225,9 +225,9 @@ main() {
     info "Fetching latest release information..."
     local release_json
     release_json=$(fetch_release_info)
-    
+
     latest_v=$(echo "$release_json" | grep -oP '"tag_name"\s*:\s*"v?\K[^"]+' | sed -n '1p' || true)
-    
+
     ok "Latest version: ${BOLD}${latest_v}${NC}"
 
     if [[ "$current_v" != "none" && "$UPDATE_MODE" == "false" ]]; then
@@ -259,7 +259,7 @@ main() {
     TMP_DIR=$(mktemp -d)
     local pkg_file="${TMP_DIR}/$(basename "$asset_url")"
     download_file "$asset_url" "$pkg_file"
-    
+
     echo ""
     info "Preparing for system-wide installation..."
     install_package "$pkg_file" "$pkg_format"

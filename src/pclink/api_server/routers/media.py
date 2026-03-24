@@ -5,12 +5,12 @@
 import logging
 import time
 from enum import Enum
-from typing import Any, Dict, Literal, Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from ..services import media_service
+from ...services import media_service
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -26,13 +26,17 @@ class MediaStatus(str, Enum):
 
 class MediaInfoResponse(BaseModel):
     status: MediaStatus = Field(..., description="The current playback status.")
-    control_level: Literal["full", "basic"] = Field(..., description="The level of control available.")
+    control_level: Literal["full", "basic"] = Field(
+        ..., description="The level of control available."
+    )
     title: Optional[str] = None
     artist: Optional[str] = None
     album_title: Optional[str] = None
     duration_sec: int = 0
     position_sec: int = 0
-    server_timestamp: float = Field(..., description="The UTC timestamp when the media info was captured.")
+    server_timestamp: float = Field(
+        ..., description="The UTC timestamp when the media info was captured."
+    )
     is_shuffle_active: Optional[bool] = None
     repeat_mode: Optional[str] = None
     source_app: Optional[str] = None
@@ -50,7 +54,7 @@ class SeekModel(BaseModel):
 async def get_media_info() -> MediaInfoResponse:
     """Provides information about the currently playing media."""
     data = await media_service.get_media_info()
-    
+
     status_str = data.get("status", "STOPPED").upper()
     try:
         status_enum = MediaStatus(status_str.lower())
@@ -68,7 +72,7 @@ async def get_media_info() -> MediaInfoResponse:
         server_timestamp=time.time(),
         is_shuffle_active=data.get("is_shuffle_active"),
         repeat_mode=data.get("repeat_mode"),
-        source_app=data.get("source_app")
+        source_app=data.get("source_app"),
     )
 
 
