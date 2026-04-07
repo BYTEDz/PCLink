@@ -29,38 +29,7 @@ class TerminalService:
     def get_available_shells(self) -> Dict[str, Any]:
         """Detects available shells on the system."""
         if platform.system() == "Windows":
-            shells = ["cmd"]
-            # Check for powershell
-            try:
-                if (
-                    subprocess.run(
-                        ["powershell", "-Command", "Get-Host"],
-                        capture_output=True,
-                        timeout=1,
-                        creationflags=SUBPROCESS_FLAGS,
-                    ).returncode
-                    == 0
-                ):
-                    shells.append("powershell")
-            except Exception:
-                pass
-
-            try:
-                if (
-                    subprocess.run(
-                        ["pwsh", "-Version"],
-                        capture_output=True,
-                        timeout=1,
-                        creationflags=SUBPROCESS_FLAGS,
-                    ).returncode
-                    == 0
-                ):
-                    if "powershell" not in shells:
-                        shells.append("powershell")
-            except Exception:
-                pass
-
-            return {"shells": shells, "default": "cmd"}
+            return {"shells": ["cmd"], "default": "cmd"}
         else:
             available = []
             for s in ["bash", "sh", "zsh", "fish"]:
@@ -82,87 +51,84 @@ class TerminalService:
             return {"shells": available, "default": default}
 
     async def run_windows_terminal(self, websocket: Any, shell_type: str = "cmd"):
-        """Bridging Windows terminal I/O over WebSocket."""
-        # This implementation remains a bridge between subprocess and websocket
-        # but is encapsulated here for reuse and cleaner router logic.
-
-        # Select shell command
-        shell_cmd = ["cmd"]
-        if shell_type.lower() == "powershell":
-            # Check for pwsh first
-            try:
-                if (
-                    subprocess.run(
-                        ["pwsh", "-Version"], capture_output=True, timeout=1
-                    ).returncode
-                    == 0
-                ):
-                    shell_cmd = ["pwsh", "-NoLogo", "-ExecutionPolicy", "Bypass"]
-                else:
-                    shell_cmd = ["powershell", "-NoLogo", "-ExecutionPolicy", "Bypass"]
-            except Exception:
-                shell_cmd = ["powershell", "-NoLogo", "-ExecutionPolicy", "Bypass"]
+        """Bridging Windows terminal I/O over WebSocket with non-blocking asyncio."""
+        shell_cmd = "cmd.exe"
+        shell_args = []
 
         try:
-            process = subprocess.Popen(
+            process = await asyncio.create_subprocess_exec(
                 shell_cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                *shell_args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW,
-                text=False,
-                bufsize=0,
             )
 
-            # Remove initial connected message as per user request
-            # msg = f"\r\n[PCLink Terminal] Connected to {'PowerShell' if 'power' in shell_type else 'Command Prompt'}\r\n"
-            # await websocket.send_text(msg)
-
-            loop = asyncio.get_event_loop()
-
             async def output_reader():
-                while process.poll() is None:
-                    try:
-                        data = await loop.run_in_executor(
-                            None,
-                            lambda: process.stdout.read(512) if process.stdout else b"",
-                        )
-                        if data:
-                            await websocket.send_bytes(data)
-                        else:
-                            await asyncio.sleep(0.05)
-                    except Exception:
-                        break
+                try:
+                    while True:
+                        data = await process.stdout.read(1024)
+                        if not data:
+                            break
+                        await websocket.send_bytes(data)
+                except Exception:
+                    pass
 
-            input_task = asyncio.create_task(output_reader())
+            out_task = asyncio.create_task(output_reader())
+
+            typed_chars = 0
 
             try:
-                while process.poll() is None:
+                while process.returncode is None:
                     message = await websocket.receive()
                     if message["type"] == "websocket.receive":
                         data = message.get("bytes") or message.get("text", "").encode(
                             "utf-8"
                         )
-                        if data and process.stdin:
-                            await loop.run_in_executor(
-                                None,
-                                lambda d=data: (
-                                    process.stdin.write(d),
-                                    process.stdin.flush(),
-                                ),
-                            )
+                        if data:
+                            is_backspace = data == b"\x7f" or data == b"\x08"
+
+                            if is_backspace:
+                                if typed_chars <= 0:
+                                    continue  # Protect the prompt
+                                typed_chars -= 1
+                                echo_data = b"\x08 \x08"
+                            else:
+                                if b"\r" in data or b"\n" in data:
+                                    typed_chars = 0
+                                    # Parse data to correct newlines for Windows pipe
+                                    if b"\r" in data and b"\n" not in data:
+                                        data = data.replace(b"\r", b"\r\n")
+                                else:
+                                    typed_chars += len(data.replace(b"\x1b", b""))
+                                echo_data = data
+
+                            process.stdin.write(data)
+                            await process.stdin.drain()
+
+                            # Manual echo visual feedback
+                            try:
+                                await websocket.send_bytes(echo_data)
+                            except Exception:
+                                pass
+                    elif message["type"] == "websocket.disconnect":
+                        break
+
             except Exception:
                 pass
             finally:
-                input_task.cancel()
-                if process.poll() is None:
+                out_task.cancel()
+                if process.returncode is None:
                     try:
                         process.terminate()
-                        await asyncio.sleep(0.5)
-                        if process.poll() is None:
-                            process.kill()
+                        await asyncio.wait_for(process.wait(), timeout=1.0)
                     except Exception:
-                        pass
+                        if process.returncode is None:
+                            try:
+                                process.kill()
+                            except Exception:
+                                pass
         except Exception as e:
             log.error(f"Windows terminal failed: {e}")
             raise
