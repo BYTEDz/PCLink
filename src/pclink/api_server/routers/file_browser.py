@@ -3,9 +3,11 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -57,7 +59,8 @@ class RenamePayload(BaseModel):
 
 class BatchRenameItem(BaseModel):
     path: str
-    new_name: str = Field(..., min_length=1)
+    new_name: str | None = None
+    target_path: str | None = None
 
 
 class BatchRenamePayload(BaseModel):
@@ -104,6 +107,19 @@ def _map_error(e: Exception):
         raise HTTPException(status_code=400, detail=str(e))
     log.error(f"Internal file error: {e}")
     raise HTTPException(status_code=500, detail="Internal server error")
+
+
+async def get_file_hash(path: str) -> str:
+    """Fast MD5 hashing with 128KB chunks."""
+    hasher = hashlib.md5()
+
+    def _read():
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(131072), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    return await asyncio.to_thread(_read)
 
 
 @router.get("/browse", response_model=DirectoryListing)
@@ -231,24 +247,57 @@ async def batch_rename(items: List[BatchRenameItem]):
     async def _rename_one(item: BatchRenameItem) -> dict:
         try:
             src = file_service.validate_path(item.path)
-            new_n = validate_filename(item.new_name)
-            dest = src.parent / new_n
+
+            if item.target_path:
+                dest = file_service.validate_path(
+                    item.target_path, check_existence=False
+                )
+            elif item.new_name:
+                if ".." in item.new_name:
+                    return {
+                        "path": item.path,
+                        "status": "error",
+                        "error": "UNSAFE_PATH",
+                    }
+                dest_raw = src.parent / item.new_name
+                dest = file_service.validate_path(str(dest_raw), check_existence=False)
+            else:
+                return {
+                    "path": item.path,
+                    "status": "error",
+                    "error": "MISSING_DESTINATION",
+                }
+
             if dest.exists() and src != dest:
+                src_stat = src.stat()
+                dest_stat = dest.stat()
+                if src_stat.st_size == dest_stat.st_size:
+                    if await get_file_hash(str(src)) == await get_file_hash(str(dest)):
+                        await asyncio.to_thread(os.remove, str(src))
+                        return {
+                            "path": item.path,
+                            "status": "duplicate_deleted",
+                            "new_path": str(dest),
+                        }
                 return {"path": item.path, "status": "error", "error": "TARGET_EXISTS"}
-            await asyncio.to_thread(src.rename, dest)
-            return {"path": item.path, "status": "success"}
+
+            if not dest.parent.exists():
+                await asyncio.to_thread(os.makedirs, str(dest.parent), exist_ok=True)
+
+            await asyncio.to_thread(shutil.move, str(src), str(dest))
+            return {"path": item.path, "status": "success", "new_path": str(dest)}
         except FileNotFoundError:
             return {"path": item.path, "status": "error", "error": "NOT_FOUND"}
         except PermissionError:
             return {"path": item.path, "status": "error", "error": "PERMISSION_DENIED"}
-        except ValueError as e:
-            return {"path": item.path, "status": "error", "error": str(e)}
         except Exception as e:
             log.error(f"batch-rename failed for {item.path}: {e}")
-            return {"path": item.path, "status": "error", "error": "INTERNAL_ERROR"}
+            return {"path": item.path, "status": "error", "error": str(e)}
 
     results = await asyncio.gather(*[_rename_one(item) for item in items])
-    success_count = sum(1 for r in results if r["status"] == "success")
+    success_count = sum(
+        1 for r in results if r["status"] in ["success", "duplicate_deleted"]
+    )
     return {
         "success_count": success_count,
         "error_count": len(results) - success_count,
