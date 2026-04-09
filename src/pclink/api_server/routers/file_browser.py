@@ -55,6 +55,15 @@ class RenamePayload(BaseModel):
     new_name: str = Field(..., min_length=1)
 
 
+class BatchRenameItem(BaseModel):
+    path: str
+    new_name: str = Field(..., min_length=1)
+
+
+class BatchRenamePayload(BaseModel):
+    items: List[BatchRenameItem] = Field(..., min_items=1)
+
+
 class CreateFolderPayload(BaseModel):
     parent_path: str
     folder_name: str = Field(..., min_length=1)
@@ -215,6 +224,36 @@ async def rename(payload: RenamePayload):
         return {"status": "success"}
     except Exception as e:
         _map_error(e)
+
+
+@router.post("/batch-rename")
+async def batch_rename(items: List[BatchRenameItem]):
+    async def _rename_one(item: BatchRenameItem) -> dict:
+        try:
+            src = file_service.validate_path(item.path)
+            new_n = validate_filename(item.new_name)
+            dest = src.parent / new_n
+            if dest.exists() and src != dest:
+                return {"path": item.path, "status": "error", "error": "TARGET_EXISTS"}
+            await asyncio.to_thread(src.rename, dest)
+            return {"path": item.path, "status": "success"}
+        except FileNotFoundError:
+            return {"path": item.path, "status": "error", "error": "NOT_FOUND"}
+        except PermissionError:
+            return {"path": item.path, "status": "error", "error": "PERMISSION_DENIED"}
+        except ValueError as e:
+            return {"path": item.path, "status": "error", "error": str(e)}
+        except Exception as e:
+            log.error(f"batch-rename failed for {item.path}: {e}")
+            return {"path": item.path, "status": "error", "error": "INTERNAL_ERROR"}
+
+    results = await asyncio.gather(*[_rename_one(item) for item in items])
+    success_count = sum(1 for r in results if r["status"] == "success")
+    return {
+        "success_count": success_count,
+        "error_count": len(results) - success_count,
+        "results": list(results),
+    }
 
 
 @router.post("/delete")

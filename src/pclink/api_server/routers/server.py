@@ -222,6 +222,9 @@ async def save_server_settings(request: Request):
         if "server_port" in data:
             config_manager.set("server_port", data["server_port"])
 
+        if "bridge_enabled" in data:
+            config_manager.set("bridge_enabled", data["bridge_enabled"])
+
         log.info(f"Server settings updated: {list(data.keys())}")
         return {"status": "success", "message": "Settings saved successfully"}
     except HTTPException:
