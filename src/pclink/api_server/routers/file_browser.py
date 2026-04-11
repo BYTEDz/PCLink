@@ -232,11 +232,21 @@ async def create_folder(payload: CreateFolderPayload):
 async def rename(payload: RenamePayload):
     try:
         src = file_service.validate_path(payload.path)
-        new_n = validate_filename(payload.new_name)
-        dest = src.parent / new_n
-        if dest.exists():
+
+        # Support moving via rename call if new_name looks like a path
+        if "/" in payload.new_name or "\\" in payload.new_name:
+            dest = file_service.validate_path(payload.new_name, check_existence=False)
+        else:
+            new_n = validate_filename(payload.new_name)
+            dest = src.parent / new_n
+
+        if dest.exists() and src != dest:
             raise HTTPException(409, "Target already exists")
-        await asyncio.to_thread(src.rename, dest)
+
+        if not dest.parent.exists():
+            await asyncio.to_thread(os.makedirs, str(dest.parent), exist_ok=True)
+
+        await asyncio.to_thread(shutil.move, str(src), str(dest))
         return {"status": "success"}
     except Exception as e:
         _map_error(e)
