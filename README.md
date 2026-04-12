@@ -18,19 +18,19 @@ Featuring a high-performance FastAPI backend, a responsive Web UI, and an extens
 
 </div>
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Install
 
 Choose your platform to install the PCLink server:
 
-- **🐧 Linux (Automated):**
+- **Linux (Automated):**
   ```bash
   bash <(curl -fsSL https://raw.githubusercontent.com/BYTEDz/PCLink/main/install.sh)
   ```
-- **🪟 Windows:** Download the [`.exe` installer](https://github.com/BYTEDz/PCLink/releases).
-- **📦 Arch Linux:** Available on the AUR (maintained by [Mark Wagie](https://github.com/yochananmarqos)). Install with `yay -S pclink`.
-- **⚙️ Manual:** Grab the [`.deb` or `.rpm`](https://github.com/BYTEDz/PCLink/releases) packages from the releases page.
+- **Windows:** Download the [`.exe` installer](https://github.com/BYTEDz/PCLink/releases).
+- **Arch Linux:** Available on the AUR (maintained by [Mark Wagie](https://github.com/yochananmarqos)). Install with `yay -S pclink`.
+- **Manual:** Grab the [`.deb` or `.rpm`](https://github.com/BYTEDz/PCLink/releases) packages from the releases page.
 
 ### 2. Launch
 
@@ -54,36 +54,36 @@ pclink
 
 ---
 
-## 🎨 Key Features
+## Key Features
 
-- **🌐 Web-First Management** – Configure your server and manage paired devices entirely from your browser.
-- **🛡️ Zero-Trust Security** – Mandatory HTTPS, manual device approval, and cryptographically secure sessions.
-- **⌨️ Peripheral Sync** – Seamlessly control your remote keyboard, mouse, system volume, and media playback.
-- **📂 Remote Explorer** – Full-featured remote file browser and system process manager.
-- **💻 Integrated Shell** – WebSocket-powered terminal access for remote CLI management.
-- **🧩 Extensible Architecture** – Add capabilities via the built-in [Extension System](https://github.com/BYTEDz/PCLink/wiki/Extension-Development).
+- **Web-First Management** – Configure your server and manage paired devices entirely from your browser.
+- **Zero-Trust Security** – Mandatory HTTPS, manual device approval, and cryptographically secure sessions.
+- **Peripheral Sync** – Seamlessly control your remote keyboard, mouse, system volume, and media playback.
+- **Remote Explorer** – Full-featured remote file browser and system process manager.
+- **Integrated Shell** – WebSocket-powered terminal access for remote CLI management.
+- **Extensible Architecture** – Add capabilities via the built-in [Extension System](https://github.com/BYTEDz/PCLink/wiki/Extension-Development).
 
 ---
 
-## 🏗️ Documentation Hub
+## Documentation Hub
 
 Whether you're a user or a developer, we have you covered in our **[Project Wiki](https://github.com/BYTEDz/PCLink/wiki)**.
 
-| 📚 User Guides                                                                              | 🛠️ Development                                                                         | ⚙️ Reference                                                                  |
+| User Guides                                                                                 | Development                                                                            | Reference                                                                     |
 | :------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------- |
-| 📖 [Getting Started](https://github.com/BYTEDz/PCLink/wiki/Getting-Started)                 | 🏗️ [Build from Source](https://github.com/BYTEDz/PCLink/wiki/Building-and-Development) | 🔌 [API Endpoints](https://github.com/BYTEDz/PCLink/wiki/API-Endpoints)       |
-| 🌐 [Web UI Guide](https://github.com/BYTEDz/PCLink/wiki/Web-UI)                             | 🧩 [Extension SDK](https://github.com/BYTEDz/PCLink/wiki/Extension-Development)        | 🔒[Security Model](https://github.com/BYTEDz/PCLink/wiki/Server-Architecture) |
-| ⚠️ [Troubleshooting](https://github.com/BYTEDz/PCLink/wiki/Getting-Started#troubleshooting) | 🤝 [Contributing](https://github.com/BYTEDz/PCLink/wiki/Contributing)                  | ⚡ [Quick Commands](https://github.com/BYTEDz/PCLink/wiki/Quick-Reference)    |
+| [Getting Started](https://github.com/BYTEDz/PCLink/wiki/Getting-Started)                    | [Build from Source](https://github.com/BYTEDz/PCLink/wiki/Building-and-Development)    | [API Endpoints](https://github.com/BYTEDz/PCLink/wiki/API-Endpoints)          |
+| [Web UI Guide](https://github.com/BYTEDz/PCLink/wiki/Web-UI)                                | [Extension SDK](https://github.com/BYTEDz/PCLink/wiki/Extension-Development)           | [Security Model](https://github.com/BYTEDz/PCLink/wiki/Server-Architecture)   |
+| [Troubleshooting](https://github.com/BYTEDz/PCLink/wiki/Getting-Started#troubleshooting)    | [Contributing](https://github.com/BYTEDz/PCLink/wiki/Contributing)                     | [Quick Commands](https://github.com/BYTEDz/PCLink/wiki/Quick-Reference)       |
 
 ---
 
-## 🌐 The Ecosystem & Activity
+## The Ecosystem & Activity
 
 Join the wider PCLink ecosystem:
 
-- 🏠 **[PCLink Server](https://github.com/BYTEDz/PCLink)** – The core backend service.
-- 📱 **[PCLink Mobile](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)** – Companion app for Android.
-- 📦 **[PCLink Extensions](https://github.com/BYTEDz/pclink-extensions)** – Official repository for community extensions.
+- **[PCLink Server](https://github.com/BYTEDz/PCLink)** – The core backend service.
+- **[PCLink Mobile](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)** – Companion app for Android.
+- **[PCLink Extensions](https://github.com/BYTEDz/pclink-extensions)** – Official repository for community extensions.
 
 <div align="center">
 
@@ -95,7 +95,7 @@ Join the wider PCLink ecosystem:
 
 ---
 
-## 🤝 Support & Maintainers
+## Support & Maintainers
 
 <div align="center">
 
@@ -109,6 +109,6 @@ Building the next generation of PC remote management.
 
 [![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/AzharZouhir) [![Email](https://img.shields.io/badge/Email-D14836?style=flat-square&logo=gmail&logoColor=white)](mailto:support@bytedz.com)
 
-🕊️ Free Palestine • 🇩🇿 Made with ❤️ in Algeria
+Free Palestine • Made with love in Algeria
 
 </div>
