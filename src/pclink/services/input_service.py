@@ -54,6 +54,8 @@ class InputService:
                 "alt": Key.alt,
                 "cmd": Key.cmd,
                 "win": Key.cmd,
+                "meta": Key.cmd,
+                "super": Key.cmd,
                 "backspace": Key.backspace,
                 "delete": Key.delete,
                 "tab": Key.tab,

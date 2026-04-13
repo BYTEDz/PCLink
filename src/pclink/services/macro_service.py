@@ -83,7 +83,7 @@ class MacroService:
             input_service.keyboard_type(text)
 
         elif action_type == "input_keys":
-            key = payload.get("key")
+            key = payload.get("custom_key") or payload.get("key")
             if not key:
                 raise ValueError("Missing key")
             modifiers = payload.get("modifiers", [])
