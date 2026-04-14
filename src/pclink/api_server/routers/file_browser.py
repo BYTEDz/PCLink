@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import urllib.parse
+from pathlib import Path
 from typing import List, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response
@@ -254,14 +255,27 @@ async def rename(payload: RenamePayload):
 
 @router.post("/batch-rename")
 async def batch_rename(items: List[BatchRenameItem]):
-    async def _rename_one(item: BatchRenameItem) -> dict:
+    """
+    Executes a batch of renames using a two-pass algorithm to handle
+    circular dependencies (e.g. A->B and B->C).
+    """
+    results = []
+    wait_list = []
+    success_count = 0
+
+    async def _do_rename(item: BatchRenameItem, is_retry: bool = False) -> dict:
         try:
             src = file_service.validate_path(item.path)
 
+            # Use Path for OS-independent joining
             if item.target_path:
-                dest = file_service.validate_path(
-                    item.target_path, check_existence=False
-                )
+                dest = Path(item.target_path)
+                # Ensure it's inside a safe root
+                if not file_service.is_path_safe(dest):
+                    # If target_path is absolute but not in safe root, try to resolve it
+                    dest = file_service.validate_path(
+                        item.target_path, check_existence=False
+                    )
             elif item.new_name:
                 if ".." in item.new_name:
                     return {
@@ -269,8 +283,7 @@ async def batch_rename(items: List[BatchRenameItem]):
                         "status": "error",
                         "error": "UNSAFE_PATH",
                     }
-                dest_raw = src.parent / item.new_name
-                dest = file_service.validate_path(str(dest_raw), check_existence=False)
+                dest = src.parent / item.new_name
             else:
                 return {
                     "path": item.path,
@@ -278,7 +291,16 @@ async def batch_rename(items: List[BatchRenameItem]):
                     "error": "MISSING_DESTINATION",
                 }
 
-            if dest.exists() and src != dest:
+            # Standardize path
+            dest = dest.resolve(strict=False)
+
+            # Detect conflicts
+            if dest.exists() and src.resolve() != dest.resolve():
+                # On first pass, if target exists, it might move later. Add to wait_list.
+                if not is_retry:
+                    return {"path": item.path, "status": "conflict"}
+
+                # On second pass, check if it's an identical duplicate to clean up
                 src_stat = src.stat()
                 dest_stat = dest.stat()
                 if src_stat.st_size == dest_stat.st_size:
@@ -289,29 +311,43 @@ async def batch_rename(items: List[BatchRenameItem]):
                             "status": "duplicate_deleted",
                             "new_path": str(dest),
                         }
+
                 return {"path": item.path, "status": "error", "error": "TARGET_EXISTS"}
 
+            # Ensure parent exists
             if not dest.parent.exists():
                 await asyncio.to_thread(os.makedirs, str(dest.parent), exist_ok=True)
 
             await asyncio.to_thread(shutil.move, str(src), str(dest))
             return {"path": item.path, "status": "success", "new_path": str(dest)}
-        except FileNotFoundError:
-            return {"path": item.path, "status": "error", "error": "NOT_FOUND"}
-        except PermissionError:
-            return {"path": item.path, "status": "error", "error": "PERMISSION_DENIED"}
+
         except Exception as e:
-            log.error(f"batch-rename failed for {item.path}: {e}")
+            log.error(f"Rename failed for {item.path}: {e}")
             return {"path": item.path, "status": "error", "error": str(e)}
 
-    results = await asyncio.gather(*[_rename_one(item) for item in items])
-    success_count = sum(
-        1 for r in results if r["status"] in ["success", "duplicate_deleted"]
-    )
+    # Pass 1: Rename what we can
+    first_pass_results = await asyncio.gather(*[_do_rename(item) for item in items])
+
+    for i, res in enumerate(first_pass_results):
+        if res["status"] == "conflict":
+            wait_list.append(items[i])
+        else:
+            if res["status"] in ["success", "duplicate_deleted"]:
+                success_count += 1
+            results.append(res)
+
+    # Pass 2: Retry conflicts sequentially (to resolve chains)
+    if wait_list:
+        for item in wait_list:
+            res = await _do_rename(item, is_retry=True)
+            if res["status"] in ["success", "duplicate_deleted"]:
+                success_count += 1
+            results.append(res)
+
     return {
         "success_count": success_count,
-        "error_count": len(results) - success_count,
-        "results": list(results),
+        "error_count": len(items) - success_count,
+        "results": results,
     }
 
 
