@@ -65,7 +65,7 @@ class BatchRenameItem(BaseModel):
 
 
 class BatchRenamePayload(BaseModel):
-    items: List[BatchRenameItem] = Field(..., min_items=1)
+    items: List[BatchRenameItem] = Field(..., min_items=1, max_items=10_000)
 
 
 class CreateFolderPayload(BaseModel):
@@ -74,14 +74,14 @@ class CreateFolderPayload(BaseModel):
 
 
 class PastePayload(BaseModel):
-    source_paths: List[str] = Field(..., min_items=1)
-    destination_path: str
+    source_paths: List[str] = Field(..., min_items=1, max_items=5_000)
+    destination_path: str = Field(..., max_length=4096)
     action: Literal["cut", "copy"]
     conflict_resolution: Literal["skip", "overwrite", "rename"] = "skip"
 
 
 class PathsPayload(BaseModel):
-    paths: List[str] = Field(..., min_items=1)
+    paths: List[str] = Field(..., min_items=1, max_items=5_000)
 
 
 class CompressPayload(BaseModel):
@@ -100,12 +100,16 @@ class IsEncryptedResponse(BaseModel):
 
 
 def _map_error(e: Exception):
+    if isinstance(e, HTTPException):
+        raise e  # let FastAPI handle it cleanly
     if isinstance(e, FileNotFoundError):
         raise HTTPException(status_code=404, detail=str(e))
     if isinstance(e, PermissionError):
         raise HTTPException(status_code=403, detail=str(e))
     if isinstance(e, ValueError):
         raise HTTPException(status_code=400, detail=str(e))
+    if isinstance(e, shutil.SameFileError):
+        raise HTTPException(status_code=409, detail="SOURCE_IS_DEST")
     log.error(f"Internal file error: {e}")
     raise HTTPException(status_code=500, detail="Internal server error")
 
