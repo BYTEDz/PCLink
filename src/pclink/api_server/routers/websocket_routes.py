@@ -87,14 +87,7 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
 
     try:
         while True:
-            try:
-                # 60s timeout: Client must send something (or the server's broadcast
-                # will fail and trigger disconnect) to keep the line healthy.
-                data = await asyncio.wait_for(websocket.receive_json(), timeout=60.0)
-            except asyncio.TimeoutError:
-                log.debug(f"WS Timeout for {device_id} - closing connection")
-                break
-
+            data = await websocket.receive_json()
             msg_type = data.get("type")
 
             # 1. Real-time Permission Verification

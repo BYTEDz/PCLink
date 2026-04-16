@@ -15,20 +15,6 @@ class ConnectionManager:
         except RuntimeError:
             pass  # already accepted
 
-        # Zombie Purge: If this device already has an active connection,
-        # close the old one before accepting the new one.
-        # This prevents 'ghost' connections from piling up on signal blips.
-        if device_id and device_id in self.device_connections:
-            old_sockets = self.device_connections[device_id]
-            for old_ws in list(old_sockets):
-                try:
-                    await old_ws.close(code=1000, reason="REPLACED_BY_NEW_CONNECTION")
-                except Exception:
-                    pass
-                if old_ws in self.active_connections:
-                    self.active_connections.remove(old_ws)
-            del self.device_connections[device_id]
-
         self.active_connections.append(websocket)
         if device_id:
             if device_id not in self.device_connections:
@@ -76,28 +62,11 @@ class ConnectionManager:
                     pass
 
     async def broadcast(self, message: Dict[str, Any]):
-        """Send a message to all connected clients in parallel."""
-        if not self.active_connections:
-            return
-
-        import asyncio
-
-        async def _safe_send(ws: WebSocket):
+        for connection in self.active_connections[:]:
             try:
-                await ws.send_json(message)
+                await connection.send_json(message)
             except Exception:
-                self.disconnect(ws)
-
-        # Use asyncio.gather to send in parallel.
-        # return_exceptions=True ensures one dead socket doesn't stop the whole broadcast.
-        await asyncio.gather(
-            *[_safe_send(ws) for ws in self.active_connections[:]],
-            return_exceptions=True,
-        )
-
-    async def ping_all(self):
-        """Send a PING to detect dead connections early."""
-        await self.broadcast({"type": "PING"})
+                self.disconnect(connection)
 
 
 # Global singleton managers
