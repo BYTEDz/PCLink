@@ -104,8 +104,15 @@ class DiscoveryService:
             f"Broadcasting to {len(broadcast_addresses)} addresses: {broadcast_addresses}"
         )
 
+        iteration = 0
         while self._running:
             try:
+                # Refresh broadcast addresses every 60 seconds (12 iterations of 5s)
+                # to handle network interface changes/wake-from-sleep.
+                if iteration % 12 == 0:
+                    broadcast_addresses = self._get_broadcast_addresses()
+                iteration += 1
+
                 # Send to multiple broadcast addresses for better Linux compatibility
                 for broadcast_addr in broadcast_addresses:
                     try:

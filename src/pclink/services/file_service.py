@@ -249,52 +249,75 @@ class FileService:
 
     async def delete_items(self, paths: List[str]) -> List[Dict[str, Any]]:
         results = []
-        for p_str in paths:
+
+        async def _do_delete(p_str: str) -> Dict[str, Any]:
             try:
                 p = self.validate_path(p_str)
                 if p.is_dir():
                     await asyncio.to_thread(shutil.rmtree, p)
                 else:
+                    # Pathlib's unlink runs fast enough, but we still to_thread it to avoid blocking
                     await asyncio.to_thread(p.unlink)
-                results.append({"path": p_str, "success": True})
+                return {"path": p_str, "success": True}
             except Exception as e:
-                results.append({"path": p_str, "success": False, "reason": str(e)})
+                return {"path": p_str, "success": False, "reason": str(e)}
+
+        chunk_size = 50
+        for i in range(0, len(paths), chunk_size):
+            chunk = paths[i : i + chunk_size]
+            chunk_results = await asyncio.gather(*[_do_delete(p) for p in chunk])
+            results.extend(chunk_results)
+
         return results
 
     async def move_copy(
         self, sources: List[str], dest_dir: Path, action: str, resolution: str
     ):
-        """Standard file operations for move/copy."""
+        """Standard file operations for move/copy chunked for concurrency limits."""
         results = {"succeeded": [], "failed": [], "conflicts": []}
 
-        for p_str in sources:
+        async def _do_op(p_str: str) -> Dict[str, Any]:
+            res_item = {"action": "success", "val": p_str}
             try:
                 src = self.validate_path(p_str)
                 target = dest_dir / src.name
 
                 if target.exists():
                     if resolution == "skip":
-                        results["conflicts"].append(src.name)
-                        continue
+                        return {"action": "conflict", "val": src.name}
                     elif resolution == "rename":
                         target = self.get_unique_path(target)
                     elif resolution == "overwrite":
                         if target.is_dir():
+                            # Synchronous, but safe for file_service rules when nested
                             shutil.rmtree(target)
                         else:
                             target.unlink()
 
                 if action == "cut":
                     await asyncio.to_thread(shutil.move, str(src), str(target))
-                    results["succeeded"].append(p_str)
                 else:
                     if src.is_dir():
                         await asyncio.to_thread(shutil.copytree, str(src), str(target))
                     else:
                         await asyncio.to_thread(shutil.copy2, str(src), str(target))
-                    results["succeeded"].append(p_str)
+                return res_item
             except Exception as e:
-                results["failed"].append({"path": p_str, "reason": str(e)})
+                return {"action": "failed", "val": {"path": p_str, "reason": str(e)}}
+
+        chunk_size = 50
+        for i in range(0, len(sources), chunk_size):
+            chunk = sources[i : i + chunk_size]
+            chunk_results = await asyncio.gather(*[_do_op(c) for c in chunk])
+
+            for cr in chunk_results:
+                if cr["action"] == "conflict":
+                    results["conflicts"].append(cr["val"])
+                elif cr["action"] == "failed":
+                    results["failed"].append(cr["val"])
+                else:
+                    results["succeeded"].append(cr["val"])
+
         return results
 
     async def get_file_iterator(

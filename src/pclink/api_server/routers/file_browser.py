@@ -325,8 +325,14 @@ async def batch_rename(items: List[BatchRenameItem]):
             log.error(f"Rename failed for {item.path}: {e}")
             return {"path": item.path, "status": "error", "error": str(e)}
 
-    # Pass 1: Rename what we can
-    first_pass_results = await asyncio.gather(*[_do_rename(item) for item in items])
+    # Pass 1: Rename what we can (Chunked to prevent flooding the thread pool and FD limits)
+    chunk_size = 50
+    first_pass_results = []
+
+    for i in range(0, len(items), chunk_size):
+        chunk = items[i : i + chunk_size]
+        chunk_res = await asyncio.gather(*[_do_rename(item) for item in chunk])
+        first_pass_results.extend(chunk_res)
 
     for i, res in enumerate(first_pass_results):
         if res["status"] == "conflict":
