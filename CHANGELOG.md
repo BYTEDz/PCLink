@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2026-04-16
+
+Added
+- Batch renaming functionality with conflict detection and circular dependency resolution.
+- Predefined keyboard shortcut selections and modifier support for macros.
+- Support for meta, super, and menu keys across input services.
+- Configuration option for bridge settings in the server dashboard.
+
+Improved
+- Performance of large-scale file operations including deletion and moving.
+- WebSocket connection stability and stale session management.
+- Service discovery reliability during network interface changes or system wake.
+- Extension system stability with better dependency isolation and thorough module cleanup.
+- Loading speed for extension metadata via in-memory caching.
+- Documentation readability and visual formatting.
+
 ## [4.0.0] - 2026-03-23
 
 # PCLink 4.0.0 — Codename “Cortex”
