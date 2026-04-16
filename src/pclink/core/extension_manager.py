@@ -71,6 +71,12 @@ class ExtensionManager:
             self._crash_file = constants.APP_DATA_PATH / ".extension_crashes"
             self._check_safe_mode()
 
+            # Metadata Cache: eid -> (last_mtime, manifest_dict)
+            self._metadata_cache: Dict[str, tuple[float, Dict]] = {}
+
+            # Runtime failure tracking: eid -> count
+            self._runtime_failures: Dict[str, int] = {}
+
             # Ensure 'pclink.extensions' exists as a dummy package for dynamic imports
             if "pclink.extensions" not in sys.modules:
                 from types import ModuleType
@@ -122,14 +128,29 @@ class ExtensionManager:
             except OSError:
                 pass
 
-    def get_extension_logs(self, extension_id: str) -> List[str]:
-        """Returns the captured logs for a specific extension."""
-        return self.logs.get(extension_id, [])
+    def get_manifest(self, extension_id: str) -> Optional[Dict]:
+        """Reads extension manifest with smart in-memory caching."""
+        manifest_path = self.extensions_path / extension_id / "extension.yaml"
+        if not manifest_path.exists():
+            return None
 
-    def clear_extension_logs(self, extension_id: str):
-        """Clears the logs for a specific extension."""
-        if extension_id in self.logs:
-            self.logs[extension_id] = []
+        try:
+            mtime = os.path.getmtime(manifest_path)
+            cached_mtime, cached_data = self._metadata_cache.get(
+                extension_id, (0, None)
+            )
+
+            if mtime == cached_mtime and cached_data is not None:
+                return cached_data
+
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+
+            self._metadata_cache[extension_id] = (mtime, data)
+            return data
+        except Exception as e:
+            log.error(f"Failed to read manifest for {extension_id}: {e}")
+            return None
 
     def _is_safe_name(self, name: str) -> bool:
         """Security: Verify name is a simple alphanumeric/hyphen string."""
@@ -280,17 +301,28 @@ class ExtensionManager:
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
-            # Add extension lib directory to sys.path for dependency isolation
-            lib_path = extension_dir / "lib"
-            if lib_path.exists() and str(lib_path) not in sys.path:
-                sys.path.append(str(lib_path))
+            # Add extension lib directory to sys.path briefly for import isolation
+            lib_path = str(extension_dir / "lib")
+            added_to_path = False
+            if os.path.isdir(lib_path) and lib_path not in sys.path:
+                sys.path.insert(0, lib_path)
+                added_to_path = True
 
-            # Dynamic import
-            module_name = f"pclink.extensions.{extension_id.replace('-', '_')}"
-            spec = importlib.util.spec_from_file_location(module_name, entry_point_path)
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
+            try:
+                # Dynamic import
+                module_name = f"pclink.extensions.{extension_id.replace('-', '_')}"
+                spec = importlib.util.spec_from_file_location(
+                    module_name, entry_point_path
+                )
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+            finally:
+                # Security: Remove from sys.path immediately after loading the root module
+                # This prevents 'path leakage' to other extensions while still allowing
+                # the loaded module to reference its dependencies already in sys.modules.
+                if added_to_path:
+                    sys.path.remove(lib_path)
 
             # Look for a class named 'Extension'
             extension_class: Optional[Type[ExtensionBase]] = getattr(
@@ -425,12 +457,20 @@ class ExtensionManager:
                 self.extensions[extension_id].cleanup()
                 del self.extensions[extension_id]
 
-                # Also remove from sys.modules to allow fresh reload
-                module_name = f"pclink.extensions.{extension_id.replace('-', '_')}"
-                if module_name in sys.modules:
-                    del sys.modules[module_name]
+                # Full module purge: remove root and ALL sub-modules from sys.modules
+                # to prevent memory leaks and 'stale reference' bug during reloads.
+                module_prefix = f"pclink.extensions.{extension_id.replace('-', '_')}"
+                to_remove = [
+                    m
+                    for m in sys.modules
+                    if m == module_prefix or m.startswith(f"{module_prefix}.")
+                ]
+                for m in to_remove:
+                    del sys.modules[m]
 
-                log.info(f"Unloaded extension: {extension_id}")
+                log.info(
+                    f"Unloaded extension and purged {len(to_remove)} modules: {extension_id}"
+                )
             except Exception as e:
                 log.error(f"Error cleaning up extension {extension_id}: {e}")
 

@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 from typing import Dict
 
-import yaml
 
 from ..core.config import config_manager
 from ..core.extension_manager import ExtensionManager
@@ -39,10 +38,10 @@ class ExtensionService:
         all_exts = []
 
         for eid in discovered:
-            manifest_p = self.manager.extensions_path / eid / "extension.yaml"
             try:
-                with open(manifest_p, "r", encoding="utf-8") as f:
-                    meta = yaml.safe_load(f)
+                meta = self.manager.get_manifest(eid)
+                if not meta:
+                    continue
 
                 ext = self.manager.get_extension(eid)
                 if ext:
