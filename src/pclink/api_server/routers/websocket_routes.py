@@ -77,6 +77,8 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
     services = config_manager.get("services", {})
     last_auth_check = time.time()
 
+    from ...services.system_service import system_service
+
     await websocket.send_json(
         {
             "type": "SYNC_STATE",
@@ -85,6 +87,15 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
             "server_id": DiscoveryService.generate_server_id(),
         }
     )
+
+    # Immediately burst telemetry history to "warm up" graphs on the client
+    if services.get("info", True):
+        await websocket.send_json(
+            {
+                "type": "telemetry_history",
+                "data": system_service.get_telemetry_history(),
+            }
+        )
 
     type_service_map = {
         "mouse_control": "mouse",
@@ -193,6 +204,8 @@ async def broadcast_updates_task(manager, state):
 
     while True:
         try:
+            # We always run the loop, but we skip heavy delivery if no one is connected.
+            # system_service now manages its own light background collection.
             if not manager.active_connections:
                 await asyncio.sleep(2)
                 continue
@@ -205,6 +218,7 @@ async def broadcast_updates_task(manager, state):
             }
 
             if services.get("info", True):
+                # Use the pre-calculated light snapshot + heavy on-demand if needed
                 update_data["system"] = await system_service.get_system_info()
             else:
                 version = (

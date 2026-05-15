@@ -6,9 +6,11 @@ import asyncio
 import logging
 import os
 import platform
+import shutil
 import subprocess
 import sys
 from typing import Any, Dict
+from fastapi import WebSocketDisconnect
 
 log = logging.getLogger(__name__)
 
@@ -29,36 +31,29 @@ class TerminalService:
     def get_available_shells(self) -> Dict[str, Any]:
         """Detects available shells on the system."""
         if platform.system() == "Windows":
+            # On Windows, we currently only support cmd.exe for PTY-less bridging
             return {"shells": ["cmd"], "default": "cmd"}
         else:
             available = []
             for s in ["bash", "sh", "zsh", "fish"]:
-                try:
-                    if (
-                        subprocess.run(
-                            ["which", s],
-                            capture_output=True,
-                            timeout=1,
-                            creationflags=SUBPROCESS_FLAGS,
-                        ).returncode
-                        == 0
-                    ):
-                        available.append(s)
-                except Exception:
-                    pass
+                if shutil.which(s):
+                    available.append(s)
 
             default = os.environ.get("SHELL", "bash").split("/")[-1]
-            return {"shells": available, "default": default}
+            if default not in available and shutil.which(default):
+                available.append(default)
+
+            return {"shells": available, "default": default or "bash"}
 
     async def run_windows_terminal(self, websocket: Any, shell_type: str = "cmd"):
         """Bridging Windows terminal I/O over WebSocket with non-blocking asyncio."""
-        shell_cmd = "cmd.exe"
-        shell_args = []
+        # Security: Map shell_type to trusted binaries
+        shell_map = {"cmd": "cmd.exe"}
+        shell_cmd = shell_map.get(shell_type, "cmd.exe")
 
         try:
             process = await asyncio.create_subprocess_exec(
                 shell_cmd,
-                *shell_args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -76,7 +71,6 @@ class TerminalService:
                     pass
 
             out_task = asyncio.create_task(output_reader())
-
             typed_chars = 0
 
             try:
@@ -115,8 +109,10 @@ class TerminalService:
                     elif message["type"] == "websocket.disconnect":
                         break
 
-            except Exception:
+            except (asyncio.CancelledError, WebSocketDisconnect):
                 pass
+            except Exception as e:
+                log.debug(f"Terminal session loop error: {e}")
             finally:
                 out_task.cancel()
                 if process.returncode is None:
@@ -135,18 +131,20 @@ class TerminalService:
 
     async def run_unix_terminal(self, websocket: Any, shell_type: str = "bash"):
         """Bridging Unix/Linux terminal I/O via PTY over WebSocket."""
-        # Compatibility: If client is old or Windows-style, "cmd" means default shell on Unix
-        shell = shell_type
-        if not shell or shell in ["default", "cmd"]:
-            shell = os.environ.get("SHELL", "bash")
+        # Security: Resolve the shell binary path
+        shell_path = shutil.which(shell_type)
+        if not shell_path:
+            # Fallback for "cmd" or "default"
+            shell_path = os.environ.get("SHELL") or shutil.which("bash") or "/bin/sh"
 
         master_fd = None
         try:
             master_fd, slave_fd = pty.openpty()
             env = os.environ.copy()
             env.setdefault("TERM", "xterm-256color")
+
             process = await asyncio.create_subprocess_exec(
-                shell,
+                shell_path,
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=slave_fd,
@@ -177,8 +175,10 @@ class TerminalService:
                 while process.returncode is None:
                     data = await websocket.receive_bytes()
                     os.write(master_fd, data)
-            except Exception:
+            except (asyncio.CancelledError, WebSocketDisconnect):
                 pass
+            except Exception as e:
+                log.debug(f"Unix terminal session loop error: {e}")
             finally:
                 fwd_task.cancel()
                 if process.returncode is None:

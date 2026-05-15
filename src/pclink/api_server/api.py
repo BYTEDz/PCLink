@@ -107,7 +107,9 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
 
         # Start WebSocket Broadcast Task
         from .routers.websocket_routes import broadcast_updates_task
+        from ..services.system_service import system_service
 
+        asyncio.create_task(system_service.start_background_collection())
         asyncio.create_task(broadcast_updates_task(mobile_manager, app.state))
 
         # Reset extension crash counter

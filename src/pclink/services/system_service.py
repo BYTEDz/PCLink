@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections import deque
 from typing import Any, Dict, List, Optional
 
 import psutil
@@ -96,6 +97,11 @@ class SystemService:
         self._thermals_cache_time = 0
         self._THERMALS_TTL = 30  # 30 seconds - temperature doesn't change fast
 
+        # Telemetry History (for smooth graphs on connection)
+        self._telemetry_history = deque(maxlen=20)
+        self._last_light_snapshot = None
+        self._background_task = None
+
         # Initialize psutil markers to avoid zero values on first call
         try:
             psutil.cpu_percent(interval=None)
@@ -103,6 +109,51 @@ class SystemService:
             psutil.net_io_counters()
         except Exception:
             pass
+
+    async def start_background_collection(self):
+        """Starts the low-impact background telemetry collection."""
+        if self._background_task and not self._background_task.done():
+            return
+
+        self._background_task = asyncio.create_task(self._collection_loop())
+
+    async def _collection_loop(self):
+        """Infinite loop for light telemetry snapshots."""
+        from ..api_server.ws_manager import mobile_manager
+
+        while True:
+            try:
+                # 1. Collect ONLY light stats (extremely cheap)
+                snapshot = await asyncio.to_thread(self._get_light_snapshot)
+                self._last_light_snapshot = snapshot
+                self._telemetry_history.append(
+                    {"timestamp": time.time(), "data": snapshot}
+                )
+
+                # 2. Adaptive sleeping: poll faster if someone is watching
+                if mobile_manager.active_connections:
+                    await asyncio.sleep(1.0)
+                else:
+                    await asyncio.sleep(3.0)  # Very low impact when idle
+            except Exception as e:
+                log.debug(f"Telemetry collection error: {e}")
+                await asyncio.sleep(5)
+
+    def _get_light_snapshot(self) -> Dict[str, Any]:
+        """Captures minimal stats needed for graphs without heavy OS probes."""
+        mem = psutil.virtual_memory()
+        return {
+            "cpu": {"percent": psutil.cpu_percent(interval=None)},
+            "ram": {
+                "percent": mem.percent,
+                "used_gb": round(mem.used / (1024**3), 2),
+            },
+            "network": {"speed": self._network_monitor.get_speed()},
+        }
+
+    def get_telemetry_history(self) -> List[Dict[str, Any]]:
+        """Returns the rolling history of light snapshots."""
+        return list(self._telemetry_history)
 
     async def run_command(self, cmd: List[str], timeout: float = 5.0) -> str:
         """Asynchronously runs a command and returns its stdout."""

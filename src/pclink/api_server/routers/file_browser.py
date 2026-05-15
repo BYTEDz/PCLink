@@ -10,30 +10,25 @@ import os
 import shutil
 import subprocess
 import sys
-import urllib.parse
-from pathlib import Path
 from typing import List, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Response
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ...core.validators import validate_filename
-from ...services.file_service import (
-    AIOFILES_INSTALLED,
-    HOME_DIR,
-    file_service,
-)
-
-if AIOFILES_INSTALLED:
-    import aiofiles
+from ...services.file_service import HOME_DIR, file_service
+from .dependencies import verify_api_key
 
 log = logging.getLogger(__name__)
-router = APIRouter()
+
+# NOTE: Enforce authentication for all file operations
+router = APIRouter(dependencies=[Depends(verify_api_key)])
 
 ROOT_IDENTIFIER = "_ROOT_"
 
 
+# --- Models ---
 class FileItem(BaseModel):
     name: str
     path: str
@@ -95,36 +90,41 @@ class ExtractPayload(BaseModel):
     password: str | None = None
 
 
-class IsEncryptedResponse(BaseModel):
-    is_encrypted: bool
-
-
+# --- Helpers ---
 def _map_error(e: Exception):
     if isinstance(e, HTTPException):
-        raise e  # let FastAPI handle it cleanly
+        raise e
     if isinstance(e, FileNotFoundError):
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail="File or directory not found")
     if isinstance(e, PermissionError):
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail="Permission denied")
     if isinstance(e, ValueError):
         raise HTTPException(status_code=400, detail=str(e))
     if isinstance(e, shutil.SameFileError):
         raise HTTPException(status_code=409, detail="SOURCE_IS_DEST")
-    log.error(f"Internal file error: {e}")
+
+    log.error(f"Internal file error: {e}", exc_info=True)
     raise HTTPException(status_code=500, detail="Internal server error")
 
 
 async def get_file_hash(path: str) -> str:
-    """Fast MD5 hashing with 128KB chunks."""
-    hasher = hashlib.md5()
+    """Fast hashing utilizing native C-implementation in modern Python."""
 
     def _read():
         with open(path, "rb") as f:
+            # Python 3.11+ native file hashing
+            if hasattr(hashlib, "file_digest"):
+                return hashlib.file_digest(f, "md5").hexdigest()
+            # Fallback
+            hasher = hashlib.md5()
             for chunk in iter(lambda: f.read(131072), b""):
                 hasher.update(chunk)
-        return hasher.hexdigest()
+            return hasher.hexdigest()
 
     return await asyncio.to_thread(_read)
+
+
+# --- Endpoints ---
 
 
 @router.get("/browse", response_model=DirectoryListing)
@@ -225,8 +225,13 @@ async def create_folder(payload: CreateFolderPayload):
         parent = file_service.validate_path(payload.parent_path)
         name = validate_filename(payload.folder_name)
         new_p = parent / name
+
+        # Security: Re-validate to ensure name traversal didn't escape constraints
+        new_p = file_service.validate_path(str(new_p), check_existence=False)
+
         if new_p.exists():
             raise HTTPException(409, "Target already exists")
+
         await asyncio.to_thread(new_p.mkdir)
         return {"status": "success"}
     except Exception as e:
@@ -238,14 +243,16 @@ async def rename(payload: RenamePayload):
     try:
         src = file_service.validate_path(payload.path)
 
-        # Support moving via rename call if new_name looks like a path
         if "/" in payload.new_name or "\\" in payload.new_name:
             dest = file_service.validate_path(payload.new_name, check_existence=False)
         else:
             new_n = validate_filename(payload.new_name)
             dest = src.parent / new_n
 
-        if dest.exists() and src != dest:
+        # Security: Always validate the final destination path
+        dest = file_service.validate_path(str(dest), check_existence=False)
+
+        if dest.exists() and src.resolve() != dest.resolve():
             raise HTTPException(409, "Target already exists")
 
         if not dest.parent.exists():
@@ -258,36 +265,33 @@ async def rename(payload: RenamePayload):
 
 
 @router.post("/batch-rename")
-async def batch_rename(items: List[BatchRenameItem]):
-    """
-    Executes a batch of renames using a two-pass algorithm to handle
-    circular dependencies (e.g. A->B and B->C).
-    """
-    results = []
-    wait_list = []
+async def batch_rename(payload: BatchRenamePayload):  # Fixed payload validation
+    items = payload.items
+    results, wait_list = [], []
     success_count = 0
 
     async def _do_rename(item: BatchRenameItem, is_retry: bool = False) -> dict:
         try:
             src = file_service.validate_path(item.path)
 
-            # Use Path for OS-independent joining
             if item.target_path:
-                dest = Path(item.target_path)
-                # Ensure it's inside a safe root
-                if not file_service.is_path_safe(dest):
-                    # If target_path is absolute but not in safe root, try to resolve it
-                    dest = file_service.validate_path(
-                        item.target_path, check_existence=False
-                    )
+                dest = file_service.validate_path(
+                    item.target_path, check_existence=False
+                )
             elif item.new_name:
-                if ".." in item.new_name:
+                if (
+                    ".." in item.new_name
+                    or "/" in item.new_name
+                    or "\\" in item.new_name
+                ):
                     return {
                         "path": item.path,
                         "status": "error",
                         "error": "UNSAFE_PATH",
                     }
-                dest = src.parent / item.new_name
+                raw_dest = src.parent / item.new_name
+                # Security: Enforce final validation check
+                dest = file_service.validate_path(str(raw_dest), check_existence=False)
             else:
                 return {
                     "path": item.path,
@@ -295,18 +299,13 @@ async def batch_rename(items: List[BatchRenameItem]):
                     "error": "MISSING_DESTINATION",
                 }
 
-            # Standardize path
             dest = dest.resolve(strict=False)
 
-            # Detect conflicts
             if dest.exists() and src.resolve() != dest.resolve():
-                # On first pass, if target exists, it might move later. Add to wait_list.
                 if not is_retry:
                     return {"path": item.path, "status": "conflict"}
 
-                # On second pass, check if it's an identical duplicate to clean up
-                src_stat = src.stat()
-                dest_stat = dest.stat()
+                src_stat, dest_stat = src.stat(), dest.stat()
                 if src_stat.st_size == dest_stat.st_size:
                     if await get_file_hash(str(src)) == await get_file_hash(str(dest)):
                         await asyncio.to_thread(os.remove, str(src))
@@ -318,7 +317,6 @@ async def batch_rename(items: List[BatchRenameItem]):
 
                 return {"path": item.path, "status": "error", "error": "TARGET_EXISTS"}
 
-            # Ensure parent exists
             if not dest.parent.exists():
                 await asyncio.to_thread(os.makedirs, str(dest.parent), exist_ok=True)
 
@@ -329,7 +327,6 @@ async def batch_rename(items: List[BatchRenameItem]):
             log.error(f"Rename failed for {item.path}: {e}")
             return {"path": item.path, "status": "error", "error": str(e)}
 
-    # Pass 1: Rename what we can (Chunked to prevent flooding the thread pool and FD limits)
     chunk_size = 50
     first_pass_results = []
 
@@ -346,7 +343,6 @@ async def batch_rename(items: List[BatchRenameItem]):
                 success_count += 1
             results.append(res)
 
-    # Pass 2: Retry conflicts sequentially (to resolve chains)
     if wait_list:
         for item in wait_list:
             res = await _do_rename(item, is_retry=True)
@@ -375,13 +371,12 @@ async def open_file(payload: PathPayload):
     try:
         p = file_service.validate_path(payload.path)
         if sys.platform == "win32":
-            os.startfile(p)
+            await asyncio.to_thread(os.startfile, p)
         elif sys.platform == "darwin":
             subprocess.Popen(
                 ["open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
         else:
-            # Use Popen to avoid blocking the event loop and suppress noisy stderr output (like Qt warnings)
             subprocess.Popen(
                 ["xdg-open", str(p)],
                 stdout=subprocess.DEVNULL,
@@ -414,23 +409,11 @@ async def download(path: str = Query(...)):
     try:
         p = file_service.validate_path(path)
         if not p.is_file():
-            raise HTTPException(400, "Not a file")
+            raise HTTPException(400, "Requested path is not a file")
 
-        async def _iter():
-            if AIOFILES_INSTALLED:
-                async with aiofiles.open(p, "rb") as f:
-                    while chunk := await f.read(65536):
-                        yield chunk
-            else:
-                with p.open("rb") as f:
-                    while chunk := f.read(65536):
-                        yield chunk
-
-        headers = {
-            "Content-Disposition": f'attachment; filename="{urllib.parse.quote(p.name)}"'
-        }
-        return StreamingResponse(
-            _iter(), media_type="application/octet-stream", headers=headers
+        # FastAPI Native FileResponse handles chunking, async I/O, range headers, and mime-types securely
+        return FileResponse(
+            path=str(p), filename=p.name, content_disposition_type="attachment"
         )
     except Exception as e:
         _map_error(e)
