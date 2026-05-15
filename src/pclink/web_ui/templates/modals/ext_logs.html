@@ -1,0 +1,20 @@
+<dialog id="extLogsModal" class="modal font-bold">
+  <div class="modal-box max-w-2xl w-full">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-black text-base flex items-center gap-2">
+        <i data-feather="terminal" class="w-4 text-primary"></i>
+        <span id="extLogsModalTitle">Extension Logs</span>
+      </h3>
+      <div class="flex gap-2">
+        <button class="btn btn-xs btn-ghost border-base-300" onclick="window.refreshExtLogs()"><i data-feather="refresh-cw" class="w-3"></i></button>
+        <button class="btn btn-xs btn-ghost border-base-300 text-error" onclick="window.clearExtLogs()"><i data-feather="trash-2" class="w-3"></i></button>
+      </div>
+    </div>
+    <div class="bg-[#0b1120] rounded-xl p-4 max-h-80 overflow-y-auto font-mono text-xs">
+      <pre id="extLogsContent" class="text-gray-300 whitespace-pre-wrap">Loading...</pre>
+    </div>
+    <div class="modal-action mt-4">
+      <form method="dialog"><button class="btn btn-sm btn-ghost font-bold">Close</button></form>
+    </div>
+  </div>
+</dialog>

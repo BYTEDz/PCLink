@@ -1,0 +1,33 @@
+<!-- Macro Editor Modal -->
+<dialog id="macroEditorModal" class="modal">
+  <div class="modal-box w-11/12 max-w-2xl bg-base-100 p-0 overflow-hidden border border-base-300">
+    <div class="p-4 border-b border-base-300 flex justify-between items-center bg-base-200">
+      <h3 class="font-black uppercase tracking-widest text-xs flex items-center gap-2">
+        <i data-feather="zap" class="text-primary w-4"></i> Macro Editor
+      </h3>
+      <button class="btn btn-sm btn-ghost" onclick="document.getElementById('macroEditorModal').close()">✕</button>
+    </div>
+    <div class="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+      <input type="hidden" id="macroIdInput" />
+      <div class="form-control">
+        <label class="label font-black uppercase text-[10px] opacity-40 p-1">Macro Name</label>
+        <input type="text" id="macroNameInput" placeholder="e.g. Work Setup" class="input input-bordered w-full font-bold" />
+      </div>
+      <div class="space-y-3">
+        <div class="flex justify-between items-center">
+          <label class="label font-black uppercase text-[10px] opacity-40 p-1">Actions Chain</label>
+          <button class="btn btn-xs btn-primary text-white font-bold" onclick="window.addMacroActionRow()">
+            <i data-feather="plus" class="w-3"></i> Add Action
+          </button>
+        </div>
+        <div id="macroActionsContainer" class="space-y-3 min-h-[100px] border-2 border-dashed border-base-300 rounded-xl p-4">
+          <!-- Action rows will be injected here -->
+        </div>
+      </div>
+    </div>
+    <div class="p-4 border-t border-base-300 bg-base-200 flex justify-end gap-2">
+      <button class="btn btn-sm btn-ghost font-bold" onclick="document.getElementById('macroEditorModal').close()">Cancel</button>
+      <button class="btn btn-sm btn-primary text-white font-bold px-6" onclick="window.saveMacro()">Save Macro</button>
+    </div>
+  </div>
+</dialog>

@@ -1,0 +1,22 @@
+<header class="navbar bg-base-100 border-b border-base-300 px-4 shrink-0 shadow-sm z-10">
+  <div class="flex-none lg:hidden">
+    <label for="main-drawer" class="btn btn-square btn-ghost"><i data-feather="menu"></i></label>
+  </div>
+  <div class="flex-1 gap-3">
+    <div class="bg-primary p-1.5 rounded-lg lg:hidden">
+      <img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" alt="Logo" />
+    </div>
+    <div>
+      <h1 class="text-xl font-black leading-none">PCLink</h1>
+      <span class="text-xs opacity-50 uppercase font-black tracking-widest">Control Panel</span>
+    </div>
+  </div>
+  <div class="flex-none gap-2">
+    <div class="badge badge-outline gap-2 py-3 px-3 border-base-300" id="serverStatusBadge">
+      <span class="status-dot online w-2 h-2 rounded-full bg-success"></span>
+      <span id="serverStatusText" class="text-sm font-black uppercase tracking-wider">Online</span>
+    </div>
+    <button class="btn btn-ghost btn-sm text-error ml-2" onclick="logout()" title="Logout"><i
+        data-feather="log-out"></i></button>
+  </div>
+</header>

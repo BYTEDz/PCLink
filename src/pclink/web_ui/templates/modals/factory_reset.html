@@ -1,0 +1,34 @@
+<dialog id="resetModal" class="modal font-bold">
+  <div class="modal-box border-2 border-error/30 shadow-2xl items-center text-center p-8 relative">
+    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="toggleResetModal(false)">✕</button>
+    <h3 class="font-black text-2xl mb-2 text-error">Factory Reset</h3>
+    <p class="text-sm opacity-60 mb-8 px-4 leading-6 font-normal">This will PERMANENTLY delete server data. Extensions can be optionally wiped.</p>
+    <form onsubmit="handleFactoryReset(event)" class="space-y-4 font-bold flex flex-col items-center">
+      <input type="password" id="resetPassword" placeholder="Confirm with Master Password" class="input input-bordered w-full text-center" required>
+      <div class="space-y-2 w-full">
+        <div class="form-control w-full p-2 bg-base-200/50 rounded-xl border border-base-300">
+          <label class="label cursor-pointer px-4">
+            <span class="label-text font-black text-[10px] uppercase opacity-70">Wipe My Password Too</span>
+            <input type="checkbox" id="wipeAuthCheckbox" class="checkbox checkbox-primary checkbox-sm border-2 rounded-lg ml-4">
+          </label>
+        </div>
+        <div class="form-control w-full p-2 bg-error/5 rounded-xl border border-error/20">
+          <label class="label cursor-pointer px-4">
+            <span class="label-text font-black text-[10px] uppercase text-error opacity-80">Wipe All Extensions</span>
+            <input type="checkbox" id="wipeExtensionsCheckbox" class="checkbox checkbox-error checkbox-sm border-2 rounded-lg ml-4">
+          </label>
+        </div>
+      </div>
+      <div class="modal-action w-full flex-col gap-2 m-0">
+        <button type="submit" class="btn btn-error w-full text-white font-black uppercase shadow-lg" id="resetButton">Initiate Reset</button>
+        <button type="button" class="btn btn-ghost w-full font-bold opacity-50" onclick="toggleResetModal(false)">Cancel</button>
+      </div>
+    </form>
+    <div class="divider text-[9px] font-black uppercase opacity-20 my-6 tracking-widest">Manual Reset</div>
+    <div class="bg-base-300/50 p-3 rounded-lg border border-base-300 font-mono text-[10px] opacity-50 select-all mb-2" id="p_dataDir">Loading...</div>
+    <button class="btn btn-ghost btn-xs opacity-40 uppercase font-black" onclick="openConfigFolder()">Open Host Folder</button>
+  </div>
+  <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm" onclick="toggleResetModal(false)">
+    <button>close</button>
+  </form>
+</dialog>

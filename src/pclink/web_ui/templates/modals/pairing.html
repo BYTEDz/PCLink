@@ -1,0 +1,14 @@
+<dialog id="pairingModal" class="modal font-bold">
+  <div class="modal-box">
+    <h3 class="font-black text-lg"><i data-feather="smartphone" class="inline-block mr-2 text-primary"></i> Pair Request</h3>
+    <div id="pairingRequestInfo" class="bg-base-200 p-4 rounded-lg my-4 space-y-1 text-sm font-bold border border-base-300">
+      <p>Device: <span id="requestDeviceName" class="font-black text-primary">-</span></p>
+      <p>IP: <span id="requestDeviceIP" class="font-mono opacity-60">-</span></p>
+      <p>Platform: <span id="requestDevicePlatform" class="opacity-60">-</span></p>
+    </div>
+    <div class="modal-action">
+      <button class="btn btn-primary text-white" onclick="approvePairing()">Approve</button>
+      <button class="btn btn-ghost" onclick="denyPairing()">Deny</button>
+    </div>
+  </div>
+</dialog>

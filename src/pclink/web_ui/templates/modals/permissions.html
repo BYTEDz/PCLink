@@ -1,0 +1,23 @@
+<dialog id="permissionsModal" class="modal">
+  <div class="modal-box border border-base-300">
+    <h3 class="font-black text-xl mb-4 flex items-center gap-2" id="permModalTitle">
+      <i data-feather="shield" class="text-primary w-5"></i> <span class="opacity-50 text-xs font-black uppercase tracking-widest">Access Control</span>
+    </h3>
+    <div class="flex flex-wrap gap-2 mb-6 bg-base-200/50 p-3 rounded-xl border border-base-300/50">
+      <span class="text-xs font-black uppercase opacity-30 mr-2 self-center">Quick Select:</span>
+      <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Admin', 'permList')">Admin</button>
+      <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Viewer', 'permList')">Viewer</button>
+      <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Media', 'permList')">Media</button>
+      <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-primary" onclick="applyPermissionTemplate('Remote', 'permList')">Remote</button>
+      <button class="btn btn-xs btn-ghost border-base-300 font-bold text-xs hover:btn-error" onclick="applyPermissionTemplate('None', 'permList')">None</button>
+    </div>
+    <div id="customPermTemplates" class="flex flex-wrap gap-1 mb-4"></div>
+    <div id="permList" class="grid grid-cols-2 gap-3 mb-6"></div>
+    <div class="modal-action justify-between items-center border-t border-base-300 pt-4">
+      <button class="btn btn-xs btn-outline btn-ghost font-bold text-xs opacity-40 hover:opacity-100" onclick="saveCurrentAsTemplate('permList')">Save current as Template</button>
+      <form method="dialog">
+        <button class="btn btn-sm btn-ghost font-bold uppercase text-xs">Close</button>
+      </form>
+    </div>
+  </div>
+</dialog>

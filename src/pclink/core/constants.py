@@ -33,6 +33,7 @@ DEVICE_TIMEOUT = 300  # in seconds
 
 # --- File Names ---
 CONFIG_FILENAME = "config.json"
+MACROS_FILENAME = "macros.json"
 CERT_FILENAME = "cert.pem"
 KEY_FILENAME = "key.pem"
 
@@ -44,6 +45,7 @@ APP_DATA_PATH = get_app_data_path(APP_NAME)
 CERT_FILE = APP_DATA_PATH / CERT_FILENAME
 KEY_FILE = APP_DATA_PATH / KEY_FILENAME
 CONFIG_FILE = APP_DATA_PATH / CONFIG_FILENAME
+MACROS_FILE = APP_DATA_PATH / MACROS_FILENAME
 ASSETS_PATH = Path(__file__).parent.parent / "assets"
 
 # --- Transfer Paths ---

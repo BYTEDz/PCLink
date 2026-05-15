@@ -1,0 +1,8 @@
+<div id="batchActionBar" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-base-100 border border-primary px-4 py-3 rounded-full shadow-2xl flex flex-wrap justify-center items-center gap-4 transition-all duration-300 translate-y-32 z-50 w-11/12 max-w-lg">
+  <div class="font-black text-sm border-r border-base-300 pr-4"><span id="selectedCount" class="text-primary">0</span> Items</div>
+  <div class="flex gap-2">
+    <button class="btn btn-sm btn-error text-white" onclick="deleteSelectedItems()"><i data-feather="trash-2" class="w-3"></i></button>
+    <button class="btn btn-sm btn-primary text-white" onclick="downloadSelectedItems()"><i data-feather="download" class="w-3"></i> Download</button>
+    <button class="btn btn-sm btn-ghost" onclick="clearSelection()">Cancel</button>
+  </div>
+</div>

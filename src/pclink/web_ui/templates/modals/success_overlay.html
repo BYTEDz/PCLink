@@ -1,0 +1,16 @@
+<div id="resetSuccessOverlay" class="fixed inset-0 bg-base-300 z-[9999] hidden flex items-center justify-center p-6 text-center">
+  <div class="max-w-md w-full animate-in fade-in zoom-in duration-500">
+    <div class="bg-success/10 text-success p-6 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-8 shadow-inner">
+      <i data-feather="check-circle" class="w-12 h-12"></i>
+    </div>
+    <h2 class="text-4xl font-black mb-4">Factory Reset Complete</h2>
+    <p class="text-lg opacity-60 mb-10 leading-relaxed font-bold">The server has been purged and successfully shut down. To continue, please start the PCLink server manually from your host machine.</p>
+    <div class="space-y-4">
+      <div class="bg-base-100 p-4 rounded-xl border border-base-300 text-sm font-mono opacity-50 select-all">
+        # Start PCLink again<br>
+        pclink
+      </div>
+      <button onclick="window.location.reload()" class="btn btn-primary btn-block text-white font-black shadow-lg">Refresh After Restart</button>
+    </div>
+  </div>
+</div>

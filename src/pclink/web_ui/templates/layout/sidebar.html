@@ -1,0 +1,46 @@
+<div class="drawer-side z-50">
+  <label for="main-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
+  <aside class="w-64 min-h-full bg-base-100 border-r border-base-300 flex flex-col">
+    <div class="p-6 flex items-center gap-3">
+      <div class="bg-primary p-2 rounded-lg shadow-md"><img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" /></div>
+      <h1 class="text-xl font-bold tracking-tighter">PCLink</h1>
+    </div>
+    <nav class="sidebar-nav menu flex-1 px-3 gap-1 font-bold">
+      <button class="nav-item active btn btn-ghost justify-start gap-3 w-full" data-tab="dashboard"
+        onclick="closeDrawer()"><i data-feather="home" class="w-4"></i> Dashboard</button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="devices" onclick="closeDrawer()"><i
+          data-feather="smartphone" class="w-4"></i> Devices</button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="pairing" onclick="closeDrawer()"><i
+          data-feather="link" class="w-4"></i> Pairing</button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="phone-files"
+        onclick="closeDrawer()"><i data-feather="folder" class="w-4"></i> Phone Files</button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="services" onclick="closeDrawer()"><i
+          data-feather="shield" class="w-4"></i> Access Control</button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="extensions" onclick="closeDrawer()"><i
+          data-feather="package" class="w-4"></i> Extensions
+        <span id="extBadgeCount" class="badge badge-primary badge-xs ml-auto hidden"></span>
+      </button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="settings" onclick="closeDrawer()"><i
+          data-feather="settings" class="w-4"></i> Settings</button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="logs" onclick="closeDrawer()"><i
+          data-feather="terminal" class="w-4"></i> Logs</button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="macros" onclick="closeDrawer()"><i
+          data-feather="zap" class="w-4"></i> Macros</button>
+      <div class="divider my-2 opacity-20"></div>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full opacity-70" data-tab="guide"
+        onclick="closeDrawer()"><i data-feather="book-open" class="w-4"></i> Guide</button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full opacity-70" data-tab="about"
+        onclick="closeDrawer()"><i data-feather="help-circle" class="w-4"></i> About</button>
+    </nav>
+    <div class="p-4 border-t border-base-300">
+      <a href="https://play.google.com/store/apps/details?id=xyz.bytedz.pclink" target="_blank"
+        class="flex items-center gap-3 p-3 bg-base-200 rounded-xl hover:bg-base-300 transition-all font-bold">
+        <div class="text-success"><i data-feather="download"></i></div>
+        <div class="leading-tight">
+          <p class="text-xs">Companion App</p>
+          <p class="text-[10px] opacity-40">Google Play</p>
+        </div>
+      </a>
+    </div>
+  </aside>
+</div>

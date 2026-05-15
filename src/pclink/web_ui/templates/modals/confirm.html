@@ -1,0 +1,18 @@
+<dialog id="confirmModal" class="modal font-bold">
+  <div class="modal-box max-w-sm">
+    <div class="flex items-start gap-3 mb-4">
+      <div id="confirmModalIcon" class="shrink-0 mt-0.5"></div>
+      <div>
+        <h3 class="font-black text-base" id="confirmModalTitle">Confirm Action</h3>
+        <p class="text-sm opacity-70 mt-1 font-normal" id="confirmModalMessage"></p>
+        <div id="confirmModalInputWrapper" class="mt-4 hidden">
+          <input type="text" id="confirmModalInput" class="input input-sm input-bordered w-full font-black text-center" placeholder="Type YES to confirm">
+        </div>
+      </div>
+    </div>
+    <div class="modal-action mt-4 gap-2">
+      <button id="confirmModalCancel" class="btn btn-sm btn-ghost font-bold">Cancel</button>
+      <button id="confirmModalOk" class="btn btn-sm font-bold text-white">Confirm</button>
+    </div>
+  </div>
+</dialog>

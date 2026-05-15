@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import asyncio
 import logging
+import uuid
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -242,6 +244,27 @@ AVAILABLE_ACTIONS = [
 ]
 
 
+@router.get("/", response_model=List[Dict[str, Any]])
+async def get_macros():
+    return macro_service.get_macros()
+
+
+@router.post("/")
+async def save_macro(macro: Dict[str, Any]):
+    try:
+        saved = macro_service.save_macro(macro)
+        return saved
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+@router.delete("/{macro_id}")
+async def delete_macro(macro_id: str):
+    if macro_service.delete_macro(macro_id):
+        return {"status": "success"}
+    raise HTTPException(404, detail="Macro not found")
+
+
 @router.get("/available-actions", response_model=List[ActionDefinition])
 async def get_available_actions():
     return sorted(AVAILABLE_ACTIONS, key=lambda x: x.name_key)
@@ -262,3 +285,31 @@ async def execute_macro(request: Request, macro: Macro):
     except Exception as e:
         log.error(f"Macro failed: {e}")
         raise HTTPException(500, detail=str(e))
+
+
+@router.post("/{macro_id}/run")
+async def run_macro(macro_id: str, request: Request):
+    macro = next((m for m in macro_service.get_macros() if m["id"] == macro_id), None)
+    if not macro:
+        raise HTTPException(404, detail="Macro not found")
+
+    tray_manager = getattr(request.app.state, "tray_manager", None)
+    if tray_manager:
+        macro_service.set_notification_handler(tray_manager.show_notification)
+
+    # Run in background
+    asyncio.create_task(macro_service.execute_macro(macro["name"], macro["actions"]))
+    return {"status": "started"}
+
+
+@router.post("/{macro_id}/duplicate")
+async def duplicate_macro(macro_id: str):
+    macro = next((m for m in macro_service.get_macros() if m["id"] == macro_id), None)
+    if not macro:
+        raise HTTPException(404, detail="Macro not found")
+
+    new_macro = macro.copy()
+    new_macro["id"] = str(uuid.uuid4())
+    new_macro["name"] = f"{macro['name']} (Copy)"
+    macro_service.save_macro(new_macro)
+    return new_macro

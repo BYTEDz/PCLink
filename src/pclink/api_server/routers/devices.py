@@ -31,6 +31,7 @@ async def get_connected_devices(request: Request):
                     "last_seen": device.last_seen.isoformat(),
                     "permissions": ",".join(device.permissions),
                     "is_approved": True,
+                    "is_online": device.device_id in mobile_manager.device_connections,
                 }
             )
 

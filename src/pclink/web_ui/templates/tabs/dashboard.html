@@ -1,0 +1,40 @@
+<!-- Dashboard -->
+<div class="tab-content active" id="dashboard">
+  <div class="grid grid-cols-1 gap-6">
+    <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+      <div class="card-body p-6">
+        <h2 class="card-title text-sm opacity-60 uppercase mb-4"><i data-feather="power"
+            class="w-5 text-primary"></i> Server Control</h2>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <button class="btn btn-success text-white font-bold" onclick="startRemoteServer()"><i
+              data-feather="play"></i> Start</button>
+          <button class="btn btn-warning text-black font-bold" onclick="stopRemoteServer()"><i
+              data-feather="pause"></i> Stop</button>
+          <button class="btn btn-primary text-white font-bold" onclick="restartRemoteServer()"><i
+              data-feather="refresh-cw"></i> Restart</button>
+          <button class="btn btn-error text-white font-bold" onclick="shutdownServer()"><i
+              data-feather="power"></i> Shutdown</button>
+        </div>
+      </div>
+    </div>
+    <div class="stats stats-vertical lg:stats-horizontal shadow bg-base-100 border border-base-300 w-full">
+      <div class="stat">
+        <div class="stat-figure text-primary"><i data-feather="globe" class="w-8 h-8"></i></div>
+        <div class="stat-title text-xs font-bold uppercase">Address</div>
+        <div class="stat-value text-lg break-all" id="hostIP">Loading...</div>
+      </div>
+      <div class="stat">
+        <div class="stat-figure text-secondary"><i data-feather="smartphone" class="w-8 h-8"></i></div>
+        <div class="stat-title text-xs font-bold uppercase">Devices</div>
+        <div class="stat-value text-lg" id="dashboardDeviceCount">0</div>
+        <div class="stat-desc font-mono" id="serverPort">Port: 38080</div>
+      </div>
+      <div class="stat">
+        <div class="stat-figure text-accent"><i data-feather="clock" class="w-8 h-8"></i></div>
+        <div class="stat-title text-xs font-bold uppercase">Uptime</div>
+        <div class="stat-value text-lg" id="serverUptime">Just now</div>
+        <div class="stat-desc font-bold text-success" id="serverVersion">vLoading</div>
+      </div>
+    </div>
+  </div>
+</div>

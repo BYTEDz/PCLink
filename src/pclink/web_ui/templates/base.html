@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PCLink Control Panel</title>
+
+  <script>
+    const originalWarn = console.warn;
+    console.warn = (...args) => { if (typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return; originalWarn(...args); };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+
+  <link rel="stylesheet" href="/ui/static/style.css" />
+  <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg" />
+  <link rel="icon" type="image/x-icon" href="/ui/assets/icon.ico" />
+</head>
+
+<body class="bg-base-300">
+  <div id="fullScreenLoader"
+    class="fixed inset-0 bg-base-300 z-[10000] flex items-center justify-center transition-opacity duration-500">
+    <div class="flex flex-col items-center gap-4">
+      <div class="loading loading-spinner loading-lg text-primary"></div>
+      <span class="text-xs font-black uppercase tracking-widest opacity-50">Initializing PCLink...</span>
+    </div>
+  </div>
+
+  <div class="drawer lg:drawer-open">
+    <input id="main-drawer" type="checkbox" class="drawer-toggle" />
+
+    <div class="drawer-content flex flex-col h-screen overflow-hidden">
+      {% include 'layout/header.html' %}
+
+      <main class="flex-1 flex flex-col p-2 md:p-3 bg-base-200 overflow-hidden">
+        <div id="updateBanner" class="alert alert-info shadow-lg mb-6 hidden">
+          <i data-feather="download"></i>
+          <div>
+            <h3 class="font-bold">New Update Available!</h3>
+            <div class="text-sm" id="updateVersion">Version X.X.X is ready</div>
+          </div>
+          <div class="flex-none gap-2">
+            <button class="btn btn-sm btn-primary text-white font-bold" onclick="downloadUpdate()">Update</button>
+            <button class="btn btn-sm btn-ghost" onclick="dismissUpdate()">Dismiss</button>
+          </div>
+        </div>
+
+        {% include 'tabs/dashboard.html' %}
+        {% include 'tabs/devices.html' %}
+        {% include 'tabs/pairing.html' %}
+        {% include 'tabs/phone_files.html' %}
+        {% include 'tabs/access_control.html' %}
+        {% include 'tabs/extensions.html' %}
+        {% include 'tabs/settings.html' %}
+        {% include 'tabs/logs.html' %}
+        {% include 'tabs/macros.html' %}
+        {% include 'tabs/guide.html' %}
+        {% include 'tabs/about.html' %}
+      </main>
+    </div>
+
+    {% include 'layout/sidebar.html' %}
+  </div>
+
+  <!-- Side Drawer -->
+  {% include 'modals/side_panel.html' %}
+
+  <!-- Modals -->
+  {% include 'modals/pairing.html' %}
+  {% include 'modals/ext_logs.html' %}
+  {% include 'modals/confirm.html' %}
+  {% include 'modals/batch_bar.html' %}
+  {% include 'modals/factory_reset.html' %}
+  {% include 'modals/success_overlay.html' %}
+
+  <div id="toast-container"></div>
+
+  <script src="/ui/static/qrcode.min.js"></script>
+  <script src="/ui/static/feather.min.js"></script>
+  <script src="/ui/static/app.js"></script>
+</body>
+
+</html>

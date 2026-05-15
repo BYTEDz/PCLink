@@ -3,9 +3,12 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import json
 import logging
+import uuid
 from typing import Any, Callable, Dict, List, Optional
 
+from ..core import constants
 from .app_service import app_service
 from .file_service import file_service
 from .input_service import input_service
@@ -21,6 +24,62 @@ class MacroService:
 
     def __init__(self):
         self._notification_handler: Optional[Callable[[str, str], None]] = None
+        self.macros_file = constants.MACROS_FILE
+        self._macros: Dict[str, Dict[str, Any]] = {}
+        self._load_macros()
+
+    def _load_macros(self):
+        """Load macros from the JSON storage file."""
+        if not self.macros_file.exists():
+            log.info("No macros file found. Starting with an empty list.")
+            self._macros = {}
+            return
+
+        try:
+            with self.macros_file.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    # Migration: Convert old list-based format to dict-based (indexed by ID)
+                    self._macros = {m.get("id", str(uuid.uuid4())): m for m in data}
+                    self._save_macros()  # Standardize format
+                else:
+                    self._macros = data
+            log.info(f"Loaded {len(self._macros)} macros from {self.macros_file}")
+        except Exception as e:
+            log.error(f"Failed to load macros: {e}")
+            self._macros = {}
+
+    def _save_macros(self):
+        """Persist current macros to the JSON file."""
+        try:
+            self.macros_file.parent.mkdir(parents=True, exist_ok=True)
+            with self.macros_file.open("w", encoding="utf-8") as f:
+                json.dump(self._macros, f, indent=4)
+        except Exception as e:
+            log.error(f"Failed to save macros: {e}")
+
+    def get_macros(self) -> List[Dict[str, Any]]:
+        """Return all stored macros as a list."""
+        return list(self._macros.values())
+
+    def save_macro(self, macro_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Save or update a macro."""
+        m_id = macro_data.get("id")
+        if not m_id:
+            m_id = str(uuid.uuid4())
+            macro_data["id"] = m_id
+
+        self._macros[m_id] = macro_data
+        self._save_macros()
+        return macro_data
+
+    def delete_macro(self, macro_id: str) -> bool:
+        """Remove a macro by ID."""
+        if macro_id in self._macros:
+            del self._macros[macro_id]
+            self._save_macros()
+            return True
+        return False
 
     def set_notification_handler(self, handler: Callable[[str, str], None]):
         self._notification_handler = handler
