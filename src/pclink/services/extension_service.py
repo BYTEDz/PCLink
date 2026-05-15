@@ -3,12 +3,11 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
+from typing import Any, Dict
 from pathlib import Path
-from typing import Dict
-
 
 from ..core.config import config_manager
-from ..core.extension_manager import ExtensionManager
+from ..core.extension_manager import ExtensionManager, DANGEROUS_PERMISSIONS
 
 log = logging.getLogger(__name__)
 
@@ -19,21 +18,23 @@ class ExtensionService:
     def __init__(self):
         self.manager = ExtensionManager()
 
-    def list_extensions(self) -> Dict:
+    def _ensure_extensions_enabled(self):
+        """Helper to enforce global extension enablement policy."""
+        if not config_manager.get("allow_extensions", False):
+            raise PermissionError("Extension system is globally disabled.")
+
+    def _serialize_metadata(self, metadata: Any) -> Dict[str, Any]:
+        """Safely serialize Pydantic models across v1/v2."""
+        if hasattr(metadata, "model_dump"):
+            return metadata.model_dump()
+        return metadata.dict()
+
+    def list_extensions(self) -> Dict[str, Any]:
+        """
+        Returns a snapshot of all discovered and loaded extensions.
+        Strictly read-only; does not attempt to mutate or load state.
+        """
         enabled_globally = config_manager.get("allow_extensions", False)
-
-        # SELF-HEALING: If we have zero loaded exts but files on disk, try discovery again
-        # This handles 'fresh boot' cases where startup load might have been too early
-        try:
-            if (
-                not self.manager.extensions
-                and self.manager.extensions_path.exists()
-                and any(self.manager.extensions_path.iterdir())
-            ):
-                self.manager.discover_extensions()
-        except Exception:
-            pass
-
         discovered = self.manager.discover_extensions()
         all_exts = []
 
@@ -46,8 +47,8 @@ class ExtensionService:
                 is_loaded = eid in self.manager.extensions
                 ext = self.manager.get_extension(eid)
 
-                # Use metadata from loaded instance if available, otherwise from manifest
-                response_meta = ext.metadata.dict() if ext else meta
+                # Use runtime metadata if loaded, fallback to manifest dictionary
+                response_meta = self._serialize_metadata(ext.metadata) if ext else meta
 
                 # Inject runtime state
                 response_meta["id"] = eid
@@ -55,8 +56,6 @@ class ExtensionService:
 
                 # Security flags
                 perms = response_meta.get("permissions", [])
-                from ..core.extension_manager import DANGEROUS_PERMISSIONS
-
                 response_meta["has_dangerous_perms"] = any(
                     p in DANGEROUS_PERMISSIONS for p in perms
                 )
@@ -64,44 +63,27 @@ class ExtensionService:
                     "security_consent_needed", False
                 )
 
-                if is_loaded:
-                    all_exts.append(response_meta)
-                    continue
-
-                if enabled_globally and response_meta.get("enabled", True):
-                    if self.manager.load_extension(eid):
-                        ext = self.manager.get_extension(eid)
-                        if ext:
-                            response_meta = ext.metadata.dict()
-                            response_meta["id"] = eid
-                            response_meta["is_loaded"] = True
-                            all_exts.append(response_meta)
-                            continue
-
                 # Fallback: ensure dashboard_widgets is always present
                 if "dashboard_widgets" not in response_meta:
                     response_meta["dashboard_widgets"] = []
 
                 all_exts.append(response_meta)
+
             except Exception as e:
-                log.error(f"Error processing extension '{eid}': {e}")
-                continue
+                log.error(f"Error processing extension '{eid}': {e}", exc_info=True)
 
         return {"extensions_enabled": enabled_globally, "extensions": all_exts}
 
     def install(self, zip_path: Path) -> bool:
-        if not config_manager.get("allow_extensions", False):
-            raise PermissionError("Extension system disabled")
+        self._ensure_extensions_enabled()
         return self.manager.install_extension(zip_path)
 
     def uninstall(self, eid: str) -> bool:
-        if not config_manager.get("allow_extensions", False):
-            raise PermissionError("Extension system disabled")
+        self._ensure_extensions_enabled()
         return self.manager.delete_extension(eid)
 
     def toggle(self, eid: str, enabled: bool) -> bool:
-        if not config_manager.get("allow_extensions", False):
-            raise PermissionError("Extension system disabled")
+        self._ensure_extensions_enabled()
         return self.manager.toggle_extension(eid, enabled)
 
 

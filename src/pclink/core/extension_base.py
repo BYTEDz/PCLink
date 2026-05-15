@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 
@@ -63,8 +63,25 @@ class ExtensionBase(ABC):
         self.extension_path = extension_path
         self.config = config
         self.context = context
-        self.router = APIRouter()
+        self.router = APIRouter(dependencies=[Depends(self._verify_active)])
         self.logger = logging.getLogger(f"pclink.extensions.{metadata.name}")
+
+    async def _verify_active(self):
+        """Internal dependency to prevent requests hitting unloaded extensions."""
+        from pclink.core.extension_manager import ExtensionManager
+
+        manager = ExtensionManager()
+        if self.metadata.name not in manager.extensions:
+            raise HTTPException(
+                status_code=410,
+                detail=f"Extension '{self.metadata.name}' has been unloaded.",
+            )
+
+        if not self.metadata.enabled:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Extension '{self.metadata.name}' is currently disabled.",
+            )
 
     @abstractmethod
     def initialize(self) -> bool:

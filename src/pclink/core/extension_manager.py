@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-import base64
 import importlib.util
+import inspect
 import logging
 import os
+import platform as py_platform
+import re
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 from pathlib import Path
@@ -22,18 +25,13 @@ from pclink.core.version import __version__ as PCLINK_VERSION
 log = logging.getLogger(__name__)
 
 
-def _decode_perm(s: str) -> str:
-    return base64.b64decode(s).decode("utf-8")
-
-
 # --- Security Configuration ---
-# Strings are encoded to avoid heuristic triggers in Antivirus software (e.g. Wacatac)
 DANGEROUS_PERMISSIONS = {
-    _decode_perm("c3lzdGVtLmV4ZWM="),  # system.exec
-    _decode_perm("ZmlsZXN5c3RlbS5yZWFk"),  # filesystem.read
-    _decode_perm("ZmlsZXN5c3RlbS53cml0ZQ=="),  # filesystem.write
-    _decode_perm("aW5wdXQuaW5qZWN0"),  # input.inject
-    _decode_perm("aW5wdXQubW9uaXRvcg=="),  # input.monitor
+    "system.exec",
+    "filesystem.read",
+    "filesystem.write",
+    "input.inject",
+    "input.monitor",
 }
 
 # Safe Mode: Maximum consecutive crashes before disabling extensions
@@ -42,6 +40,7 @@ SAFE_MODE_CRASH_THRESHOLD = 2
 
 class ExtensionManager:
     _instance = None
+    _import_lock = threading.Lock()  # Prevents sys.path race conditions
 
     def __new__(cls):
         if cls._instance is None:
@@ -60,6 +59,9 @@ class ExtensionManager:
             self.logs: Dict[str, List[str]] = {}
             self.initialized = True
             self.safe_mode = False
+
+            # Cache hardware and OS info once per lifecycle
+            self._init_system_info()
 
             # Registry of extensions that failed to load to avoid infinite retry loops
             self.failed_extensions: Dict[
@@ -119,6 +121,82 @@ class ExtensionManager:
             # Increment crash counter (will be cleared on successful startup)
             self._crash_file.write_text(str(crash_count + 1))
 
+    def _init_system_info(self):
+        """Cache hardware and OS info once per lifecycle."""
+        if hasattr(self, "_sys_info"):
+            return
+
+        current_arch = py_platform.machine().lower()
+        arch_aliases = {
+            "x86_64": ["x86_64", "amd64"],
+            "amd64": ["x86_64", "amd64"],
+            "aarch64": ["aarch64", "arm64"],
+            "arm64": ["aarch64", "arm64"],
+        }
+
+        os_distro = "unknown"
+        if py_platform.system().lower() == "linux":
+            try:
+                import distro
+
+                os_distro = distro.id().lower()
+            except ImportError:
+                if os.path.exists("/etc/os-release"):
+                    with open("/etc/os-release", "r") as f:
+                        m = re.search(r'^ID=["\']?(.+?)["\']?$', f.read(), re.M)
+                        if m:
+                            os_distro = m.group(1).lower()
+
+        self._sys_info = {
+            "platform": py_platform.system().lower(),
+            "arch_aliases": arch_aliases.get(current_arch, [current_arch]),
+            "distro": os_distro,
+        }
+
+    def _is_compatible(self, metadata: ExtensionMetadata) -> bool:
+        """Isolated check for platform compatibility."""
+        sys_info = self._sys_info
+        if sys_info["platform"] not in [
+            p.lower() for p in metadata.supported_platforms
+        ]:
+            return False
+
+        supported_archs = [a.lower() for a in metadata.supported_architectures]
+        if not any(alias in supported_archs for alias in sys_info["arch_aliases"]):
+            return False
+
+        if sys_info["platform"] == "linux" and metadata.supported_distros:
+            if sys_info["distro"] not in [
+                d.lower() for d in metadata.supported_distros
+            ]:
+                return False
+
+        return True
+
+    def _import_module_safely(
+        self, extension_id: str, entry_point: Path, lib_path: Path
+    ):
+        """Thread-safe dynamic module import."""
+        lib_path_str = str(lib_path)
+        with self._import_lock:
+            added_to_path = False
+            if lib_path.is_dir() and lib_path_str not in sys.path:
+                sys.path.insert(0, lib_path_str)
+                added_to_path = True
+
+            try:
+                module_name = f"pclink.extensions.{extension_id.replace('-', '_')}"
+                spec = importlib.util.spec_from_file_location(module_name, entry_point)
+                if not spec or not spec.loader:
+                    return None
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+                return module
+            finally:
+                if added_to_path:
+                    sys.path.remove(lib_path_str)
+
     def mark_startup_success(self):
         """Called after successful server startup to clear crash counter."""
         if self._crash_file.exists():
@@ -154,8 +232,6 @@ class ExtensionManager:
 
     def _is_safe_name(self, name: str) -> bool:
         """Security: Verify name is a simple alphanumeric/hyphen string."""
-        import re
-
         return bool(re.match(r"^[a-z0-9\-]+$", name))
 
     def discover_extensions(self) -> List[str]:
@@ -199,8 +275,6 @@ class ExtensionManager:
             )
             return False
 
-        log.info(f"Loading extension: {extension_id}")
-
         # Check if extensions are globally enabled
         if not config_manager.get("allow_extensions", False):
             log.warning(
@@ -208,91 +282,25 @@ class ExtensionManager:
             )
             return False
 
-        extension_dir = self.extensions_path / extension_id
-        manifest_path = extension_dir / "extension.yaml"
+        log.info(f"Loading extension: {extension_id}")
+
+        manifest = self.get_manifest(extension_id)
+        if not manifest:
+            return False
 
         try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
+            metadata = ExtensionMetadata(**manifest)
 
-            metadata = ExtensionMetadata(**config)
-
-            # --- Platform & Architecture Compatibility Check ---
-            import platform as py_platform
-
-            current_platform = py_platform.system().lower()
-            supported_platforms = [p.lower() for p in metadata.supported_platforms]
-
-            # Simple OS check
-            if current_platform not in supported_platforms:
+            if not self._is_compatible(metadata):
                 log.warning(
-                    f"Extension '{extension_id}' does not support platform '{current_platform}'. skipping."
+                    f"Extension '{extension_id}' is incompatible with this system. skipping."
                 )
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
-            # Architecture Check
-            current_arch = py_platform.machine().lower()
-            supported_archs = [a.lower() for a in metadata.supported_architectures]
-            # Handle aliases (amd64/x86_64, aarch64/arm64)
-            if (
-                current_arch == "x86_64"
-                and "amd64" in supported_archs
-                and "x86_64" not in supported_archs
-            ):
-                supported_archs.append("x86_64")
-            if (
-                current_arch == "amd64"
-                and "x86_64" in supported_archs
-                and "amd64" not in supported_archs
-            ):
-                supported_archs.append("amd64")
-            if (
-                current_arch == "aarch64"
-                and "arm64" in supported_archs
-                and "aarch64" not in supported_archs
-            ):
-                supported_archs.append("aarch64")
-            if (
-                current_arch == "arm64"
-                and "aarch64" in supported_archs
-                and "arm64" not in supported_archs
-            ):
-                supported_archs.append("arm64")
-
-            if current_arch not in supported_archs:
-                log.warning(
-                    f"Extension '{extension_id}' does not support architecture '{current_arch}'. skipping."
-                )
-                self.failed_extensions[extension_id] = time.time()
-                return False
-
-            # Distro Check (Linux only)
-            if current_platform == "linux" and metadata.supported_distros:
-                os_distro = "unknown"
-                try:
-                    import distro
-
-                    os_distro = distro.id().lower()
-                except ImportError:
-                    if os.path.exists("/etc/os-release"):
-                        with open("/etc/os-release", "r") as f:
-                            import re as py_re
-
-                            m = py_re.search(
-                                r'^ID=["\']?(.+?)["\']?$', f.read(), py_re.M
-                            )
-                            if m:
-                                os_distro = m.group(1).lower()
-
-                if os_distro not in [d.lower() for d in metadata.supported_distros]:
-                    log.warning(
-                        f"Extension '{extension_id}' does not support distro '{os_distro}'. skipping."
-                    )
-                    self.failed_extensions[extension_id] = time.time()
-                    return False
-
+            extension_dir = self.extensions_path / extension_id
             entry_point_path = extension_dir / metadata.entry_point
+            lib_path = extension_dir / "lib"
 
             if not entry_point_path.exists():
                 log.error(
@@ -301,28 +309,12 @@ class ExtensionManager:
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
-            # Add extension lib directory to sys.path briefly for import isolation
-            lib_path = str(extension_dir / "lib")
-            added_to_path = False
-            if os.path.isdir(lib_path) and lib_path not in sys.path:
-                sys.path.insert(0, lib_path)
-                added_to_path = True
-
-            try:
-                # Dynamic import
-                module_name = f"pclink.extensions.{extension_id.replace('-', '_')}"
-                spec = importlib.util.spec_from_file_location(
-                    module_name, entry_point_path
-                )
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-                spec.loader.exec_module(module)
-            finally:
-                # Security: Remove from sys.path immediately after loading the root module
-                # This prevents 'path leakage' to other extensions while still allowing
-                # the loaded module to reference its dependencies already in sys.modules.
-                if added_to_path:
-                    sys.path.remove(lib_path)
+            module = self._import_module_safely(
+                extension_id, entry_point_path, lib_path
+            )
+            if not module:
+                self.failed_extensions[extension_id] = time.time()
+                return False
 
             # Look for a class named 'Extension'
             extension_class: Optional[Type[ExtensionBase]] = getattr(
@@ -334,33 +326,25 @@ class ExtensionManager:
                 return False
 
             # Instantiate extension with Context if supported
-            import inspect
-
-            sig = inspect.signature(extension_class.__init__)
-            params = sig.parameters
-
-            # Check if 'context' is a supported parameter or if it accepts **kwargs
+            params = inspect.signature(extension_class.__init__).parameters
             supports_context = "context" in params or any(
                 p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
             )
 
-            context = ExtensionContext(metadata)  # Always create context
-
+            context = ExtensionContext(metadata)
             if supports_context:
                 extension_instance = extension_class(
                     metadata=metadata,
                     extension_path=extension_dir,
-                    config=config,
+                    config=manifest,
                     context=context,
                 )
             else:
-                # Fallback for extensions not yet updated to accept context in constructor
                 extension_instance = extension_class(
-                    metadata=metadata, extension_path=extension_dir, config=config
+                    metadata=metadata, extension_path=extension_dir, config=manifest
                 )
                 extension_instance.context = context
 
-            # Ensure logger is set even if extension doesn't call super().__init__
             if not hasattr(extension_instance, "logger"):
                 extension_instance.logger = logging.getLogger(
                     f"pclink.extensions.{extension_id}"
@@ -368,8 +352,6 @@ class ExtensionManager:
 
             if extension_instance.initialize():
                 self.extensions[extension_id] = extension_instance
-
-                # Dynamic Mounting: If app is available, mount routes immediately
                 if self.app:
                     log.info(
                         f"Dynamically mounting routes for extension: {extension_id}"
@@ -387,24 +369,13 @@ class ExtensionManager:
                 log.info(
                     f"Successfully loaded extension: {metadata.display_name} ({metadata.version})"
                 )
-                self.failed_extensions.pop(
-                    extension_id, None
-                )  # Clear failure on success
+                self.failed_extensions.pop(extension_id, None)
                 return True
             else:
                 log.error(f"Extension '{extension_id}' initialize() returned False")
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
-        except ValueError as e:
-            self.failed_extensions[extension_id] = time.time()
-            if "filedescriptor out of range" in str(e):
-                log.error(
-                    f"System limit reached: Too many open files or connections. Extension '{extension_id}' cannot use select()."
-                )
-            else:
-                log.exception(f"Critical error loading extension '{extension_id}': {e}")
-            return False
         except Exception as e:
             self.failed_extensions[extension_id] = time.time()
             log.exception(f"Critical error loading extension '{extension_id}': {e}")
