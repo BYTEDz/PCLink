@@ -43,30 +43,46 @@ class ExtensionService:
                 if not meta:
                     continue
 
+                is_loaded = eid in self.manager.extensions
                 ext = self.manager.get_extension(eid)
-                if ext:
-                    all_exts.append(ext.metadata.dict())
+
+                # Use metadata from loaded instance if available, otherwise from manifest
+                response_meta = ext.metadata.dict() if ext else meta
+
+                # Inject runtime state
+                response_meta["id"] = eid
+                response_meta["is_loaded"] = is_loaded
+
+                # Security flags
+                perms = response_meta.get("permissions", [])
+                from ..core.extension_manager import DANGEROUS_PERMISSIONS
+
+                response_meta["has_dangerous_perms"] = any(
+                    p in DANGEROUS_PERMISSIONS for p in perms
+                )
+                response_meta["user_approved"] = not response_meta.get(
+                    "security_consent_needed", False
+                )
+
+                if is_loaded:
+                    all_exts.append(response_meta)
                     continue
 
-                if enabled_globally and meta.get("enabled", True):
+                if enabled_globally and response_meta.get("enabled", True):
                     if self.manager.load_extension(eid):
                         ext = self.manager.get_extension(eid)
                         if ext:
-                            all_exts.append(ext.metadata.dict())
+                            response_meta = ext.metadata.dict()
+                            response_meta["id"] = eid
+                            response_meta["is_loaded"] = True
+                            all_exts.append(response_meta)
                             continue
-                        else:
-                            log.warning(
-                                f"Extension '{eid}' loaded but not found in registry"
-                            )
-                    else:
-                        log.warning(f"Extension '{eid}' failed to load")
 
-                # Fallback: ensure dashboard_widgets is always present in raw meta
-                if "dashboard_widgets" not in meta:
-                    meta["dashboard_widgets"] = []
-                # Use manifest state for 'enabled' to keep UI in sync with user intent
-                meta["enabled"] = meta.get("enabled", True)
-                all_exts.append(meta)
+                # Fallback: ensure dashboard_widgets is always present
+                if "dashboard_widgets" not in response_meta:
+                    response_meta["dashboard_widgets"] = []
+
+                all_exts.append(response_meta)
             except Exception as e:
                 log.error(f"Error processing extension '{eid}': {e}")
                 continue

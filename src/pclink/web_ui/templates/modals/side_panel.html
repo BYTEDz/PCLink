@@ -4,7 +4,14 @@
     <h3 class="font-black uppercase tracking-widest text-xs flex items-center gap-2" id="sidePanelTitle">
       Title
     </h3>
-    <button class="btn btn-sm btn-circle btn-ghost" onclick="window.closeSidePanel()">✕</button>
+    <div class="flex items-center gap-1">
+      <button class="btn btn-xs btn-circle btn-ghost" id="sidePanelExpandBtn" onclick="window.toggleSidePanelFullscreen()" title="Toggle Fullscreen">
+        <i data-feather="maximize-2" class="w-3 h-3"></i>
+      </button>
+      <button class="btn btn-xs btn-circle btn-ghost" onclick="window.closeSidePanel()">
+        <i data-feather="x" class="w-3 h-3"></i>
+      </button>
+    </div>
   </div>
   <div class="side-panel-body" id="sidePanelBody">
     <!-- Content injected here -->
@@ -13,20 +20,3 @@
     <!-- Buttons injected here -->
   </div>
 </div>
-
-<script>
-  window.openSidePanel = function (titleHtml, bodyHtml, footerHtml) {
-    document.getElementById('sidePanelTitle').innerHTML = titleHtml;
-    document.getElementById('sidePanelBody').innerHTML = bodyHtml;
-    document.getElementById('sidePanelFooter').innerHTML = footerHtml || '';
-
-    document.getElementById('sidePanel').classList.add('open');
-    document.getElementById('sidePanelBackdrop').classList.add('open');
-    if (window.feather) feather.replace();
-  };
-
-  window.closeSidePanel = function () {
-    document.getElementById('sidePanel').classList.remove('open');
-    document.getElementById('sidePanelBackdrop').classList.remove('open');
-  };
-</script>

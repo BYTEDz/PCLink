@@ -31,8 +31,28 @@
       </select>
       <label class="label cursor-pointer gap-2"><span class="label-text text-xs font-bold uppercase opacity-50">Hidden</span><input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="showHiddenFiles" onchange="handleToggleHidden(this.checked)"></label>
     </div>
-    <div class="flex-1 flex flex-col overflow-hidden">
-      <div id="phoneBreadcrumb" class="bg-base-200 p-2 text-[10px] font-mono truncate border-b border-base-300 opacity-60">Path: /</div>
+    <div class="flex-1 flex flex-col overflow-hidden relative" id="phoneFileDropZone"
+         ondragover="window.handlePhoneDragOver(event)"
+         ondragenter="window.handlePhoneDragEnter(event)"
+         ondragleave="window.handlePhoneDragLeave(event)"
+         ondrop="window.handlePhoneDrop(event)">
+
+      <!-- Drop Overlay -->
+      <div id="phoneDropOverlay" class="absolute inset-0 bg-primary/10 backdrop-blur-[2px] border-4 border-dashed border-primary/50 z-[60] flex flex-col items-center justify-center pointer-events-none opacity-0 transition-all duration-300 scale-95">
+          <div class="bg-base-100 p-10 rounded-[2.5rem] shadow-2xl border border-primary/20 flex flex-col items-center gap-4">
+              <div class="bg-primary text-white p-5 rounded-full shadow-lg shadow-primary/20"><i data-feather="upload-cloud" class="w-12 h-12"></i></div>
+              <div class="text-center">
+                  <p class="font-black uppercase tracking-[0.2em] text-sm text-primary">Drop to Upload</p>
+                  <p class="text-[10px] font-bold opacity-40 mt-1 uppercase">Release to start transfer</p>
+              </div>
+          </div>
+      </div>
+
+      <div id="phoneBreadcrumbContainer" class="bg-base-200 px-3 py-2 flex items-center gap-1 overflow-x-auto no-scrollbar border-b border-base-300">
+        <div id="phoneBreadcrumbs" class="flex items-center gap-1 whitespace-nowrap">
+           <!-- Breadcrumbs injected here -->
+        </div>
+      </div>
       <div id="uploadProgressContainer" class="p-2 space-y-2 border-b border-base-300 empty:hidden"></div>
       <div id="phoneFileList" class="flex-1 overflow-y-auto"></div>
     </div>

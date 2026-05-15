@@ -149,6 +149,10 @@ svg.feather {
   transform: translateX(0);
 }
 
+#sidePanel.fullscreen {
+  width: 100vw;
+}
+
 .side-panel-backdrop {
   position: fixed;
   inset: 0;
