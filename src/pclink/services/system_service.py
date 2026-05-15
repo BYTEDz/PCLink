@@ -11,7 +11,7 @@ import socket
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import psutil
 
@@ -183,94 +183,78 @@ class SystemService:
         self._system_info_cache_time = now
         return result
 
-    def _get_sync_system_info(self) -> Dict[str, Any]:
-        """Synchronous CPU/RAM/Disk/Network telemetry."""
-        mem = psutil.virtual_memory()
-        swap = psutil.swap_memory()
-        freq = psutil.cpu_freq()
-        boot = psutil.boot_time()
-        uptime = time.time() - boot
-        speed = self._network_monitor.get_speed()
+    def _safe_get_battery(self) -> Dict[str, Any]:
+        if not hasattr(psutil, "sensors_battery"):
+            return {}
+        try:
+            battery = psutil.sensors_battery()
+            if battery:
+                return {
+                    "percent": round(battery.percent, 1),
+                    "power_plugged": battery.power_plugged,
+                    "secsleft": (
+                        battery.secsleft
+                        if battery.secsleft != psutil.POWER_TIME_UNLIMITED
+                        else None
+                    ),
+                }
+        except Exception as e:
+            log.debug(f"Failed to read battery sensors: {e}")
+        return {}
 
-        # Thermal Detection
-        temps = {}
-        if sys.platform == "win32":
-            temps = self._get_windows_thermals()
-        elif hasattr(psutil, "sensors_temperatures"):
-            try:
-                raw_temps = psutil.sensors_temperatures()
-                if raw_temps:
-                    if "coretemp" in raw_temps and raw_temps["coretemp"]:
-                        temps["cpu_temp_celsius"] = raw_temps["coretemp"][0].current
-                    elif "k10temp" in raw_temps and raw_temps["k10temp"]:
-                        temps["cpu_temp_celsius"] = raw_temps["k10temp"][0].current
-                    elif "package_id_0" in raw_temps and raw_temps["package_id_0"]:
-                        temps["cpu_temp_celsius"] = raw_temps["package_id_0"][0].current
-            except Exception:
-                pass
+    def _safe_get_cpu_metrics(self, freq) -> Dict[str, Any]:
+        try:
+            return {
+                "percent": psutil.cpu_percent(interval=0.1),
+                "per_cpu_percent": psutil.cpu_percent(interval=None, percpu=True),
+                "physical_cores": psutil.cpu_count(logical=False),
+                "total_cores": psutil.cpu_count(logical=True),
+                "current_freq_mhz": freq.current if freq else None,
+                "max_freq_mhz": freq.max if freq else None,
+            }
+        except Exception as e:
+            log.debug(f"Failed to read CPU metrics: {e}")
+            return {}
 
-        # OS Details
-        os_family = platform.system()
-        os_release = platform.release()
-        os_name = f"{os_family} {os_release}"
-        os_distro = "unknown"
-        machine_arch = platform.machine()
+    def _safe_get_ram_metrics(self, mem) -> Dict[str, Any]:
+        try:
+            return {
+                "percent": mem.percent,
+                "total_gb": round(mem.total / (1024**3), 2),
+                "used_gb": round(mem.used / (1024**3), 2),
+                "available_gb": round(mem.available / (1024**3), 2),
+            }
+        except Exception as e:
+            log.debug(f"Failed to read RAM metrics: {e}")
+            return {}
 
-        if os_family == "Linux":
-            # Try to get distro name on Linux
-            try:
-                import distro
+    def _safe_get_swap_metrics(self, swap) -> Dict[str, Any]:
+        try:
+            return {
+                "percent": swap.percent,
+                "total_gb": round(swap.total / (1024**3), 2),
+                "used_gb": round(swap.used / (1024**3), 2),
+                "free_gb": round(swap.free / (1024**3), 2),
+            }
+        except Exception as e:
+            log.debug(f"Failed to read SWAP metrics: {e}")
+            return {}
 
-                os_distro = distro.id()
-                os_name = f"{distro.name()} {distro.version()}"
-            except ImportError:
-                # Fallback to manual parsing if 'distro' package is missing
-                if os.path.exists("/etc/os-release"):
-                    with open("/etc/os-release", "r") as f:
-                        content = f.read()
-                        name_match = re.search(
-                            r'^NAME=["\']?(.+?)["\']?$', content, re.M
-                        )
-                        version_match = re.search(
-                            r'^VERSION_ID=["\']?(.+?)["\']?$', content, re.M
-                        )
-                        id_match = re.search(r'^ID=["\']?(.+?)["\']?$', content, re.M)
-                        if id_match:
-                            os_distro = id_match.group(1).lower()
-                        if name_match:
-                            os_name = name_match.group(1)
-                            if version_match:
-                                os_name += f" {version_match.group(1)}"
-            except Exception:
-                pass
+    def _safe_get_disk_io_metrics(self) -> Optional[Dict[str, Any]]:
+        try:
+            io_counters = psutil.disk_io_counters(perdisk=False)
+            if io_counters:
+                return {
+                    "read_bytes": io_counters.read_bytes,
+                    "write_bytes": io_counters.write_bytes,
+                    "read_count": io_counters.read_count,
+                    "write_count": io_counters.write_count,
+                }
+        except Exception as e:
+            log.debug(f"Failed to read Disk I/O metrics: {e}")
+        return None
 
-        if os_family == "Windows":
-            os_distro = "windows"
-        if platform.system() == "Windows":
-            try:
-                ver = sys.getwindowsversion()
-                if ver.major == 10 and ver.build >= 22000:
-                    os_name = "Windows 11"
-            except Exception:
-                pass
-
-        battery_info = {}
-        if hasattr(psutil, "sensors_battery"):
-            try:
-                battery = psutil.sensors_battery()
-                if battery:
-                    battery_info = {
-                        "percent": round(battery.percent, 1),
-                        "power_plugged": battery.power_plugged,
-                        "secsleft": (
-                            battery.secsleft
-                            if battery.secsleft != psutil.POWER_TIME_UNLIMITED
-                            else None
-                        ),
-                    }
-            except Exception:
-                pass
-
+    def _safe_get_network_metrics(self, speed) -> Dict[str, Any]:
         net_info = {}
         try:
             addrs = psutil.net_if_addrs()
@@ -287,22 +271,20 @@ class SystemService:
                         "is_up": stats[nic].isup if nic in stats else False,
                         "speed_mbps": stats[nic].speed if nic in stats else 0,
                     }
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to read network interfaces: {e}")
 
-        disk_io = None
         try:
-            io_counters = psutil.disk_io_counters(perdisk=False)
-            if io_counters:
-                disk_io = {
-                    "read_bytes": io_counters.read_bytes,
-                    "write_bytes": io_counters.write_bytes,
-                    "read_count": io_counters.read_count,
-                    "write_count": io_counters.write_count,
-                }
-        except Exception:
-            pass
+            return {
+                "speed": speed,
+                "io_total": psutil.net_io_counters()._asdict(),
+                "interfaces": net_info,
+            }
+        except Exception as e:
+            log.debug(f"Failed to read network I/O counters: {e}")
+            return {"speed": speed, "io_total": {}, "interfaces": net_info}
 
+    def _safe_get_active_users(self) -> List[Dict[str, Any]]:
         active_users = []
         try:
             for u in psutil.users():
@@ -314,16 +296,19 @@ class SystemService:
                         "started": int(u.started),
                     }
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Failed to read active users: {e}")
+        return active_users
 
-        load_avg = []
+    def _safe_get_load_avg(self) -> List[float]:
         try:
             if hasattr(os, "getloadavg"):
-                load_avg = list(os.getloadavg())
-        except Exception:
-            pass
+                return list(os.getloadavg())
+        except Exception as e:
+            log.debug(f"Failed to read load average: {e}")
+        return []
 
+    def _safe_get_fans(self) -> Dict[str, Any]:
         fans = {}
         if hasattr(psutil, "sensors_fans"):
             try:
@@ -332,8 +317,81 @@ class SystemService:
                     fans[label] = [
                         {"label": f.label, "current": f.current} for f in entries
                     ]
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"Failed to read fan sensors: {e}")
+        return fans
+
+    def _safe_get_unix_thermals(self) -> Dict[str, float]:
+        temps = {}
+        if hasattr(psutil, "sensors_temperatures"):
+            try:
+                raw_temps = psutil.sensors_temperatures()
+                if raw_temps:
+                    # Look for common CPU temperature sensor labels
+                    for label in ["coretemp", "k10temp", "package_id_0", "cpu_thermal"]:
+                        if label in raw_temps and raw_temps[label]:
+                            temps["cpu_temp_celsius"] = raw_temps[label][0].current
+                            break
+            except Exception as e:
+                log.debug(f"Failed to read Unix thermal sensors: {e}")
+        return temps
+
+    def _get_sync_system_info(self) -> Dict[str, Any]:
+        """Synchronous CPU/RAM/Disk/Network telemetry."""
+        mem = psutil.virtual_memory()
+        swap = psutil.swap_memory()
+        freq = psutil.cpu_freq()
+        boot = psutil.boot_time()
+        uptime = time.time() - boot
+        speed = self._network_monitor.get_speed()
+
+        # Thermal Detection
+        if sys.platform == "win32":
+            temps = self._get_windows_thermals()
+        else:
+            temps = self._safe_get_unix_thermals()
+
+        # OS Details
+        os_family = platform.system()
+        os_release = platform.release()
+        os_name = f"{os_family} {os_release}"
+        os_distro = "unknown"
+        machine_arch = platform.machine()
+
+        if os_family == "Linux":
+            try:
+                import distro
+
+                os_distro = distro.id()
+                os_name = f"{distro.name()} {distro.version()}"
+            except ImportError:
+                if os.path.exists("/etc/os-release"):
+                    with open("/etc/os-release", "r") as f:
+                        content = f.read()
+                        name_match = re.search(
+                            r'^NAME=["\']?(.+?)["\']?$', content, re.M
+                        )
+                        version_match = re.search(
+                            r'^VERSION_ID=["\']?(.+?)["\']?$', content, re.M
+                        )
+                        id_match = re.search(r'^ID=["\']?(.+?)["\']?$', content, re.M)
+                        if id_match:
+                            os_distro = id_match.group(1).lower()
+                        if name_match:
+                            os_name = name_match.group(1)
+                            if version_match:
+                                os_name += f" {version_match.group(1)}"
+            except Exception as e:
+                log.debug(f"Failed to determine Linux distribution: {e}")
+
+        if os_family == "Windows":
+            os_distro = "windows"
+            try:
+                ver = sys.getwindowsversion()
+                if ver.major == 10 and ver.build >= 22000:
+                    os_name = "Windows 11"
+            except Exception as e:
+                log.debug(f"Failed to refine Windows version: {e}")
 
         from .discovery_service import DiscoveryService
 
@@ -345,41 +403,20 @@ class SystemService:
             "arch": machine_arch,
             "python_version": platform.python_version(),
             "hostname": socket.gethostname(),
-            "server_id": DiscoveryService.generate_server_id(),  # Added
+            "server_id": DiscoveryService.generate_server_id(),
             "uptime_seconds": int(uptime),
             "boot_time": int(boot),
             "procs": len(psutil.pids()),
-            "users": active_users,
-            "load_avg": load_avg,
-            "battery": battery_info,
-            "cpu": {
-                "percent": psutil.cpu_percent(interval=0.1),
-                "per_cpu_percent": psutil.cpu_percent(interval=None, percpu=True),
-                "physical_cores": psutil.cpu_count(logical=False),
-                "total_cores": psutil.cpu_count(logical=True),
-                "current_freq_mhz": freq.current if freq else None,
-                "max_freq_mhz": freq.max if freq else None,
-            },
-            "ram": {
-                "percent": mem.percent,
-                "total_gb": round(mem.total / (1024**3), 2),
-                "used_gb": round(mem.used / (1024**3), 2),
-                "available_gb": round(mem.available / (1024**3), 2),
-            },
-            "swap": {
-                "percent": swap.percent,
-                "total_gb": round(swap.total / (1024**3), 2),
-                "used_gb": round(swap.used / (1024**3), 2),
-                "free_gb": round(swap.free / (1024**3), 2),
-            },
-            "disk_io": disk_io,
-            "network": {
-                "speed": speed,
-                "io_total": psutil.net_io_counters()._asdict(),
-                "interfaces": net_info,
-            },
+            "users": self._safe_get_active_users(),
+            "load_avg": self._safe_get_load_avg(),
+            "battery": self._safe_get_battery(),
+            "cpu": self._safe_get_cpu_metrics(freq),
+            "ram": self._safe_get_ram_metrics(mem),
+            "swap": self._safe_get_swap_metrics(swap),
+            "disk_io": self._safe_get_disk_io_metrics(),
+            "network": self._safe_get_network_metrics(speed),
             "sensors": temps,
-            "fans": fans,
+            "fans": self._safe_get_fans(),
         }
 
     def _get_windows_thermals(self) -> Dict[str, float]:
@@ -639,12 +676,12 @@ class SystemService:
             await asyncio.to_thread(subprocess.run, cmd, creationflags=SUBPROCESS_FLAGS)
 
     async def _try_power_command_linux(self, command: str, primary: List[str]) -> bool:
-        # Simplified for brevity, same logic as system_router.py
+        # Use -n to prevent hanging on password prompts
         fallbacks = {
-            "shutdown": [["sudo", "systemctl", "poweroff"], ["poweroff"]],
-            "reboot": [["sudo", "systemctl", "reboot"], ["reboot"]],
+            "shutdown": [["sudo", "-n", "systemctl", "poweroff"], ["poweroff"]],
+            "reboot": [["sudo", "-n", "systemctl", "reboot"], ["reboot"]],
             "lock": [["loginctl", "lock-session"], ["xdg-screensaver", "lock"]],
-            "sleep": [["sudo", "systemctl", "suspend"]],
+            "sleep": [["sudo", "-n", "systemctl", "suspend"]],
             "logout": [["loginctl", "terminate-user", _get_current_user()]],
         }
         targets = [primary] + fallbacks.get(command, [])
@@ -652,7 +689,8 @@ class SystemService:
             try:
                 await self.run_command(t)
                 return True
-            except Exception:
+            except Exception as e:
+                log.debug(f"Linux power command fallback '{t}' failed: {e}")
                 continue
         return False
 
