@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import platform
+import time
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -15,12 +16,11 @@ from .dependencies import verify_web_session
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["WebSocket"])
 
+AUTH_CHECK_INTERVAL = 5.0  # seconds
 
-def handle_mouse_command(data: Dict[str, Any], device_permissions: List[str] = None):
-    if device_permissions is not None and "mouse" not in device_permissions:
-        return
-    if not input_service.is_available():
-        log.warning("Mouse command ignored - No input backend available")
+
+async def handle_mouse_command(data: Dict[str, Any], permissions: List[str]):
+    if "mouse" not in permissions or not input_service.is_available():
         return
 
     action = data.get("action")
@@ -34,23 +34,21 @@ def handle_mouse_command(data: Dict[str, Any], device_permissions: List[str] = N
         elif action == "scroll":
             input_service.mouse_scroll(data.get("dx", 0), data.get("dy", 0))
     except Exception as e:
-        log.error(f"Error executing mouse command '{action}': {e}")
+        log.error(f"Mouse command '{action}' failed: {e}")
 
 
-def handle_keyboard_command(data: Dict[str, Any], device_permissions: List[str] = None):
-    if device_permissions is not None and "keyboard" not in device_permissions:
-        return
-    if not input_service.is_available():
-        log.warning("Keyboard command ignored - No input backend available")
+async def handle_keyboard_command(data: Dict[str, Any], permissions: List[str]):
+    if "keyboard" not in permissions or not input_service.is_available():
         return
 
     try:
         if text := data.get("text"):
-            input_service.keyboard_type(text)
+            # Typing strings can block; offload to thread
+            await asyncio.to_thread(input_service.keyboard_type, text)
         elif key := data.get("key"):
             input_service.keyboard_press(key)
     except Exception as e:
-        log.error(f"Error executing keyboard command: {e}")
+        log.error(f"Keyboard command failed: {e}")
 
 
 @router.websocket("/ws")
@@ -59,13 +57,11 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
     await websocket.accept()
 
     if not token:
-        await websocket.close(code=1008, reason="MISSING_TOKEN")
-        return
+        return await websocket.close(code=1008, reason="MISSING_TOKEN")
 
     device = device_manager.get_device_by_api_key(token)
     if not (device and device.is_approved):
-        await websocket.close(code=1008, reason="INVALID_OR_REVOKED_TOKEN")
-        return
+        return await websocket.close(code=1008, reason="INVALID_OR_REVOKED_TOKEN")
 
     device_id = device.device_id
     device_manager.update_device_ip(device_id, websocket.client.host)
@@ -73,69 +69,78 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
 
     await mobile_manager.connect(websocket, device_id)
 
-    # Initial Sync
     from ...services.discovery_service import DiscoveryService
+    from ...services.media_service import media_service
+
+    # Local state caching to prevent DB/Config hits on every high-freq packet
+    permissions = device.permissions
+    services = config_manager.get("services", {})
+    last_auth_check = time.time()
 
     await websocket.send_json(
         {
             "type": "SYNC_STATE",
-            "services": config_manager.get("services", {}),
-            "permissions": device.permissions,
+            "services": services,
+            "permissions": permissions,
             "server_id": DiscoveryService.generate_server_id(),
         }
     )
+
+    type_service_map = {
+        "mouse_control": "mouse",
+        "keyboard_control": "keyboard",
+        "media_control": "media",
+        "file_operation": "files_browse",
+        "macros": "macros",
+        "apps": "apps",
+    }
 
     try:
         while True:
             data = await websocket.receive_json()
             msg_type = data.get("type")
+            now = time.time()
 
-            # 1. Real-time Permission Verification
-            current_device = device_manager.get_device_by_id(device_id)
-            if not (current_device and current_device.is_approved):
-                log.warning(f"Closing WS for revoked device: {device_id}")
-                await websocket.close(code=4003, reason="DEVICE_REVOKED")
-                break
+            # 1. Periodic Real-time Permission Verification
+            if now - last_auth_check > AUTH_CHECK_INTERVAL:
+                current_device = device_manager.get_device_by_id(device_id)
+                if not (current_device and current_device.is_approved):
+                    log.warning(f"Closing WS for revoked device: {device_id}")
+                    await websocket.close(code=4003, reason="DEVICE_REVOKED")
+                    break
 
-            permissions = current_device.permissions
-            services = config_manager.get("services", {})
+                permissions = current_device.permissions
+                services = config_manager.get("services", {})
+                last_auth_check = now
 
-            # 2. Service mapping & Global Check
-            type_service_map = {
-                "mouse_control": "mouse",
-                "keyboard_control": "keyboard",
-                "media_control": "media",
-                "file_operation": "files_browse",
-                "macros": "macros",
-                "apps": "apps",
-            }
+            # 2. Global Check
             required_service = type_service_map.get(msg_type)
             if required_service and not services.get(required_service, True):
-                log.debug(f"Blocked {msg_type} - service disabled")
                 continue
 
-            # 3. Command Execution
-            if msg_type == "mouse_control":
-                handle_mouse_command(data, permissions)
-            elif msg_type == "keyboard_control":
-                handle_keyboard_command(data, permissions)
-            elif msg_type == "media_control" and "media" in permissions:
-                from ...services.media_service import media_service
-
-                action = data.get("action")
-                if action == "play_pause":
-                    media_service.play_pause()
-                elif action == "next":
-                    media_service.next_track()
-                elif action == "previous":
-                    media_service.previous_track()
-                elif action == "volume_up":
-                    media_service.volume_up()
-                elif action == "volume_down":
-                    media_service.volume_down()
+            # 3. Safe Command Execution
+            try:
+                if msg_type == "mouse_control":
+                    await handle_mouse_command(data, permissions)
+                elif msg_type == "keyboard_control":
+                    await handle_keyboard_command(data, permissions)
+                elif msg_type == "media_control" and "media" in permissions:
+                    action = data.get("action")
+                    if action == "play_pause":
+                        await asyncio.to_thread(media_service.play_pause)
+                    elif action == "next":
+                        await asyncio.to_thread(media_service.next_track)
+                    elif action == "previous":
+                        await asyncio.to_thread(media_service.previous_track)
+                    elif action == "volume_up":
+                        await asyncio.to_thread(media_service.volume_up)
+                    elif action == "volume_down":
+                        await asyncio.to_thread(media_service.volume_down)
+            except Exception as e:
+                log.error(f"Error processing {msg_type}: {e}", exc_info=True)
 
     except (WebSocketDisconnect, OSError):
-        pass
+        log.debug(f"Device {device_id} disconnected normally.")
     finally:
         mobile_manager.disconnect(websocket)
 
@@ -146,29 +151,28 @@ async def web_ui_websocket_endpoint(websocket: WebSocket):
     try:
         await verify_web_session(websocket)
     except HTTPException:
-        await websocket.close(code=4001, reason="AUTH_FAILED")
-        return
+        return await websocket.close(code=4001, reason="AUTH_FAILED")
 
     await ui_manager.connect(websocket)
+    app_state = websocket.app.state
 
-    # Send initial status
-    controller = getattr(websocket.app.state, "controller", None)
+    controller = getattr(app_state, "controller", None)
     is_running = (
         getattr(controller, "mobile_api_enabled", False) if controller else False
     )
+
     await websocket.send_json(
         {"type": "server_status", "status": "running" if is_running else "stopped"}
     )
 
     try:
-        results = getattr(websocket.app.state, "pairing_results", {})
-        events = getattr(websocket.app.state, "pairing_events", {})
+        results = getattr(app_state, "pairing_results", {})
+        events = getattr(app_state, "pairing_events", {})
 
         while True:
             data = await websocket.receive_json()
             msg_type = data.get("type")
 
-            # UI-triggered pairing responses
             if msg_type in ("approve_pair", "deny_pair"):
                 pid = data.get("pairing_id")
                 if pid and pid in events:
@@ -190,7 +194,7 @@ async def broadcast_updates_task(manager, state):
     while True:
         try:
             if not manager.active_connections:
-                await asyncio.sleep(5)
+                await asyncio.sleep(2)
                 continue
 
             services = config_manager.get("services", {})
@@ -200,22 +204,24 @@ async def broadcast_updates_task(manager, state):
                 "server_id": DiscoveryService.generate_server_id(),
             }
 
-            # Gather System Metrics
             if services.get("info", True):
                 update_data["system"] = await system_service.get_system_info()
             else:
-                update_data["system"] = {
-                    "version": getattr(state, "controller", None).version
+                version = (
+                    getattr(getattr(state, "controller", None), "version", "unknown")
                     if hasattr(state, "controller")
-                    else "unknown",
+                    else "unknown"
+                )
+                update_data["system"] = {
+                    "version": version,
                     "platform": platform.system(),
                 }
 
-            # Gather Media Metadata
             if services.get("media", True):
                 update_data["media"] = await media_service.get_media_info()
 
             await manager.broadcast({"type": "update", "data": update_data})
         except Exception as e:
             log.error(f"Broadcast task error: {e}")
+
         await asyncio.sleep(1)
