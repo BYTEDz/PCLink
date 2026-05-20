@@ -21,7 +21,12 @@ async function startWebRTC() {
         const video = document.getElementById('mirrorLiveVideo');
         pc.ontrack = (event) => {
             if (video && event.streams && event.streams[0]) {
-                video.srcObject = event.streams[0];
+                if (video.srcObject !== event.streams[0]) {
+                    video.srcObject = event.streams[0];
+                    video.onloadedmetadata = () => {
+                        video.play().catch(e => console.error("Autoplay failed:", e));
+                    };
+                }
             }
         };
 
@@ -272,6 +277,22 @@ window.runMirrorDiagnostics = async () => {
                 statusTitle.textContent = "Native Engine Missing";
                 statusDesc.className = "text-xs text-warning/80 mt-0.5 font-medium";
                 statusDesc.textContent = "The native FerrumCast binary is missing. Compile the Rust project and place the binary into src/pclink/assets/bin/ferrumcast.";
+            } else if (data.status === 'binary_failure') {
+                statusBanner.className = "alert border border-error/20 bg-error/5 shadow-md border-l-8 border-l-error transition-all duration-300 flex p-4";
+                statusIcon.innerHTML = `<i data-feather="x-circle" class="w-6 h-6 text-error"></i>`;
+                statusTitle.className = "font-black text-sm text-error";
+                statusTitle.textContent = "Native Engine Failure";
+                statusDesc.className = "text-xs text-error/80 mt-0.5 font-medium";
+                const errMsg = data.probe_error || "FerrumCast failed to launch";
+                let helpText = "Ensure the required Visual C++ runtime and GStreamer runtime are installed.";
+                if (errMsg.includes("timeout")) {
+                    helpText = "GStreamer initialization is hanging or stuck. Recompile FerrumCast with proper Windows dependencies or use a pre-built Windows package.";
+                } else if (errMsg.includes("0xC000228A") || errMsg.includes("3221225786") || errMsg.includes("assembly")) {
+                    helpText = "GStreamer Windows build is missing runtime manifests. This requires recompilation with proper Windows SDK/MSVC setup.";
+                } else if (errMsg.includes("GLib-GObject-CRITICAL") || errMsg.includes("type")) {
+                    helpText = "GLib type system initialization failed. GStreamer may not be properly built for this Windows version.";
+                }
+                statusDesc.textContent = errMsg.split('\n')[0] + " — " + helpText;
             } else if (data.status === 'wayland_missing_portal') {
                 statusBanner.className = "alert border border-error/20 bg-error/5 shadow-md border-l-8 border-l-error transition-all duration-300 flex p-4";
                 statusIcon.innerHTML = `<i data-feather="x-circle" class="w-6 h-6 text-error"></i>`;
@@ -385,6 +406,9 @@ window.toggleMirrorSession = async (event) => {
 
         const fps = fpsVal === 'passthrough' ? null : parseInt(fpsVal);
 
+        const gdiToggle = document.getElementById('mirror_gdi');
+        const gdi = gdiToggle ? gdiToggle.checked : false;
+
         const body = {
             outputMode: 'webrtc',
             udpHost: null,
@@ -392,7 +416,8 @@ window.toggleMirrorSession = async (event) => {
             bitrate: bitrate,
             width: width,
             height: height,
-            fps: fps
+            fps: fps,
+            gdi: gdi
         };
 
         try {

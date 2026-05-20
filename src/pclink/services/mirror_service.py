@@ -56,6 +56,35 @@ class MirrorService:
         self.listen_task = None
         self._subscribers = set()
 
+    def _engine_env(self) -> dict:
+        """Prepare the environment for the FerrumCast engine process."""
+        env = os.environ.copy()
+        if OS_TYPE == "windows":
+            # Prefer the installed MSVC GStreamer runtime if available.
+            candidates = [
+                Path(r"C:\Program Files\gstreamer\1.0\msvc_x86_64"),
+                Path(r"C:\gstreamer\1.0\msvc_x86_64"),
+            ]
+            for base in candidates:
+                if base.exists() and base.is_dir():
+                    gst_bin = base / "bin"
+                    gst_plugin_path = base / "lib" / "gstreamer-1.0"
+                    if gst_bin.exists():
+                        path = env.get("PATH", "")
+                        if str(gst_bin) not in path:
+                            env["PATH"] = str(gst_bin) + os.pathsep + path
+                    if gst_plugin_path.exists():
+                        plugin_path = str(gst_plugin_path)
+                        if "GST_PLUGIN_PATH" not in env or plugin_path not in env["GST_PLUGIN_PATH"]:
+                            env["GST_PLUGIN_PATH"] = plugin_path
+                        if "GST_PLUGIN_SYSTEM_PATH" not in env or plugin_path not in env["GST_PLUGIN_SYSTEM_PATH"]:
+                            env["GST_PLUGIN_SYSTEM_PATH"] = plugin_path
+                    scanner = gst_bin / "gst-plugin-scanner.exe"
+                    if scanner.exists():
+                        env["GST_PLUGIN_SCANNER"] = str(scanner)
+                    break
+        return env
+
     async def diagnose_system(self) -> dict:
         """Run diagnostics on mirroring subsystem."""
         import shutil
@@ -136,15 +165,39 @@ class MirrorService:
                     "--probe",
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    env=self._engine_env(),
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
                 )
-                stdout, _ = await proc.communicate()
+                try:
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    info["probe_error"] = "Probe timeout (10s) - GStreamer initialization may be failing"
+                    info["status"] = "binary_failure"
+                    logger.error("FerrumCast probe timed out after 10 seconds")
+                    return info
                 if proc.returncode == 0:
                     lines = stdout.decode().strip().split("\n")
                     if lines:
                         caps = json.loads(lines[-1])
                         info["encoders"] = caps.get("encoders", [])
+                else:
+                    error_text = stderr.decode(errors="ignore").strip() or stdout.decode(errors="ignore").strip()
+                    logger.error(
+                        f"FerrumCast probe failed (returncode={proc.returncode}): {error_text}"
+                    )
+                    info["probe_error"] = error_text
+                    if platform.system() == "Windows":
+                        info["status"] = "binary_failure"
+                    else:
+                        info["status"] = "gstreamer_error"
             except Exception as e:
                 logger.error(f"Failed to probe engine capabilities: {e}")
+                info["probe_error"] = str(e)
+                if platform.system() == "Windows":
+                    info["status"] = "binary_failure"
+                else:
+                    info["status"] = "gstreamer_error"
 
         # 3. Determine overall support status
         if platform.system() == "Linux":
@@ -161,6 +214,65 @@ class MirrorService:
                 info["status"] = "missing_binary"
 
         return info
+
+    async def collect_engine_diagnostics(self) -> dict:
+        """Collect GStreamer and environment diagnostics useful for debugging engine failures.
+
+        Returns a dict containing gst-inspect outputs and the environment as seen
+        by the spawned engine process (PATH, GST_PLUGIN_PATH, GST_PLUGIN_SCANNER).
+        """
+        result = {
+            "gst_inspect_version": None,
+            "gst_inspect_plugins": None,
+            "env": {},
+            "errors": [],
+        }
+
+        # Prepare env same as engine will see
+        env = self._engine_env()
+
+        # Capture a minimal set of env variables for debugging
+        for key in ("PATH", "GST_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SCANNER"):
+            result["env"][key] = env.get(key)
+
+        async def run_cmd(*cmd):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
+                )
+                stdout, stderr = await proc.communicate()
+                return proc.returncode, stdout.decode(errors="ignore"), stderr.decode(errors="ignore")
+            except FileNotFoundError as e:
+                return 127, "", str(e)
+            except Exception as e:
+                return 1, "", str(e)
+
+        # 1) gst-inspect version
+        code, out, err = await run_cmd("gst-inspect-1.0", "--version")
+        if code == 0:
+            result["gst_inspect_version"] = out.strip()
+        else:
+            result["errors"].append({"gst-inspect-version": err or out})
+
+        # 2) inspect specific plugins useful for troubleshooting
+        plugins_to_check = ["webrtcbin", "d3d11screencapturesrc", "x264enc", "mfh264enc", "gstpython"]
+        plugin_outputs = {}
+        for p in plugins_to_check:
+            code, out, err = await run_cmd("gst-inspect-1.0", p)
+            plugin_outputs[p] = {"returncode": code, "stdout": out.strip(), "stderr": err.strip()}
+
+        result["gst_inspect_plugins"] = plugin_outputs
+
+        # 3) list plugins (grep for relevant ones)
+        code, out, err = await run_cmd("gst-inspect-1.0", "--plugins")
+        if code == 0:
+            # Keep only relevant lines to avoid huge blobs in logs
+            lines = [l for l in out.splitlines() if any(k in l for k in ("webrtcbin", "d3d11screencapturesrc", "x264enc", "mfh264enc", "gstpython"))]
+            result["gst_plugins_list"] = "\n".join(lines)
+        else:
+            result["gst_plugins_list"] = err or out
+
+        return result
 
     def _engine_alive(self) -> bool:
         return self.process is not None and self.process.returncode is None
@@ -229,6 +341,7 @@ class MirrorService:
         fps=None,
         bitrate=4000,
         audio=True,
+        gdi=False,
     ):
         """Start or reuse engine. If already running, restart pipeline via IPC."""
         if not ENGINE_PATH.exists():
@@ -251,6 +364,7 @@ class MirrorService:
                 "height": height,
                 "framerate": fps,
                 "token": None,
+                "gdi": gdi,
             }
             await self.send_command(cfg)
             return True
@@ -284,6 +398,8 @@ class MirrorService:
             args += ["--height", str(height)]
         if fps:
             args += ["--fps", str(fps)]
+        if gdi:
+            args.append("--gdi")
 
         # Pass cached portal token if available
         if os.path.exists(TOKEN_FILE):
@@ -300,9 +416,18 @@ class MirrorService:
         else:
             args += ["--output", "webrtc"]
 
+        kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "env": self._engine_env(),
+        }
+        if OS_TYPE == "windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
         logger.info(f"Starting mirror engine: {args}")
         self.process = await asyncio.create_subprocess_exec(
-            *args, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            *args,
+            **kwargs
         )
 
         async def log_engine(stream, prefix):
@@ -319,6 +444,12 @@ class MirrorService:
             return True
         else:
             logger.error("Mirror engine IPC connection failed")
+            # Collect diagnostics to aid debugging of plugin/DLL issues
+            try:
+                diags = await self.collect_engine_diagnostics()
+                logger.error("Engine diagnostics: %s", json.dumps(diags))
+            except Exception as e:
+                logger.error("Failed to collect engine diagnostics: %s", e)
             return False
 
     async def stop_engine(self):
@@ -329,8 +460,16 @@ class MirrorService:
         """Actually terminate the engine process."""
         if self.process:
             try:
-                self.process.terminate()
-                await self.process.wait()
+                if OS_TYPE == "windows":
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                else:
+                    self.process.terminate()
+                await asyncio.wait_for(self.process.wait(), timeout=2.0)
             except Exception:
                 pass
             self.process = None

@@ -31,6 +31,7 @@ async def start_mirror(request: Request):
     fps = body.get("fps")
     bitrate = body.get("bitrate", 4000)
     audio = body.get("audio", True)
+    gdi = body.get("gdi", False)
 
     success = await mirror_service.start_engine(
         client_host=client_host,
@@ -40,6 +41,7 @@ async def start_mirror(request: Request):
         fps=fps,
         bitrate=bitrate,
         audio=audio,
+        gdi=gdi,
     )
     if success:
         return {"success": True, "host": client_host, "encoder": encoder}

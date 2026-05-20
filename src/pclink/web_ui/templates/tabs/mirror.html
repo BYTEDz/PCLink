@@ -121,6 +121,13 @@
                 oninput="document.getElementById('mirror_bitrate_val').textContent = this.value + ' kbps'" />
             </div>
 
+            <div class="form-control w-full mt-2">
+              <label class="label p-1 flex justify-between cursor-pointer">
+                <span class="label-text text-[10px] uppercase font-black opacity-60">GDI Capture Fallback (VMs)</span>
+                <input type="checkbox" id="mirror_gdi" class="toggle toggle-primary toggle-sm" />
+              </label>
+            </div>
+
             <!-- Stream actions buttons -->
             <div class="flex flex-col gap-2 pt-2">
               <button id="btn_toggle_mirror" class="btn btn-primary text-white font-bold w-full"
