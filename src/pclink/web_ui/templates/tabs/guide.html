@@ -6,7 +6,8 @@
     </div>
     <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
       <input type="checkbox" checked="checked" />
-      <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="wifi" class="text-primary w-5"></i> 1. Network Configuration</div>
+      <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="wifi" class="text-primary w-5"></i>
+        1. Network Configuration</div>
       <div class="collapse-content space-y-4 pt-2">
         <ul class="list-disc pl-5 space-y-2 text-sm opacity-80">
           <li>Ensure both your PC and mobile device are on the <b>Same WiFi network</b>.</li>
@@ -18,9 +19,11 @@
     </div>
     <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
       <input type="checkbox" />
-      <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="shield" class="text-primary w-5"></i> 2. Firewall Troubleshooting</div>
+      <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="shield"
+          class="text-primary w-5"></i> 2. Firewall Troubleshooting</div>
       <div class="collapse-content space-y-4 pt-2">
-        <p class="text-xs opacity-70">If the companion app cannot see your PC, run these commands in CMD/Powershell as Administrator.</p>
+        <p class="text-xs opacity-70">If the companion app cannot see your PC, run these commands in CMD/Powershell as
+          Administrator.</p>
         <div class="space-y-2">
           <p class="text-[10px] uppercase font-black opacity-50">Check existing rule</p>
           <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
@@ -30,20 +33,24 @@
         <div class="space-y-2">
           <p class="text-[10px] uppercase font-black opacity-50">Manually add allow rule</p>
           <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
-            <pre data-prefix="$" class="text-warning"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow program="C:\path\to\pclink.exe" enable=yes</code></pre>
+            <pre data-prefix="$"
+              class="text-warning"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow program="C:\path\to\pclink.exe" enable=yes</code></pre>
           </div>
         </div>
       </div>
     </div>
     <div class="collapse collapse-arrow bg-base-100 border border-base-300 shadow-sm">
       <input type="checkbox" />
-      <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="terminal" class="text-primary w-5"></i> 3. Server Port Management</div>
+      <div class="collapse-title font-bold flex items-center gap-3"><i data-feather="terminal"
+          class="text-primary w-5"></i> 3. Server Port Management</div>
       <div class="collapse-content space-y-4 pt-2">
-        <p class="text-xs opacity-70">Changing the port requires updating your system firewall manually to allow the new traffic.</p>
+        <p class="text-xs opacity-70">Changing the port requires updating your system firewall manually to allow the new
+          traffic.</p>
         <div class="space-y-2">
           <p class="text-[10px] uppercase font-black opacity-50">Windows (netsh)</p>
           <div class="mockup-code text-xs bg-neutral text-neutral-content cursor-pointer" onclick="copyCommand(this)">
-            <pre data-prefix="$"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow protocol=TCP localport=<span class="current-port">38080</span></code></pre>
+            <pre
+              data-prefix="$"><code>netsh advfirewall firewall add rule name="PCLink" dir=in action=allow protocol=TCP localport=<span class="current-port">38080</span></code></pre>
           </div>
         </div>
         <div class="space-y-2">

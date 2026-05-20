@@ -1,20 +1,23 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PCLink Authentication</title>
     <script>
-      const originalWarn = console.warn;
-      console.warn = (...args) => { if (typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return; originalWarn(...args); };
+        const originalWarn = console.warn;
+        console.warn = (...args) => { if (typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return; originalWarn(...args); };
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
     <link rel="stylesheet" href="/ui/static/style.css">
     <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg">
 </head>
+
 <body class="bg-base-300 min-h-screen flex items-center justify-center p-4">
-    <div id="fullScreenLoader" class="fixed inset-0 bg-base-300 z-[10000] flex items-center justify-center transition-opacity duration-500">
+    <div id="fullScreenLoader"
+        class="fixed inset-0 bg-base-300 z-[10000] flex items-center justify-center transition-opacity duration-500">
         <div class="flex flex-col items-center gap-4">
             <div class="loading loading-spinner loading-lg text-primary"></div>
             <span class="text-xs font-black uppercase tracking-widest opacity-50">Loading PCLink...</span>
@@ -23,39 +26,50 @@
 
     <div id="resetModal" class="modal font-bold">
         <div class="modal-box border-2 border-error/30 shadow-2xl items-center text-center p-8 relative">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="toggleResetModal(false)">✕</button>
+            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+                onclick="toggleResetModal(false)">✕</button>
             <h3 class="font-black text-2xl mb-2 text-error">Factory Reset</h3>
-            <p class="text-sm opacity-60 mb-8 px-4 leading-6 font-normal">This will PERMANENTLY delete server data. Extensions can be optionally wiped.</p>
+            <p class="text-sm opacity-60 mb-8 px-4 leading-6 font-normal">This will PERMANENTLY delete server data.
+                Extensions can be optionally wiped.</p>
 
             <form onsubmit="handleFactoryReset(event)" class="space-y-4 font-bold flex flex-col items-center">
-                <input type="password" id="resetPassword" placeholder="Confirm with Master Password" class="input input-bordered w-full text-center" required>
+                <input type="password" id="resetPassword" placeholder="Confirm with Master Password"
+                    class="input input-bordered w-full text-center" required>
 
                 <div class="space-y-2 w-full text-left">
                     <div class="form-control w-full p-2 bg-base-200/50 rounded-xl border border-base-300">
                         <label class="label cursor-pointer px-4">
-                            <span class="label-text font-black text-[10px] uppercase opacity-70">Wipe My Password Too</span>
-                            <input type="checkbox" id="wipeAuthCheckbox" class="checkbox checkbox-primary checkbox-sm border-2 rounded-lg ml-4">
+                            <span class="label-text font-black text-[10px] uppercase opacity-70">Wipe My Password
+                                Too</span>
+                            <input type="checkbox" id="wipeAuthCheckbox"
+                                class="checkbox checkbox-primary checkbox-sm border-2 rounded-lg ml-4">
                         </label>
                     </div>
 
                     <div class="form-control w-full p-2 bg-error/5 rounded-xl border border-error/20">
                         <label class="label cursor-pointer px-4">
-                            <span class="label-text font-black text-[10px] uppercase text-error opacity-80">Wipe All Extensions</span>
-                            <input type="checkbox" id="wipeExtensionsCheckbox" class="checkbox checkbox-error checkbox-sm border-2 rounded-lg ml-4">
+                            <span class="label-text font-black text-[10px] uppercase text-error opacity-80">Wipe All
+                                Extensions</span>
+                            <input type="checkbox" id="wipeExtensionsCheckbox"
+                                class="checkbox checkbox-error checkbox-sm border-2 rounded-lg ml-4">
                         </label>
                     </div>
                 </div>
 
                 <div class="modal-action w-full flex-col gap-2 m-0 mt-4">
-                  <button type="submit" class="btn btn-error w-full text-white font-black uppercase shadow-lg" id="resetButton">Initiate Reset</button>
-                  <button type="button" class="btn btn-ghost w-full font-bold opacity-50" onclick="toggleResetModal(false)">Cancel</button>
+                    <button type="submit" class="btn btn-error w-full text-white font-black uppercase shadow-lg"
+                        id="resetButton">Initiate Reset</button>
+                    <button type="button" class="btn btn-ghost w-full font-bold opacity-50"
+                        onclick="toggleResetModal(false)">Cancel</button>
                 </div>
             </form>
 
             <div class="divider text-[9px] font-black uppercase opacity-20 my-6 tracking-widest">Manual Reset</div>
-            <div class="bg-base-300/50 p-3 rounded-lg border border-base-300 font-mono text-[10px] opacity-50 select-all mb-2" id="p_dataDir">Loading...</div>
+            <div class="bg-base-300/50 p-3 rounded-lg border border-base-300 font-mono text-[10px] opacity-50 select-all mb-2"
+                id="p_dataDir">Loading...</div>
             <div class="flex gap-2 w-full">
-                <button class="btn btn-ghost btn-xs opacity-40 uppercase flex-1" onclick="openConfigFolder()">Host Folder</button>
+                <button class="btn btn-ghost btn-xs opacity-40 uppercase flex-1" onclick="openConfigFolder()">Host
+                    Folder</button>
                 <button class="btn btn-ghost btn-xs opacity-40 uppercase flex-1" onclick="copyPath()">Copy Path</button>
             </div>
         </div>
@@ -73,13 +87,16 @@
                 <p class="text-sm opacity-60 mb-8">Enter your master password to continue</p>
 
                 <form class="space-y-4" onsubmit="handleLogin(event)">
-                    <input type="password" id="loginPassword" placeholder="Master Password" class="input input-bordered w-full text-center" required>
-                    <button type="submit" class="btn btn-primary w-full text-white font-bold shadow-lg" id="loginButton">Sign In</button>
+                    <input type="password" id="loginPassword" placeholder="Master Password"
+                        class="input input-bordered w-full text-center" required>
+                    <button type="submit" class="btn btn-primary w-full text-white font-bold shadow-lg"
+                        id="loginButton">Sign In</button>
                 </form>
 
                 <div class="mt-8 pt-8 border-t border-base-300/50">
-                    <button onclick="toggleResetModal(true)" class="btn btn-ghost btn-xs opacity-50 hover:opacity-100 font-black uppercase tracking-widest px-4">
-                      Trouble? Factory Reset
+                    <button onclick="toggleResetModal(true)"
+                        class="btn btn-ghost btn-xs opacity-50 hover:opacity-100 font-black uppercase tracking-widest px-4">
+                        Trouble? Factory Reset
                     </button>
                 </div>
             </div>
@@ -89,9 +106,12 @@
                 <p class="text-sm opacity-60 mb-8">Create a master password to secure your server.</p>
 
                 <form class="space-y-3" onsubmit="handleSetup(event)">
-                    <input type="password" id="setupPassword" placeholder="Create Password" class="input input-bordered w-full text-center" required>
-                    <input type="password" id="confirmPassword" placeholder="Confirm Password" class="input input-bordered w-full text-center" required>
-                    <button type="submit" class="btn btn-primary w-full mt-4 font-bold shadow-lg" id="setupButton">Set Password</button>
+                    <input type="password" id="setupPassword" placeholder="Create Password"
+                        class="input input-bordered w-full text-center" required>
+                    <input type="password" id="confirmPassword" placeholder="Confirm Password"
+                        class="input input-bordered w-full text-center" required>
+                    <button type="submit" class="btn btn-primary w-full mt-4 font-bold shadow-lg" id="setupButton">Set
+                        Password</button>
                 </form>
             </div>
 
@@ -108,7 +128,9 @@
                     <h3 class="font-black text-base" id="confirmModalTitle">Confirm Action</h3>
                     <p class="text-sm opacity-70 mt-1 font-normal" id="confirmModalMessage"></p>
                     <div id="confirmModalInputWrapper" class="mt-4 hidden text-left">
-                        <input type="text" id="confirmModalInput" class="input input-sm input-bordered w-full font-black text-center" placeholder="Type YES to confirm">
+                        <input type="text" id="confirmModalInput"
+                            class="input input-sm input-bordered w-full font-black text-center"
+                            placeholder="Type YES to confirm">
                     </div>
                 </div>
             </div>
@@ -119,18 +141,22 @@
         </div>
     </dialog>
 
-    <div id="resetSuccessOverlay" class="fixed inset-0 bg-base-300 z-[9999] hidden flex items-center justify-center p-6 text-center">
+    <div id="resetSuccessOverlay"
+        class="fixed inset-0 bg-base-300 z-[9999] hidden flex items-center justify-center p-6 text-center">
         <div class="max-w-md w-full animate-in fade-in zoom-in duration-500 font-bold">
-            <div class="bg-success/10 text-success p-6 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-8 shadow-inner">
+            <div
+                class="bg-success/10 text-success p-6 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-8 shadow-inner">
                 <i data-feather="check-circle" class="w-12 h-12"></i>
             </div>
             <h2 class="text-4xl font-black mb-4">Factory Reset Complete</h2>
-            <p class="text-lg opacity-60 mb-10 leading-relaxed">The server data has been purged and the process shut down. Please start the server manually to continue.</p>
+            <p class="text-lg opacity-60 mb-10 leading-relaxed">The server data has been purged and the process shut
+                down. Please start the server manually to continue.</p>
             <div class="bg-base-100 p-4 rounded-xl border border-base-300 text-sm font-mono opacity-50 mb-8">
                 # Start PCLink<br>
                 pclink
             </div>
-            <button onclick="window.location.reload()" class="btn btn-primary btn-block text-white font-black shadow-lg">Refresh After Restart</button>
+            <button onclick="window.location.reload()"
+                class="btn btn-primary btn-block text-white font-black shadow-lg">Refresh After Restart</button>
         </div>
     </div>
     <script>
@@ -145,6 +171,7 @@
     </script>
     <script src="/ui/static/auth.js"></script>
     <script src="https://unpkg.com/feather-icons"></script>
-    <script>if(window.feather) feather.replace();</script>
+    <script>if (window.feather) feather.replace();</script>
 </body>
+
 </html>

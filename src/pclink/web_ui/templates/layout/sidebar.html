@@ -2,7 +2,8 @@
   <label for="main-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
   <aside class="w-64 min-h-full bg-base-100 border-r border-base-300 flex flex-col">
     <div class="p-6 flex items-center gap-3">
-      <div class="bg-primary p-2 rounded-lg shadow-md"><img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" /></div>
+      <div class="bg-primary p-2 rounded-lg shadow-md"><img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" />
+      </div>
       <h1 class="text-xl font-bold tracking-tighter">PCLink</h1>
     </div>
     <nav class="sidebar-nav menu flex-1 px-3 gap-1 font-bold">
@@ -12,6 +13,8 @@
           data-feather="smartphone" class="w-4"></i> Devices</button>
       <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="phone-files"
         onclick="closeDrawer()"><i data-feather="folder" class="w-4"></i> Phone Files</button>
+      <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="mirror" onclick="closeDrawer()"><i
+          data-feather="monitor" class="w-4"></i> Mirroring</button>
       <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="services" onclick="closeDrawer()"><i
           data-feather="shield" class="w-4"></i> Access Control</button>
       <button class="nav-item btn btn-ghost justify-start gap-3 w-full" data-tab="extensions" onclick="closeDrawer()"><i

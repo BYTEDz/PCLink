@@ -240,6 +240,11 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         dependencies=MOBILE_API,
     )
 
+    # - Mirroring (Core)
+    from .routers.mirror import router as mirror_router
+
+    app.include_router(mirror_router)
+
     # 4. Web UI & Extensions
     try:
         from ..web_ui.router import create_web_ui_router

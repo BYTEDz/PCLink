@@ -146,6 +146,7 @@ class PCLinkWebUI {
             case 'logs': await this.loadLogs(); break;
             case 'services': await this.loadServices(); await this.loadBlacklist(); break;
             case 'phone-files': await this.loadDevices(); await this.loadPhoneFiles(this.currentPhonePath); break;
+            case 'mirror': if (window.loadMirrorTab) await window.loadMirrorTab(); break;
             case 'extensions': await this.loadExtensions(); break;
             case 'macros': await this.loadMacros(); break;
         }

@@ -5,52 +5,63 @@
       <div class="flex items-center gap-2">
         <i data-feather="folder" class="text-primary w-4 h-4"></i>
         <span id="phoneReadOnlyBadge" class="badge badge-warning hidden font-bold uppercase text-[9px]">Read-Only</span>
-        <select id="phoneDeviceSelector" class="select select-bordered select-xs w-[160px]" onchange="handlePhoneDeviceChange(this.value)">
+        <select id="phoneDeviceSelector" class="select select-bordered select-xs w-[160px]"
+          onchange="handlePhoneDeviceChange(this.value)">
           <option value="">Select Device...</option>
         </select>
       </div>
       <div class="flex gap-2 items-center">
         <div class="join">
-          <button class="btn btn-xs join-item" onclick="goBackPhoneFiles()" id="phoneBackBtn" disabled><i data-feather="arrow-left" class="w-3"></i></button>
-          <button class="btn btn-xs join-item" onclick="goForwardPhoneFiles()" id="phoneForwardBtn" disabled><i data-feather="arrow-right" class="w-3"></i></button>
-          <button class="btn btn-xs join-item" onclick="refreshPhoneFiles()"><i data-feather="refresh-cw" class="w-3"></i></button>
+          <button class="btn btn-xs join-item" onclick="goBackPhoneFiles()" id="phoneBackBtn" disabled><i
+              data-feather="arrow-left" class="w-3"></i></button>
+          <button class="btn btn-xs join-item" onclick="goForwardPhoneFiles()" id="phoneForwardBtn" disabled><i
+              data-feather="arrow-right" class="w-3"></i></button>
+          <button class="btn btn-xs join-item" onclick="refreshPhoneFiles()"><i data-feather="refresh-cw"
+              class="w-3"></i></button>
         </div>
-        <button class="btn btn-xs btn-primary text-white font-bold" id="phoneUploadBtn" onclick="triggerUpload()"><i data-feather="upload" class="w-3"></i> Upload</button>
+        <button class="btn btn-xs btn-primary text-white font-bold" id="phoneUploadBtn" onclick="triggerUpload()"><i
+            data-feather="upload" class="w-3"></i> Upload</button>
         <input type="file" id="phoneUploadInput" class="hidden" multiple onchange="handlePhoneUpload(this)">
       </div>
     </div>
     <div class="bg-base-200 p-3 flex flex-wrap gap-3 items-center border-b border-base-300">
       <div class="flex-1 relative min-w-[150px]">
         <i data-feather="search" class="w-4 h-4 absolute left-3 top-2.5 opacity-50"></i>
-        <input type="text" id="phoneFileSearch" class="input input-sm input-bordered w-full pl-9" placeholder="Search..." oninput="handlePhoneSearch(this.value)">
+        <input type="text" id="phoneFileSearch" class="input input-sm input-bordered w-full pl-9"
+          placeholder="Search..." oninput="handlePhoneSearch(this.value)">
       </div>
       <select id="phoneFileSort" class="select select-sm select-bordered" onchange="handlePhoneSort(this.value)">
         <option value="name_asc">Name A-Z</option>
         <option value="size_desc">Largest</option>
         <option value="date_desc">Newest</option>
       </select>
-      <label class="label cursor-pointer gap-2"><span class="label-text text-xs font-bold uppercase opacity-50">Hidden</span><input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="showHiddenFiles" onchange="handleToggleHidden(this.checked)"></label>
+      <label class="label cursor-pointer gap-2"><span
+          class="label-text text-xs font-bold uppercase opacity-50">Hidden</span><input type="checkbox"
+          class="checkbox checkbox-sm checkbox-primary" id="showHiddenFiles"
+          onchange="handleToggleHidden(this.checked)"></label>
     </div>
     <div class="flex-1 flex flex-col overflow-hidden relative" id="phoneFileDropZone"
-         ondragover="window.handlePhoneDragOver(event)"
-         ondragenter="window.handlePhoneDragEnter(event)"
-         ondragleave="window.handlePhoneDragLeave(event)"
-         ondrop="window.handlePhoneDrop(event)">
+      ondragover="window.handlePhoneDragOver(event)" ondragenter="window.handlePhoneDragEnter(event)"
+      ondragleave="window.handlePhoneDragLeave(event)" ondrop="window.handlePhoneDrop(event)">
 
       <!-- Drop Overlay -->
-      <div id="phoneDropOverlay" class="absolute inset-0 bg-primary/10 backdrop-blur-[2px] border-4 border-dashed border-primary/50 z-[60] flex flex-col items-center justify-center pointer-events-none opacity-0 transition-all duration-300 scale-95">
-          <div class="bg-base-100 p-10 rounded-[2.5rem] shadow-2xl border border-primary/20 flex flex-col items-center gap-4">
-              <div class="bg-primary text-white p-5 rounded-full shadow-lg shadow-primary/20"><i data-feather="upload-cloud" class="w-12 h-12"></i></div>
-              <div class="text-center">
-                  <p class="font-black uppercase tracking-[0.2em] text-sm text-primary">Drop to Upload</p>
-                  <p class="text-[10px] font-bold opacity-40 mt-1 uppercase">Release to start transfer</p>
-              </div>
+      <div id="phoneDropOverlay"
+        class="absolute inset-0 bg-primary/10 backdrop-blur-[2px] border-4 border-dashed border-primary/50 z-[60] flex flex-col items-center justify-center pointer-events-none opacity-0 transition-all duration-300 scale-95">
+        <div
+          class="bg-base-100 p-10 rounded-[2.5rem] shadow-2xl border border-primary/20 flex flex-col items-center gap-4">
+          <div class="bg-primary text-white p-5 rounded-full shadow-lg shadow-primary/20"><i data-feather="upload-cloud"
+              class="w-12 h-12"></i></div>
+          <div class="text-center">
+            <p class="font-black uppercase tracking-[0.2em] text-sm text-primary">Drop to Upload</p>
+            <p class="text-[10px] font-bold opacity-40 mt-1 uppercase">Release to start transfer</p>
           </div>
+        </div>
       </div>
 
-      <div id="phoneBreadcrumbContainer" class="bg-base-200 px-3 py-2 flex items-center gap-1 overflow-x-auto no-scrollbar border-b border-base-300">
+      <div id="phoneBreadcrumbContainer"
+        class="bg-base-200 px-3 py-2 flex items-center gap-1 overflow-x-auto no-scrollbar border-b border-base-300">
         <div id="phoneBreadcrumbs" class="flex items-center gap-1 whitespace-nowrap">
-           <!-- Breadcrumbs injected here -->
+          <!-- Breadcrumbs injected here -->
         </div>
       </div>
       <div id="uploadProgressContainer" class="p-2 space-y-2 border-b border-base-300 empty:hidden"></div>

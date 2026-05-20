@@ -2,11 +2,15 @@
 <div class="tab-content h-full" id="logs">
   <div class="card bg-base-100 shadow-sm border border-base-300 flex-1 flex flex-col overflow-hidden w-full">
     <div class="p-3 border-b border-base-300 flex flex-wrap justify-between items-center bg-base-200 gap-2">
-      <h3 class="font-bold flex items-center gap-2"><i data-feather="file-text" class="text-primary w-5"></i> System Logs</h3>
+      <h3 class="font-bold flex items-center gap-2"><i data-feather="file-text" class="text-primary w-5"></i> System
+        Logs</h3>
       <div class="flex items-center gap-2">
-        <button class="btn btn-sm btn-ghost border-base-300" onclick="refreshLogs()"><i data-feather="refresh-cw" class="w-4"></i></button>
-        <button class="btn btn-sm btn-ghost border-base-300" onclick="clearLogs()"><i data-feather="trash-2" class="w-4"></i></button>
-        <button class="btn btn-sm btn-outline font-bold" id="autoRefreshToggle" onclick="toggleAutoRefresh()"><i data-feather="pause" class="w-4"></i> <span class="hidden sm:inline">Auto</span></button>
+        <button class="btn btn-sm btn-ghost border-base-300" onclick="refreshLogs()"><i data-feather="refresh-cw"
+            class="w-4"></i></button>
+        <button class="btn btn-sm btn-ghost border-base-300" onclick="clearLogs()"><i data-feather="trash-2"
+            class="w-4"></i></button>
+        <button class="btn btn-sm btn-outline font-bold" id="autoRefreshToggle" onclick="toggleAutoRefresh()"><i
+            data-feather="pause" class="w-4"></i> <span class="hidden sm:inline">Auto</span></button>
       </div>
     </div>
     <div id="logContainer" class="flex-1 overflow-auto p-4 bg-[#0b1120] text-gray-300 log-container">

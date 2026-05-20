@@ -1,0 +1,244 @@
+<!-- Mirror Tab -->
+<div class="tab-content" id="mirror">
+  <div class="grid grid-cols-1 gap-6">
+    <!-- Diagnostic Summary Status Banner -->
+    <div id="mirrorSystemStatusBanner" class="alert shadow-md border-l-8 transition-all duration-300 hidden">
+      <div class="flex items-center gap-4 w-full">
+        <div id="mirrorSystemStatusIcon" class="p-3 bg-base-200/50 rounded-xl"></div>
+        <div class="flex-1">
+          <h3 id="mirrorSystemStatusTitle" class="font-black text-sm">System Diagnostics</h3>
+          <p id="mirrorSystemStatusDesc" class="text-xs opacity-80 mt-0.5">Please run system diagnostics to analyze
+            mirroring support status.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1. Live Mirroring Orchestration Control (Top, Full Width) -->
+    <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+      <div class="card-body p-6">
+        <h3 class="text-xs font-bold uppercase opacity-50 tracking-widest mb-4 flex items-center gap-2">
+          <i data-feather="play-circle" class="w-4 h-4 text-primary"></i> Live Orchestrator
+        </h3>
+
+        <!-- Dual column on md+ screens: Preview on left, controls on right -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+
+          <!-- Left: Streaming Status indicator / Live Preview Box -->
+          <div id="mirror_live_display_container"
+            class="relative border border-base-300 rounded-xl overflow-hidden bg-base-200/40 transition-all duration-300 flex flex-col items-center justify-center min-h-[220px] md:h-full">
+
+            <!-- Inactive / RTP Status Indicators -->
+            <div id="mirror_static_status"
+              class="flex flex-col items-center justify-center p-6 w-full h-full text-center">
+              <div id="stream_pulse_dot" class="absolute top-4 right-4 flex h-3 w-3 hidden">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-success"></span>
+              </div>
+
+              <div id="mirror_state_badge"
+                class="badge badge-neutral font-black uppercase text-[10px] tracking-wider mb-2">Stale</div>
+
+              <div class="text-3xl font-black tracking-tight" id="mirror_live_status">Inactive</div>
+              <p class="text-[10px] opacity-40 mt-1" id="mirror_live_sub">No mirroring session is active</p>
+            </div>
+
+            <!-- WebRTC Video Preview Canvas -->
+            <div id="mirror_video_canvas"
+              class="relative w-full aspect-video bg-black flex items-center justify-center hidden">
+              <video id="mirrorLiveVideo" autoplay playsinline muted class="w-full h-full object-contain"></video>
+
+              <!-- Floating Video Toolbar -->
+              <div class="absolute top-2 right-2 flex gap-1.5 z-20">
+                <!-- Expand to Fullscreen -->
+                <button
+                  class="btn btn-circle btn-xs btn-neutral/80 backdrop-blur-md text-white border-0 hover:bg-neutral"
+                  onclick="window.expandMirrorFullscreen(event)" title="Fullscreen">
+                  <i data-feather="maximize" class="w-3.5 h-3.5"></i>
+                </button>
+                <!-- Stop stream -->
+                <button class="btn btn-circle btn-xs btn-error/90 backdrop-blur-md text-white border-0 hover:bg-error"
+                  onclick="window.toggleMirrorSession(event)" title="Stop Stream">
+                  <i data-feather="square" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+
+              <!-- Floating Live Badge -->
+              <div
+                class="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[8px] font-black text-success flex items-center gap-1 border border-success/30 tracking-widest z-20">
+                <span class="relative flex h-1 w-1">
+                  <span
+                    class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-1 w-1 bg-success"></span>
+                </span>
+                LIVE PREVIEW
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Interactive stream trigger settings -->
+          <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-3">
+              <div class="form-control w-full">
+                <label class="label p-1"><span
+                    class="label-text text-[10px] uppercase font-black opacity-60">Resolution</span></label>
+                <select id="mirror_res" class="select select-sm select-bordered text-xs w-full">
+                  <option value="passthrough">Source Native</option>
+                  <option value="1920x1080">1080p (FHD)</option>
+                  <option value="1280x720" selected>720p (HD)</option>
+                  <option value="854x480">480p (SD)</option>
+                </select>
+              </div>
+              <div class="form-control w-full">
+                <label class="label p-1"><span
+                    class="label-text text-[10px] uppercase font-black opacity-60">Framerate</span></label>
+                <select id="mirror_fps" class="select select-sm select-bordered text-xs w-full">
+                  <option value="passthrough">Source Native</option>
+                  <option value="60">60 FPS (Ultra)</option>
+                  <option value="30" selected>30 FPS (Standard)</option>
+                  <option value="15">15 FPS (Save BW)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-control w-full">
+              <label class="label p-1"><span class="label-text text-[10px] uppercase font-black opacity-60">H.264
+                  Encoder</span></label>
+              <select id="mirror_encoder" class="select select-sm select-bordered text-xs w-full">
+                <option value="auto" selected>Auto GPU Prefer</option>
+                <option value="vah264">VA-API Hardware (Linux)</option>
+                <option value="nvenc">NVidia NVENC (Cross-platform)</option>
+                <option value="x264">x264 Software Fallback</option>
+              </select>
+            </div>
+
+            <div class="form-control w-full">
+              <label class="label p-1 flex justify-between">
+                <span class="label-text text-[10px] uppercase font-black opacity-60">Stream Bitrate</span>
+                <span id="mirror_bitrate_val" class="text-[10px] font-mono text-primary font-bold">4000 kbps</span>
+              </label>
+              <input type="range" id="mirror_bitrate" min="1000" max="15000" step="500" value="4000"
+                class="range range-xs range-primary"
+                oninput="document.getElementById('mirror_bitrate_val').textContent = this.value + ' kbps'" />
+            </div>
+
+            <!-- Stream actions buttons -->
+            <div class="flex flex-col gap-2 pt-2">
+              <button id="btn_toggle_mirror" class="btn btn-primary text-white font-bold w-full"
+                onclick="window.toggleMirrorSession()">
+                <i data-feather="play" class="w-4 h-4"></i> Start Web Preview
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Side-by-Side Diagnostics and Capabilities -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      <!-- Core Requirements Checklist -->
+      <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+        <div class="card-body p-6">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+            <h3 class="text-xs font-bold uppercase opacity-50 tracking-widest flex items-center gap-2">
+              <i data-feather="check-circle" class="w-4 h-4 text-primary"></i> Core Requirements Checklist
+            </h3>
+            <div class="flex gap-2 w-full sm:w-auto">
+              <button class="btn btn-xs btn-outline btn-warning font-bold gap-1.5"
+                onclick="window.resetMirrorPortalSession()" title="Reset Screen Share token">
+                <i data-feather="key" class="w-3.5 h-3.5"></i> Clear Token
+              </button>
+              <button class="btn btn-xs btn-primary text-white font-bold gap-1.5" onclick="runMirrorDiagnostics()"
+                title="Re-run diagnostic checks">
+                <i data-feather="refresh-cw" class="w-3.5 h-3.5"></i> Diagnostics
+              </button>
+            </div>
+          </div>
+
+          <div class="divide-y divide-base-300">
+            <!-- Req 1: Binary Existence -->
+            <div class="flex justify-between items-center py-3">
+              <div class="flex items-center gap-3">
+                <div class="bg-base-200 p-2 rounded-lg"><i data-feather="terminal" class="w-4 h-4"></i></div>
+                <div>
+                  <h4 class="font-bold text-xs">FerrumCast Native Engine</h4>
+                  <p class="text-[10px] opacity-60">High-performance native capture-and-stream utility</p>
+                </div>
+              </div>
+              <div id="diag_req_binary" class="badge badge-neutral gap-1 font-bold text-[10px]">Checking...</div>
+            </div>
+
+            <!-- Req 2: Display Protocol -->
+            <div class="flex justify-between items-center py-3">
+              <div class="flex items-center gap-3">
+                <div class="bg-base-200 p-2 rounded-lg"><i data-feather="layout" class="w-4 h-4"></i></div>
+                <div>
+                  <h4 class="font-bold text-xs">Display Protocol</h4>
+                  <p class="text-[10px] opacity-60">Supports modern Wayland compositor and legacy X11</p>
+                </div>
+              </div>
+              <div id="diag_req_display" class="badge badge-neutral gap-1 font-bold text-[10px]">Checking...</div>
+            </div>
+
+            <!-- Req 3: Pipewire Server -->
+            <div class="flex justify-between items-center py-3">
+              <div class="flex items-center gap-3">
+                <div class="bg-base-200 p-2 rounded-lg"><i data-feather="activity" class="w-4 h-4"></i></div>
+                <div>
+                  <h4 class="font-bold text-xs">Pipewire Media Router</h4>
+                  <p class="text-[10px] opacity-60">Modern zero-copy audio and video frame delivery engine</p>
+                </div>
+              </div>
+              <div id="diag_req_pipewire" class="badge badge-neutral gap-1 font-bold text-[10px]">Checking...</div>
+            </div>
+
+            <!-- Req 4: Desktop Capturer Portal -->
+            <div class="flex justify-between items-center py-3">
+              <div class="flex items-center gap-3">
+                <div class="bg-base-200 p-2 rounded-lg"><i data-feather="shield" class="w-4 h-4"></i></div>
+                <div>
+                  <h4 class="font-bold text-xs">XDG Screen Sharing Portal</h4>
+                  <p class="text-[10px] opacity-60">Secure permission portal for application screen capture</p>
+                </div>
+              </div>
+              <div id="diag_req_portal" class="badge badge-neutral gap-1 font-bold text-[10px]">Checking...</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Codec Capabilities & GPU Hardware Acceleration -->
+      <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+        <div class="card-body p-6">
+          <h3 class="text-xs font-bold uppercase opacity-50 tracking-widest mb-4 flex items-center gap-2">
+            <i data-feather="cpu" class="w-4 h-4 text-primary"></i> Codec & GPU Capabilities
+          </h3>
+
+          <p class="text-xs opacity-70 mb-4">
+            Hardware-accelerated encoding is critical for zero-latency screen mirroring. Below is the parsed list of
+            encoders detected in your system:
+          </p>
+
+          <!-- Elements changed to flex-col for a clean vertical list -->
+          <div id="encoders_container" class="flex flex-col gap-3">
+            <!-- Encoders listed dynamically -->
+            <div class="text-center py-6 opacity-40 text-xs">
+              <span class="loading loading-spinner loading-xs mr-2"></span> Probing system encoders...
+            </div>
+          </div>
+
+          <!-- Notice box -->
+          <div id="codec_alert_box" class="alert alert-info bg-primary/5 border-primary/20 p-3 mt-4 hidden">
+            <i data-feather="info" class="w-4 h-4 text-primary shrink-0"></i>
+            <div class="text-[11px] font-bold opacity-80 leading-normal" id="codec_notice_text">
+              Probing...
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

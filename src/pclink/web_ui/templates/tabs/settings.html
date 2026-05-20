@@ -3,7 +3,8 @@
   <div class="columns-1 lg:columns-2 gap-6 w-full space-y-6">
     <div class="card bg-base-100 shadow-sm border border-base-300 w-full break-inside-avoid mb-6">
       <div class="card-body p-5">
-        <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-2"><i data-feather="monitor" class="w-4"></i> UI Theme</h3>
+        <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-2"><i data-feather="monitor"
+            class="w-4"></i> UI Theme</h3>
         <select id="themeSelector" class="select select-sm select-bordered w-full" onchange="changeTheme(this.value)">
           <option value="system">System Auto</option>
           <optgroup label="Dark Modes">
@@ -29,70 +30,90 @@
     </div>
     <div class="card bg-base-100 shadow-sm border border-base-300 w-full break-inside-avoid mb-6">
       <div class="card-body p-5">
-        <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="settings" class="w-4"></i> Server Configuration</h3>
+        <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="settings"
+            class="w-4"></i> Server Configuration</h3>
         <div class="form-control w-full mb-3">
           <label class="label py-1">
             <span class="label-text font-bold text-xs opacity-60">Server Port (Requires Restart)</span>
-            <a href="#" class="text-[9px] uppercase font-black text-primary hover:underline" onclick="document.querySelector('[data-tab=guide]').click()">Need Help?</a>
+            <a href="#" class="text-[9px] uppercase font-black text-primary hover:underline"
+              onclick="document.querySelector('[data-tab=guide]').click()">Need Help?</a>
           </label>
           <input type="number" id="serverPortInput" class="input input-sm input-bordered w-full font-bold" />
         </div>
         <div class="flex flex-col gap-2 mb-4">
-          <label class="cursor-pointer flex items-center gap-3 bg-base-200 p-2 rounded-lg hover:bg-base-300 transition-colors">
+          <label
+            class="cursor-pointer flex items-center gap-3 bg-base-200 p-2 rounded-lg hover:bg-base-300 transition-colors">
             <input type="checkbox" id="autoStartCheckbox" class="toggle toggle-sm toggle-primary" />
             <span class="label-text font-bold text-xs">Start with system</span>
           </label>
         </div>
-        <button class="btn btn-sm btn-primary w-full shadow-sm text-white font-bold uppercase" onclick="saveSettings()"><i data-feather="save" class="w-4"></i> Save Settings</button>
+        <button class="btn btn-sm btn-primary w-full shadow-sm text-white font-bold uppercase"
+          onclick="saveSettings()"><i data-feather="save" class="w-4"></i> Save Settings</button>
       </div>
     </div>
     <div class="card bg-base-100 shadow-sm border border-base-300 w-full break-inside-avoid mb-6">
       <div class="card-body p-5">
-        <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="lock" class="w-4"></i> Access Control</h3>
+        <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="lock"
+            class="w-4"></i> Access Control</h3>
         <div class="space-y-2 mb-4 font-bold">
-          <input type="password" id="currentPassword" placeholder="Current Password" class="input input-sm input-bordered w-full text-xs" />
-          <input type="password" id="newPassword" placeholder="New Password" class="input input-sm input-bordered w-full text-xs" />
-          <input type="password" id="confirmNewPassword" placeholder="Confirm New" class="input input-sm input-bordered w-full text-xs" />
+          <input type="password" id="currentPassword" placeholder="Current Password"
+            class="input input-sm input-bordered w-full text-xs" />
+          <input type="password" id="newPassword" placeholder="New Password"
+            class="input input-sm input-bordered w-full text-xs" />
+          <input type="password" id="confirmNewPassword" placeholder="Confirm New"
+            class="input input-sm input-bordered w-full text-xs" />
         </div>
-        <button class="btn btn-sm btn-outline w-full uppercase text-xs" onclick="changePassword()"><i data-feather="key" class="w-4"></i> Change Password</button>
+        <button class="btn btn-sm btn-outline w-full uppercase text-xs" onclick="changePassword()"><i data-feather="key"
+            class="w-4"></i> Change Password</button>
       </div>
     </div>
     <div class="card bg-base-100 shadow-sm border border-base-300 font-bold w-full break-inside-avoid mb-6">
       <div class="card-body p-5">
-        <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="bell" class="w-4"></i> Notifications</h3>
+        <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="bell"
+            class="w-4"></i> Notifications</h3>
         <div class="flex flex-col gap-2 mb-4">
-          <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
+          <label
+            class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
             <input type="checkbox" id="notifyDeviceConnect" class="checkbox checkbox-sm checkbox-primary" />
             <span>Device Connected</span>
           </label>
-          <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
+          <label
+            class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
             <input type="checkbox" id="notifyDeviceDisconnect" class="checkbox checkbox-sm checkbox-primary" />
             <span>Device Disconnected</span>
           </label>
-          <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
+          <label
+            class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
             <input type="checkbox" id="notifyPairingRequest" class="checkbox checkbox-sm checkbox-primary" />
             <span>Pairing Requests</span>
           </label>
-          <label class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
+          <label
+            class="cursor-pointer flex items-center gap-3 p-2 bg-base-200 hover:bg-base-300 rounded-lg border border-base-300">
             <input type="checkbox" id="notifyUpdates" class="checkbox checkbox-sm checkbox-primary" />
             <span>Update Available</span>
           </label>
         </div>
-        <button class="btn btn-sm btn-secondary w-full text-white font-bold" onclick="saveNotificationSettings()">Save Preferences</button>
+        <button class="btn btn-sm btn-secondary w-full text-white font-bold" onclick="saveNotificationSettings()">Save
+          Preferences</button>
       </div>
     </div>
     <div class="card bg-base-100 shadow-sm border border-error/20 font-bold w-full break-inside-avoid mb-6">
       <div class="card-body p-5">
-        <h3 class="card-title text-xs font-bold uppercase text-error tracking-widest mb-3"><i data-feather="alert-octagon" class="w-4"></i> Danger Zone</h3>
-        <p class="text-[10px] opacity-40 uppercase mb-4 leading-tight">Proceed with extreme caution. These actions cannot be undone.</p>
+        <h3 class="card-title text-xs font-bold uppercase text-error tracking-widest mb-3"><i
+            data-feather="alert-octagon" class="w-4"></i> Danger Zone</h3>
+        <p class="text-[10px] opacity-40 uppercase mb-4 leading-tight">Proceed with extreme caution. These actions
+          cannot be undone.</p>
         <div class="space-y-3">
-          <button class="btn btn-sm btn-outline btn-error w-full font-black uppercase text-xs" onclick="resetServerRequest()">
+          <button class="btn btn-sm btn-outline btn-error w-full font-black uppercase text-xs"
+            onclick="resetServerRequest()">
             <i data-feather="refresh-ccw" class="w-3"></i> Factory Reset Server
           </button>
-          <button class="btn btn-sm btn-ghost btn-xs w-full opacity-40 hover:opacity-100 uppercase text-[9px]" onclick="openConfigFolder()">
+          <button class="btn btn-sm btn-ghost btn-xs w-full opacity-40 hover:opacity-100 uppercase text-[9px]"
+            onclick="openConfigFolder()">
             <i data-feather="folder" class="w-3"></i> Open Config Location
           </button>
-          <button class="btn btn-sm btn-ghost btn-xs w-full opacity-40 hover:opacity-100 uppercase text-[9px] mt-1" onclick="window.location.reload(true)">
+          <button class="btn btn-sm btn-ghost btn-xs w-full opacity-40 hover:opacity-100 uppercase text-[9px] mt-1"
+            onclick="window.location.reload(true)">
             <i data-feather="refresh-cw" class="w-2"></i> Force Client Update (Clear Cache)
           </button>
         </div>

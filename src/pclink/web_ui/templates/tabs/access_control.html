@@ -7,16 +7,21 @@
         <span class="text-[10px] font-black uppercase opacity-30 tracking-widest">Global Security Policies</span>
       </div>
       <div class="tabs tabs-boxed bg-base-300/50 p-1 rounded-xl">
-        <button class="sub-tab tab tab-xs font-black uppercase tracking-widest active bg-primary text-white" onclick="switchSubTab('security', this)">Firewall</button>
-        <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50" onclick="switchSubTab('blacklist', this)">Blacklist</button>
-        <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50" onclick="switchSubTab('policies', this)">Policies</button>
+        <button class="sub-tab tab tab-xs font-black uppercase tracking-widest active bg-primary text-white"
+          onclick="switchSubTab('security', this)">Firewall</button>
+        <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50"
+          onclick="switchSubTab('blacklist', this)">Blacklist</button>
+        <button class="sub-tab tab tab-xs font-black uppercase tracking-widest opacity-50"
+          onclick="switchSubTab('policies', this)">Policies</button>
       </div>
     </div>
     <div id="subtab-security" class="subtab-content active space-y-6">
       <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
         <div class="card-body p-5">
-          <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="alert-triangle" class="w-4"></i> Global Kill Switches</h3>
-          <p class="text-sm opacity-60 mb-4">Disabling a service here turns it off for <strong>ALL</strong> devices, regardless of permissions.</p>
+          <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i
+              data-feather="alert-triangle" class="w-4"></i> Global Kill Switches</h3>
+          <p class="text-sm opacity-60 mb-4">Disabling a service here turns it off for <strong>ALL</strong> devices,
+            regardless of permissions.</p>
           <div id="globalServicesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
           </div>
@@ -26,13 +31,15 @@
     <div id="subtab-blacklist" class="subtab-content hidden space-y-6">
       <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
         <div class="card-body p-5">
-          <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="user-x" class="w-4"></i> Hardware Blacklist</h3>
+          <h3 class="card-title text-sm font-black uppercase text-error tracking-widest mb-4"><i data-feather="user-x"
+              class="w-4"></i> Hardware Blacklist</h3>
           <p class="text-sm opacity-60 mb-4">Banned hardware IDs cannot re-pair or connect.</p>
           <div id="blacklistContainer" class="space-y-2 max-h-[500px] overflow-y-auto pr-2">
             <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
           </div>
           <div class="card-actions justify-end mt-4">
-            <button class="btn btn-sm btn-ghost border-base-300 font-bold text-xs" onclick="window.loadBlacklist()"><i data-feather="refresh-cw" class="w-3"></i> Refresh</button>
+            <button class="btn btn-sm btn-ghost border-base-300 font-bold text-xs" onclick="window.loadBlacklist()"><i
+                data-feather="refresh-cw" class="w-3"></i> Refresh</button>
           </div>
         </div>
       </div>
@@ -40,19 +47,25 @@
     <div id="subtab-policies" class="subtab-content hidden space-y-6">
       <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
         <div class="card-body p-5">
-          <h3 class="card-title text-sm font-black uppercase text-primary tracking-widest mb-4"><i data-feather="shield" class="w-4"></i> New Device Policy</h3>
+          <h3 class="card-title text-sm font-black uppercase text-primary tracking-widest mb-4"><i data-feather="shield"
+              class="w-4"></i> New Device Policy</h3>
           <p class="text-sm opacity-60 mb-2">Permissions granted automatically.</p>
           <div class="flex flex-wrap gap-1 mb-4 bg-base-200/50 p-2 rounded-lg border border-base-300/50">
-            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary" onclick="applyPermissionTemplate('Admin', 'defaultPermsGrid')">Admin</button>
-            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary" onclick="applyPermissionTemplate('Viewer', 'defaultPermsGrid')">Viewer</button>
-            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary" onclick="applyPermissionTemplate('Media', 'defaultPermsGrid')">Media</button>
+            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary"
+              onclick="applyPermissionTemplate('Admin', 'defaultPermsGrid')">Admin</button>
+            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary"
+              onclick="applyPermissionTemplate('Viewer', 'defaultPermsGrid')">Viewer</button>
+            <button class="btn btn-xs btn-ghost border-base-300 font-bold text-[9px] hover:btn-primary"
+              onclick="applyPermissionTemplate('Media', 'defaultPermsGrid')">Media</button>
           </div>
           <div id="defaultPermsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
           </div>
           <div class="card-actions justify-between items-center mt-4">
-            <button class="btn btn-xs btn-outline btn-ghost font-bold text-[9px] opacity-40 hover:opacity-100" onclick="saveCurrentAsTemplate('defaultPermsGrid')">Template</button>
-            <button class="btn btn-sm btn-primary text-white font-bold" onclick="saveDefaultPermissions()">Save Policy</button>
+            <button class="btn btn-xs btn-outline btn-ghost font-bold text-[9px] opacity-40 hover:opacity-100"
+              onclick="saveCurrentAsTemplate('defaultPermsGrid')">Template</button>
+            <button class="btn btn-sm btn-primary text-white font-bold" onclick="saveDefaultPermissions()">Save
+              Policy</button>
           </div>
         </div>
       </div>
