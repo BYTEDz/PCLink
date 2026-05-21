@@ -1,0 +1,139 @@
+<!-- Desktop Streaming Tab Panel: Coordinates runtime systems diagnostics and GPU codec capability checks. -->
+<div class="tab-content" id="desktop-streaming">
+  <div class="grid grid-cols-1 gap-6">
+
+    <!-- Beta Phase Information Banner: Informs the operator of the experimental status of the stream engine. -->
+    <div
+      class="alert alert-warning bg-warning/10 border-warning/20 text-warning-content shadow-sm p-4 flex items-start gap-3">
+      <i data-feather="alert-triangle" class="w-5 h-5 text-warning shrink-0 mt-0.5"></i>
+      <div>
+        <h3 class="font-black text-sm text-warning flex items-center gap-1.5">
+          Desktop Streaming (Beta)
+        </h3>
+        <p class="text-xs text-warning opacity-90 mt-1 leading-relaxed">
+          Real-time video and audio projection is currently in an active deployment preview. Low-latency performance,
+          network transmission reliability, and hardware encoder offloading may vary depending on local system
+          configuration, GPU hardware virtualization, and display compositor state.
+        </p>
+      </div>
+    </div>
+
+    <!-- Runtime Diagnostics Alert Banner: Dynamically toggled to reflect overall system compatibility status. -->
+    <div id="desktopStreamingSystemStatusBanner" class="alert shadow-md border-l-8 transition-all duration-300 hidden">
+      <div class="flex items-center gap-4 w-full">
+        <div id="desktopStreamingSystemStatusIcon" class="p-3 bg-base-200/50 rounded-xl"></div>
+        <div class="flex-1">
+          <h3 id="desktopStreamingSystemStatusTitle" class="font-black text-sm">System Diagnostics</h3>
+          <p id="desktopStreamingSystemStatusDesc" class="text-xs opacity-80 mt-0.5">Please run system diagnostics to
+            analyze
+            desktop streaming support status.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Two-column dashboard dividing platform-level requirements validation from hardware encoding capabilities. -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+        <div class="card-body p-6">
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+            <h3 class="text-xs font-bold uppercase opacity-50 tracking-widest flex items-center gap-2">
+              <i data-feather="check-circle" class="w-4 h-4 text-primary"></i> Core Requirements Checklist
+            </h3>
+            <div class="flex gap-2 w-full sm:w-auto">
+              <button class="btn btn-xs btn-outline btn-warning font-bold gap-1.5"
+                onclick="window.resetDesktopStreamingPortalSession()" title="Reset Screen Share token">
+                <i data-feather="key" class="w-3.5 h-3.5"></i> Clear Token
+              </button>
+              <button class="btn btn-xs btn-primary text-white font-bold gap-1.5"
+                onclick="runDesktopStreamingDiagnostics()" title="Re-run diagnostic checks">
+                <i data-feather="refresh-cw" class="w-3.5 h-3.5"></i> Diagnostics
+              </button>
+            </div>
+          </div>
+
+          <div class="divide-y divide-base-300">
+            <!-- Capability Node: Native engine binary discovery. -->
+            <div class="flex justify-between items-center py-3">
+              <div class="flex items-center gap-3">
+                <div class="bg-base-200 p-2 rounded-lg"><i data-feather="terminal" class="w-4 h-4"></i></div>
+                <div>
+                  <h4 class="font-bold text-xs">FerrumCast Native Engine</h4>
+                  <p class="text-[10px] opacity-60">High-performance native capture-and-stream utility</p>
+                </div>
+              </div>
+              <div id="diag_req_binary" class="badge badge-neutral gap-1 font-bold text-[10px]">Checking...</div>
+            </div>
+
+            <!-- Capability Node: Window display server architecture. -->
+            <div class="flex justify-between items-center py-3">
+              <div class="flex items-center gap-3">
+                <div class="bg-base-200 p-2 rounded-lg"><i data-feather="layout" class="w-4 h-4"></i></div>
+                <div>
+                  <h4 class="font-bold text-xs">Display Protocol</h4>
+                  <p class="text-[10px] opacity-60">Supports modern Wayland compositor and legacy X11</p>
+                </div>
+              </div>
+              <div id="diag_req_display" class="badge badge-neutral gap-1 font-bold text-[10px]">Checking...</div>
+            </div>
+
+            <!-- Capability Node: PipeWire daemon and socket detection. -->
+            <div class="flex justify-between items-center py-3">
+              <div class="flex items-center gap-3">
+                <div class="bg-base-200 p-2 rounded-lg"><i data-feather="activity" class="w-4 h-4"></i></div>
+                <div>
+                  <h4 class="font-bold text-xs">Pipewire Media Router</h4>
+                  <p class="text-[10px] opacity-60">Modern zero-copy audio and video frame delivery engine</p>
+                </div>
+              </div>
+              <div id="diag_req_pipewire" class="badge badge-neutral gap-1 font-bold text-[10px]">Checking...</div>
+            </div>
+
+            <!-- Capability Node: XDG screen capture portal D-Bus interface. -->
+            <div class="flex justify-between items-center py-3">
+              <div class="flex items-center gap-3">
+                <div class="bg-base-200 p-2 rounded-lg"><i data-feather="shield" class="w-4 h-4"></i></div>
+                <div>
+                  <h4 class="font-bold text-xs">XDG Screen Sharing Portal</h4>
+                  <p class="text-[10px] opacity-60">Secure permission portal for application screen capture</p>
+                </div>
+              </div>
+              <div id="diag_req_portal" class="badge badge-neutral gap-1 font-bold text-[10px]">Checking...</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+        <div class="card-body p-6">
+          <h3 class="text-xs font-bold uppercase opacity-50 tracking-widest mb-4 flex items-center gap-2">
+            <i data-feather="cpu" class="w-4 h-4 text-primary"></i> Codec & GPU Capabilities
+          </h3>
+
+          <p class="text-xs opacity-70 mb-4">
+            Hardware-accelerated encoding is critical for zero-latency desktop streaming. Below is the parsed list of
+            encoders detected in your system:
+          </p>
+
+          <!-- Flex column wrapper targeting dynamic layout rendering. -->
+          <div id="encoders_container" class="flex flex-col gap-3">
+            <!-- Placeholder for programmatically injected encoder badges. -->
+            <div class="text-center py-6 opacity-40 text-xs">
+              <span class="loading loading-spinner loading-xs mr-2"></span> Probing system encoders...
+            </div>
+          </div>
+
+          <!-- Contextual encoder status alert container. -->
+          <div id="codec_alert_box" class="alert alert-info bg-primary/5 border-primary/20 p-3 mt-4 hidden">
+            <i data-feather="info" class="w-4 h-4 text-primary shrink-0"></i>
+            <div class="text-[11px] font-bold opacity-80 leading-normal" id="codec_notice_text">
+              Probing...
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

@@ -8,6 +8,7 @@ Prepares the staging directory and generates the nfpm.yaml config and
 maintainer scripts for package creation via nfpm or GoReleaser.
 """
 
+import json
 import shutil
 import subprocess
 import sys
@@ -556,6 +557,10 @@ exit 0
         """Generates the nfpm.yaml configuration file."""
         print("[NFPM] Generating nfpm.yaml configuration...")
 
+        deps_path = self.root_dir / "scripts" / "deps.json"
+        with open(deps_path, "r", encoding="utf-8") as f:
+            deps_config = json.load(f)
+
         nfpm_config = {
             "name": self.metadata["name"],
             "arch": self.metadata["architecture"],
@@ -567,56 +572,11 @@ exit 0
             "description": self.metadata["description"],
             "homepage": self.metadata["homepage"],
             "license": self.metadata["license"],
-            "depends": [
-                "python3 (>= 3.8)",
-                "python3-pip",
-                "python3-venv",
-                "libxcb-cursor0",
-                "libxcb-xinerama0",
-                "libxcb-randr0",
-                "libxcb-render-util0",
-                "libxcb-keysyms1",
-                "libxcb-image0",
-                "libxcb-icccm4",
-                "python3-gi",
-                "gir1.2-appindicator3-0.1",
-                "gir1.2-gtk-3.0",
-                "systemd | sysvinit-core | runit",
-                "dbus",
-                "procps",
-            ],
+            "depends": deps_config["debian"],
             "overrides": {
-                "rpm": {
-                    "depends": [
-                        "python3 >= 3.8",
-                        "systemd",
-                        "dbus",
-                    ],
-                    "recommends": [
-                        "python3-pip",
-                        "xcb-util-cursor",
-                        "libxcb",
-                        "xcb-util-renderutil",
-                        "xcb-util-keysyms",
-                        "xcb-util-image",
-                        "xcb-util-wm",
-                        "python3-gobject",
-                        "libappindicator-gtk3",
-                        "gtk3",
-                        "procps-ng",
-                        "python3-devel",
-                        "gcc",
-                        "libayatana-appindicator-gtk3",
-                        "wl-clipboard",
-                        "gnome-screenshot",
-                        "grim",
-                    ],
-                },
+                "rpm": deps_config["rpm"],
                 "archlinux": {
-                    "depends": [
-                        "python",
-                        "python-pip",
-                    ],
+                    "depends": deps_config["arch_nfpm"],
                 },
             },
             "contents": [

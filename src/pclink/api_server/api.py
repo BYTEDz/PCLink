@@ -241,9 +241,9 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     )
 
     # - Mirroring (Core)
-    from .routers.mirror import router as mirror_router
+    from .routers.desktop_streaming import router as desktop_streaming_router
 
-    app.include_router(mirror_router)
+    app.include_router(desktop_streaming_router)
 
     # 4. Web UI & Extensions
     try:

@@ -148,9 +148,13 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
                     elif action == "volume_down":
                         await asyncio.to_thread(media_service.volume_down)
                 elif msg_type == "FORCE_KEYFRAME":
-                    from ...services.mirror_service import mirror_service
+                    from ...services.desktop_streaming_service import (
+                        desktop_streaming_service,
+                    )
 
-                    await mirror_service.send_command({"type": "FORCE_KEYFRAME"})
+                    await desktop_streaming_service.send_command(
+                        {"type": "FORCE_KEYFRAME"}
+                    )
             except Exception as e:
                 log.error(f"Error processing {msg_type}: {e}", exc_info=True)
 
@@ -160,9 +164,9 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         mobile_manager.disconnect(websocket)
 
         # Failsafe: Automatically kill the screen mirror engine if the device drops
-        from ...services.mirror_service import mirror_service
+        from ...services.desktop_streaming_service import desktop_streaming_service
 
-        asyncio.create_task(mirror_service.stop_engine())
+        asyncio.create_task(desktop_streaming_service.stop_engine())
 
 
 @router.websocket("/ws/ui")

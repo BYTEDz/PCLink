@@ -18,7 +18,8 @@ const PERMISSION_MAP = {
     clipboard: { title: "Clipboard Sync", desc: "Read and write system clipboard" },
     screenshot: { title: "Screen Capture", desc: "Capture system screen snapshots" },
     command: { title: "Shell Command", desc: "Run detached shell commands" },
-    wol: { title: "Wake-on-LAN", desc: "Check WOL status and MAC address" }
+    wol: { title: "Wake-on-LAN", desc: "Check WOL status and MAC address" },
+    desktop_streaming: { title: "Desktop Streaming", desc: "Stream device screen to connected device" }
 };
 
 class PCLinkWebUI {
@@ -146,7 +147,7 @@ class PCLinkWebUI {
             case 'logs': await this.loadLogs(); break;
             case 'services': await this.loadServices(); await this.loadBlacklist(); break;
             case 'phone-files': await this.loadDevices(); await this.loadPhoneFiles(this.currentPhonePath); break;
-            case 'mirror': if (window.loadMirrorTab) await window.loadMirrorTab(); break;
+            case 'desktop-streaming': if (window.loadDesktopStreamingTab) await window.loadDesktopStreamingTab(); break;
             case 'extensions': await this.loadExtensions(); break;
             case 'macros': await this.loadMacros(); break;
         }

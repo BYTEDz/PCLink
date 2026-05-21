@@ -39,6 +39,7 @@ SERVICE_PERMISSION_MAP = {
     "/utils": "utils",
     "/api/extensions": "extensions",
     "/extensions": "extensions",
+    "/desktop-streaming": "desktop_streaming",
 }
 
 

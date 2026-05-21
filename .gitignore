@@ -250,3 +250,4 @@ s.ps1
 update_source_headers.py
 wiki/*
 MEMORANDUM
+nfpm.yaml

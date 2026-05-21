@@ -43,6 +43,13 @@ depends:
 - systemd | sysvinit-core | runit
 - dbus
 - procps
+- gstreamer1.0-pipewire
+- gstreamer1.0-plugins-base
+- gstreamer1.0-plugins-good
+- gstreamer1.0-plugins-bad
+- gstreamer1.0-plugins-ugly
+- gstreamer1.0-libav
+- gstreamer1.0-nice
 description: Cross-platform desktop app for secure remote PC control and management.
 homepage: https://github.com/BYTEDz/PCLink
 license: AGPL-3.0-or-later
@@ -53,11 +60,26 @@ overrides:
     depends:
     - python
     - python-pip
+    - gstreamer
+    - gst-plugins-base
+    - gst-plugins-good
+    - gst-plugins-bad
+    - gst-plugins-ugly
+    - gst-plugin-pipewire
+    - gst-libav
+    - libnice
   rpm:
     depends:
     - python3 >= 3.8
     - systemd
     - dbus
+    - gstreamer1
+    - gstreamer1-plugins-base
+    - gstreamer1-plugins-good
+    - gstreamer1-plugins-bad-free
+    - gstreamer1-plugins-ugly-free
+    - pipewire-gstreamer
+    - gstreamer1-libav
     recommends:
     - python3-pip
     - xcb-util-cursor
@@ -83,4 +105,4 @@ scripts:
   postremove: build/nfpm/scripts/postrm
   preremove: build/nfpm/scripts/prerm
 section: net
-version: 3.6.0
+version: 4.1.1

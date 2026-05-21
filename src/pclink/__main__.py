@@ -610,6 +610,7 @@ PERM_ROLES = {
         "screenshot",
         "command",
         "wol",
+        "desktop_streaming",
     ],
     "viewer": ["files_browse", "info", "apps"],
     "media": ["media", "volume", "info", "apps"],

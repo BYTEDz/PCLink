@@ -120,6 +120,11 @@ async def get_services():
             "icon": "wifi",
             "description": "Check WOL status and MAC address.",
         },
+        "desktop_streaming": {
+            "title": "Desktop Streaming",
+            "icon": "monitor",
+            "description": "Stream device screen to connected device.",
+        },
     }
 
     result = []

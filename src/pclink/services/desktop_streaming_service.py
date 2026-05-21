@@ -10,11 +10,10 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
-# 1. Platform & CPU Architecture Detection
-OS_TYPE = platform.system().lower()  # "linux", "windows", "darwin"
-ARCH_RAW = platform.machine().lower()  # "x86_64", "amd64", "arm64", "aarch64"
+# Resolve host operating system and processor architecture properties.
+OS_TYPE = platform.system().lower()
+ARCH_RAW = platform.machine().lower()
 
-# Standardize CPU architectures
 if ARCH_RAW in ["amd64", "x86_64"]:
     ARCH_NAME = "x86_64"
 elif ARCH_RAW in ["aarch64", "arm64"]:
@@ -22,7 +21,6 @@ elif ARCH_RAW in ["aarch64", "arm64"]:
 else:
     ARCH_NAME = ARCH_RAW
 
-# 2. OS-Specific Binary Name and Control Socket Paths
 if OS_TYPE == "windows":
     BIN_NAME = "ferrumcast.exe"
     IPC_PATH = r"\\.\pipe\ferrumcast"
@@ -32,7 +30,7 @@ else:
     IPC_PATH = "/tmp/ferrumcast.sock"
     TOKEN_FILE = "/tmp/ferrumcast.token"
 
-# 3. Dynamic Structured Directory Path Resolution (Fallback Supported)
+# Compute the absolute paths for the native engine binary, supporting structured system directories with legacy fallbacks.
 STRUCTURED_PATH = (
     Path(__file__).parent.parent
     / "assets"
@@ -48,7 +46,7 @@ else:
     ENGINE_PATH = LEGACY_PATH
 
 
-class MirrorService:
+class DesktopStreamingService:
     def __init__(self):
         self.process = None
         self.reader = None
@@ -100,7 +98,6 @@ class MirrorService:
             "status": "supported",
         }
 
-        # 1. Check display server
         if platform.system() == "Linux":
             if os.environ.get("WAYLAND_DISPLAY"):
                 info["display_server"] = (
@@ -112,7 +109,6 @@ class MirrorService:
                 info["display_server"] = "headless / no display server"
                 info["status"] = "headless_unsupported"
 
-            # Check Pipewire
             pipewire_running = False
             try:
                 pw_socket = Path(f"/run/user/{os.getuid()}/pipewire-0")
@@ -122,10 +118,9 @@ class MirrorService:
                 pass
             info["pipewire"] = "running" if pipewire_running else "not_detected"
 
-            # Check XDG Desktop Portal
             portal_running = False
             try:
-                # Strategy 1: Check pgrep -f (full CLI match) to find portal process
+                # Primary strategy: Check the process table for active portal contexts using pgrep.
                 proc = await asyncio.create_subprocess_exec(
                     "pgrep",
                     "-f",
@@ -141,7 +136,7 @@ class MirrorService:
 
             if not portal_running:
                 try:
-                    # Strategy 2: Check systemd user services
+                    # Secondary fallback: Query systemd user service status if direct process lookup fails.
                     proc = await asyncio.create_subprocess_exec(
                         "systemctl",
                         "--user",
@@ -157,7 +152,6 @@ class MirrorService:
                     pass
             info["xdg_portal"] = "running" if portal_running else "not_detected"
 
-        # 2. Check GStreamer hardware encoders
         if info["binary_exists"]:
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -199,7 +193,6 @@ class MirrorService:
                 else:
                     info["status"] = "gstreamer_error"
 
-        # 3. Determine overall support status
         if platform.system() == "Linux":
             if not info["binary_exists"]:
                 info["status"] = "missing_binary"
@@ -286,7 +279,8 @@ class MirrorService:
         self.writer = None
 
         if OS_TYPE == "windows":
-            # Natively connect to Windows Named Pipe using standard file I/O wrapped in thread pool
+            # Establish a connection to the Windows Named Pipe. Because standard synchronous file I/O
+            # blocks the asyncio event loop, operations are delegated to a worker thread via asyncio.to_thread.
             for _ in range(300):  # 30s timeout
                 try:
                     pipe = open(IPC_PATH, "r+b", buffering=0)
@@ -316,7 +310,6 @@ class MirrorService:
                     pass
                 await asyncio.sleep(0.1)
         else:
-            # Unix Domain Sockets for Linux/macOS
             for _ in range(300):  # 30s timeout
                 if os.path.exists(IPC_PATH):
                     try:
@@ -348,7 +341,8 @@ class MirrorService:
             logger.error(f"Mirror engine not found at {ENGINE_PATH}")
             return False
 
-        # If engine already running → restart pipeline via IPC (no portal dialog)
+        # If the engine process is already active, request an in-place pipeline reconfiguration
+        # via IPC to bypass redundant screen authorization dialog prompts.
         if self._engine_alive() and await self._ensure_ipc():
             logger.info(
                 f"Engine alive, restarting pipeline via IPC: host={client_host} encoder={encoder} res={width}x{height}@{fps}"
@@ -369,7 +363,6 @@ class MirrorService:
             await self.send_command(cfg)
             return True
 
-        # Engine not running → spawn new process
         if self.process:
             try:
                 self.process.terminate()
@@ -379,7 +372,6 @@ class MirrorService:
         self.reader = None
         self.writer = None
 
-        # Clean stale socket
         if os.path.exists(IPC_PATH):
             os.remove(IPC_PATH)
 
@@ -401,11 +393,11 @@ class MirrorService:
         if gdi:
             args.append("--gdi")
 
-        # Pass cached portal token if available
         if os.path.exists(TOKEN_FILE):
             try:
                 token = Path(TOKEN_FILE).read_text().strip()
                 if token:
+                    # Supply the cached screen-capture authorization token to bypass user-facing prompts on startup.
                     args += ["--token", token]
                     logger.info(f"Using cached portal token from {TOKEN_FILE}")
             except Exception:
@@ -457,7 +449,7 @@ class MirrorService:
         await self.kill_engine()
 
     async def kill_engine(self):
-        """Actually terminate the engine process."""
+        """Terminate the underlying process, freeing OS portal sessions, active capture descriptors, and taskbar icons."""
         if self.process:
             try:
                 if OS_TYPE == "windows":
@@ -481,7 +473,7 @@ class MirrorService:
         logger.info("Mirror engine killed")
 
     def reset_portal_token(self) -> bool:
-        """Reset/Clear cached XDG screen share portal token to force system prompts on next launch."""
+        """Remove the persistent capture token to force native system authorization dialogs during the next startup sequence."""
         try:
             if os.path.exists(TOKEN_FILE):
                 os.remove(TOKEN_FILE)
@@ -530,4 +522,4 @@ class MirrorService:
         self._subscribers.discard(callback)
 
 
-mirror_service = MirrorService()
+desktop_streaming_service = DesktopStreamingService()

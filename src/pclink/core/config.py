@@ -65,6 +65,7 @@ DEFAULT_SETTINGS = {
         "screenshot": True,
         "command": False,
         "wol": True,
+        "desktop_streaming": False,
     },
     # Notification preferences (UI toasts and tray messages)
     "notifications": {

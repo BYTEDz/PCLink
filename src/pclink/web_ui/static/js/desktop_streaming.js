@@ -1,11 +1,11 @@
-// static/js/mirror.js
+// static/js/desktop_streaming.js
 
-// Screen Mirroring Subsystem JS
-window._mirrorActive = false;
+// Desktop Streaming Subsystem JS
+window._desktopStreamingActive = false;
 
-window.loadMirrorTab = async () => {
-    await window.runMirrorDiagnostics();
-    await window.refreshMirrorStatus();
+window.loadDesktopStreamingTab = async () => {
+    await window.runDesktopStreamingDiagnostics();
+    await window.refreshDesktopStreamingStatus();
 };
 
 window._peerConnection = null;
@@ -18,7 +18,7 @@ async function startWebRTC() {
         });
         window._peerConnection = pc;
 
-        const video = document.getElementById('mirrorLiveVideo');
+        const video = document.getElementById('desktopStreamingLiveVideo');
         pc.ontrack = (event) => {
             if (video && event.streams && event.streams[0]) {
                 if (video.srcObject !== event.streams[0]) {
@@ -31,7 +31,7 @@ async function startWebRTC() {
         };
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${protocol}//${window.location.host}/mirror/ws`);
+        const ws = new WebSocket(`${protocol}//${window.location.host}/desktop-streaming/ws`);
         window._wsConnection = ws;
 
         ws.onopen = () => {
@@ -79,10 +79,10 @@ async function startWebRTC() {
             }
         };
 
-        const staticStatus = document.getElementById('mirror_static_status');
+        const staticStatus = document.getElementById('desktop_streaming_static_status');
         if (staticStatus) staticStatus.classList.add('hidden');
 
-        const videoCanvas = document.getElementById('mirror_video_canvas');
+        const videoCanvas = document.getElementById('desktop_streaming_video_canvas');
         if (videoCanvas) videoCanvas.classList.remove('hidden');
     } catch (e) {
         console.error("Failed to start WebRTC client", e);
@@ -98,19 +98,19 @@ function stopWebRTC() {
         window._wsConnection.close();
         window._wsConnection = null;
     }
-    const video = document.getElementById('mirrorLiveVideo');
+    const video = document.getElementById('desktop_streaming_live_video');
     if (video) video.srcObject = null;
 
-    const staticStatus = document.getElementById('mirror_static_status');
+    const staticStatus = document.getElementById('desktop_streaming_static_status');
     if (staticStatus) staticStatus.classList.remove('hidden');
 
-    const videoCanvas = document.getElementById('mirror_video_canvas');
+    const videoCanvas = document.getElementById('desktop_streaming_video_canvas');
     if (videoCanvas) videoCanvas.classList.add('hidden');
 }
 
-window.expandMirrorFullscreen = (event) => {
+window.expandDesktopStreamingFullscreen = (event) => {
     if (event) event.stopPropagation();
-    const video = document.getElementById('mirrorLiveVideo');
+    const video = document.getElementById('desktop_streaming_live_video');
     if (video) {
         if (video.requestFullscreen) {
             video.requestFullscreen();
@@ -122,7 +122,7 @@ window.expandMirrorFullscreen = (event) => {
     }
 };
 
-window.runMirrorDiagnostics = async () => {
+window.runDesktopStreamingDiagnostics = async () => {
     const binaryBadge = document.getElementById('diag_req_binary');
     const displayBadge = document.getElementById('diag_req_display');
     const pipewireBadge = document.getElementById('diag_req_pipewire');
@@ -130,17 +130,31 @@ window.runMirrorDiagnostics = async () => {
     const encodersContainer = document.getElementById('encoders_container');
     const codecNoticeText = document.getElementById('codec_notice_text');
     const codecAlertBox = document.getElementById('codec_alert_box');
-    const statusBanner = document.getElementById('mirrorSystemStatusBanner');
-    const statusIcon = document.getElementById('mirrorSystemStatusIcon');
-    const statusTitle = document.getElementById('mirrorSystemStatusTitle');
-    const statusDesc = document.getElementById('mirrorSystemStatusDesc');
+    const statusBanner = document.getElementById('desktopStreamingSystemStatusBanner');
+    const statusIcon = document.getElementById('desktopStreamingSystemStatusIcon');
+    const statusTitle = document.getElementById('desktopStreamingSystemStatusTitle');
+    const statusDesc = document.getElementById('desktopStreamingSystemStatusDesc');
 
     if (binaryBadge) binaryBadge.className = "badge badge-neutral gap-1 font-bold text-[10px]";
     if (binaryBadge) binaryBadge.textContent = "Analyzing...";
 
     try {
-        const res = await window.pclinkUI.webUICall('/mirror/diagnostics');
-        if (!res.ok) throw new Error();
+        const res = await window.pclinkUI.webUICall('/desktop-streaming/diagnostics');
+        if (!res.ok) {
+            if (res.status === 403) {
+                if (statusBanner) {
+                    statusBanner.className = "alert border border-warning/20 bg-warning/5 shadow-md border-l-8 border-l-warning transition-all duration-300 flex p-4";
+                    statusIcon.innerHTML = `<i data-feather="lock" class="w-6 h-6 text-warning"></i>`;
+                    statusTitle.className = "font-black text-sm text-warning";
+                    statusTitle.textContent = "Service Disabled";
+                    statusDesc.className = "text-xs text-warning/80 mt-0.5 font-medium";
+                    statusDesc.textContent = "Desktop Streaming is currently disabled. Please enable it from the Access Control tab.";
+                    if (window.feather) feather.replace();
+                }
+                return;
+            }
+            throw new Error();
+        }
         const data = await res.json();
 
         // 1. Binary Check
@@ -224,7 +238,7 @@ window.runMirrorDiagnostics = async () => {
                     codecAlertBox.classList.remove('hidden');
                     if (hasGPU) {
                         codecAlertBox.className = "alert border border-success/20 bg-success/10 text-success p-3 mt-4 flex text-xs font-bold";
-                        codecNoticeText.innerHTML = `System supports hardware accelerated mirroring! Extremely low latency and minimal CPU usage guaranteed.`;
+                        codecNoticeText.innerHTML = `System supports hardware accelerated desktop streaming! Extremely low latency and minimal CPU usage guaranteed.`;
                     } else {
                         codecAlertBox.className = "alert border border-warning/20 bg-warning/10 text-warning p-3 mt-4 flex text-xs font-bold";
                         codecNoticeText.innerHTML = `No hardware-accelerated video encoders detected. Falling back to software encoding (x264), which may utilize high CPU when active.`;
@@ -240,7 +254,7 @@ window.runMirrorDiagnostics = async () => {
         }
 
         // 5b. Update dropdown options dynamically based on available GPU encoders
-        const encoderSelect = document.getElementById('mirror_encoder');
+        const encoderSelect = document.getElementById('desktop_streaming_encoder');
         if (encoderSelect) {
             const options = Array.from(encoderSelect.options);
             options.forEach(opt => {
@@ -269,7 +283,7 @@ window.runMirrorDiagnostics = async () => {
                 statusTitle.className = "font-black text-sm text-success";
                 statusTitle.textContent = "System Fully Supported";
                 statusDesc.className = "text-xs text-success/80 mt-0.5 font-medium";
-                statusDesc.textContent = "Your system satisfies all requirements. FerrumCast is ready to mirror with hardware acceleration.";
+                statusDesc.textContent = "Your system satisfies all requirements. FerrumCast is ready to desktop streaming with hardware acceleration.";
             } else if (data.status === 'missing_binary') {
                 statusBanner.className = "alert border border-warning/20 bg-warning/5 shadow-md border-l-8 border-l-warning transition-all duration-300 flex p-4";
                 statusIcon.innerHTML = `<i data-feather="alert-triangle" class="w-6 h-6 text-warning"></i>`;
@@ -311,30 +325,30 @@ window.runMirrorDiagnostics = async () => {
         }
 
     } catch (e) {
-        window.pclinkUI.showToast('Diagnostics Failed', 'Failed to run mirroring diagnostics check', 'error');
+        window.pclinkUI.showToast('Diagnostics Failed', 'Failed to run desktop streaming diagnostics check', 'error');
     }
 
     if (window.feather) feather.replace();
 };
 
-window.refreshMirrorStatus = async () => {
+window.refreshDesktopStreamingStatus = async () => {
     try {
-        const res = await window.pclinkUI.webUICall('/mirror/status');
+        const res = await window.pclinkUI.webUICall('/desktop-streaming/status');
         if (res.ok) {
             const data = await res.json();
-            window.updateMirrorUIStatus(data.active);
+            window.updateDesktopStreamingUIStatus(data.active);
         }
     } catch (e) { }
 };
 
-window.updateMirrorUIStatus = (active) => {
-    window._mirrorActive = active;
+window.updateDesktopStreamingUIStatus = (active) => {
+    window._desktopStreamingActive = active;
 
     const pulseDot = document.getElementById('stream_pulse_dot');
-    const stateBadge = document.getElementById('mirror_state_badge');
-    const liveStatus = document.getElementById('mirror_live_status');
-    const liveSub = document.getElementById('mirror_live_sub');
-    const toggleBtn = document.getElementById('btn_toggle_mirror');
+    const stateBadge = document.getElementById('desktop_streaming_state_badge');
+    const liveStatus = document.getElementById('desktop_streaming_live_status');
+    const liveSub = document.getElementById('desktop_streaming_live_sub');
+    const toggleBtn = document.getElementById('btn_toggle_desktop_streaming');
 
     if (!toggleBtn) return;
 
@@ -362,7 +376,7 @@ window.updateMirrorUIStatus = (active) => {
             liveStatus.className = "text-3xl font-black tracking-tight";
             liveStatus.textContent = "Inactive";
         }
-        if (liveSub) liveSub.textContent = "No mirroring session is active";
+        if (liveSub) liveSub.textContent = "No desktop streaming session is active";
 
         toggleBtn.className = "btn btn-primary text-white font-bold w-full";
         toggleBtn.innerHTML = `<i data-feather="play" class="w-4 h-4"></i> Start Web Preview`;
@@ -374,27 +388,27 @@ window.updateMirrorUIStatus = (active) => {
     if (window.feather) feather.replace();
 };
 
-window.toggleMirrorSession = async (event) => {
+window.toggleDesktopStreamingSession = async (event) => {
     if (event) event.stopPropagation();
-    if (window._mirrorActive) {
+    if (window._desktopStreamingActive) {
         // Stop stream
         try {
-            const res = await window.pclinkUI.webUICall('/mirror/stop', { method: 'POST' });
+            const res = await window.pclinkUI.webUICall('/desktop-streaming/stop', { method: 'POST' });
             if (res.ok) {
-                window.pclinkUI.showToast('Stream Stopped', 'Mirroring pipeline terminated successfully', 'success');
-                window.updateMirrorUIStatus(false);
+                window.pclinkUI.showToast('Stream Stopped', 'Desktop streaming pipeline terminated successfully', 'success');
+                window.updateDesktopStreamingUIStatus(false);
             } else {
-                window.pclinkUI.showToast('Error', 'Failed to stop mirroring pipeline', 'error');
+                window.pclinkUI.showToast('Error', 'Failed to stop desktop streaming pipeline', 'error');
             }
         } catch (e) {
             window.pclinkUI.showToast('Error', 'Failed to communicate with server', 'error');
         }
     } else {
         // Start stream
-        const resVal = document.getElementById('mirror_res').value;
-        const fpsVal = document.getElementById('mirror_fps').value;
-        const encoder = document.getElementById('mirror_encoder').value;
-        const bitrate = parseInt(document.getElementById('mirror_bitrate').value);
+        const resVal = document.getElementById('desktop_streaming_res').value;
+        const fpsVal = document.getElementById('desktop_streaming_fps').value;
+        const encoder = document.getElementById('desktop_streaming_encoder').value;
+        const bitrate = parseInt(document.getElementById('desktop_streaming_bitrate').value);
 
         let width = null;
         let height = null;
@@ -422,14 +436,14 @@ window.toggleMirrorSession = async (event) => {
 
         try {
             window.pclinkUI.showToast('Starting Stream', 'Initializing GStreamer engine...', 'info');
-            const res = await window.pclinkUI.webUICall('/mirror/start', {
+            const res = await window.pclinkUI.webUICall('/desktop-streaming/start', {
                 method: 'POST',
                 body: JSON.stringify(body)
             });
 
             if (res.ok) {
                 window.pclinkUI.showToast('Stream Active', 'Local WebRTC Preview Active', 'success');
-                window.updateMirrorUIStatus(true);
+                window.updateDesktopStreamingUIStatus(true);
                 await startWebRTC();
             } else {
                 const data = await res.json();
@@ -441,10 +455,10 @@ window.toggleMirrorSession = async (event) => {
     }
 };
 
-window.resetMirrorPortalSession = async () => {
+window.resetDesktopStreamingPortalSession = async () => {
     try {
         window.pclinkUI.showToast('Clearing Session', 'Requesting portal token reset...', 'info');
-        const res = await window.pclinkUI.webUICall('/mirror/reset-portal', { method: 'POST' });
+        const res = await window.pclinkUI.webUICall('/desktop-streaming/reset-portal', { method: 'POST' });
         if (res.ok) {
             const data = await res.json();
             if (data.success) {

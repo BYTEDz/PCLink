@@ -9,7 +9,7 @@
  * - js/phone.js (File Browser & Remote Ops)
  * - js/system.js (Server Settings & Status)
  * - js/extensions.js (Extension Subsystem)
- * - js/mirror.js (Screen Mirroring Subsystem)
+ * - js/desktop_streaming.js (Desktop Streaming Subsystem)
  */
 
 document.addEventListener('DOMContentLoaded', () => {
