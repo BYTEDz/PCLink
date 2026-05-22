@@ -29,6 +29,7 @@ async def start_desktop_streaming(request: Request):
     else:
         client_host = body.get("udpHost") or request.client.host
 
+    # --- Core params ---
     encoder = body.get("encoder", "auto")
     width = body.get("width")
     height = body.get("height")
@@ -36,6 +37,36 @@ async def start_desktop_streaming(request: Request):
     bitrate = body.get("bitrate", 4000)
     audio = body.get("audio", True)
     gdi = body.get("gdi", False)
+
+    # --- Encoder speed/quality ---
+    speed_preset = body.get("speedPreset", "ultrafast")
+    tune = body.get("tune", "zerolatency")
+    nvenc_preset = body.get("nvencPreset", "p4")
+    nvenc_tune = body.get("nvencTune", "ultra-low-latency")
+    vaapi_target_usage = body.get("vaapiTargetUsage", 1)
+    qsv_target_usage = body.get("qsvTargetUsage", 7)
+
+    # --- Rate control ---
+    rc_mode = body.get("rcMode", "cbr")
+    cqp_value = body.get("cqpValue", 26)
+
+    # --- GOP ---
+    key_int_max = body.get("keyIntMax", 60)
+
+    # --- B/ref frames ---
+    bframes = body.get("bframes", 0)
+    ref_frames = body.get("refFrames", 1)
+
+    # --- Pipeline / network ---
+    rtp_mtu = body.get("rtpMtu", 1200)
+    queue_max_time_ns = body.get("queueMaxTimeNs", 0)
+    queue_max_buffers = body.get("queueMaxBuffers", 2)
+    aggregate_mode = body.get("aggregateMode", "zero-latency")
+    udp_buffer_size = body.get("udpBufferSize", 2097152)
+
+    # --- Source ---
+    show_cursor = body.get("showCursor", True)
+    colorimetry = body.get("colorimetry", "bt709")
 
     success = await desktop_streaming_service.start_engine(
         client_host=client_host,
@@ -46,6 +77,24 @@ async def start_desktop_streaming(request: Request):
         bitrate=bitrate,
         audio=audio,
         gdi=gdi,
+        speed_preset=speed_preset,
+        tune=tune,
+        nvenc_preset=nvenc_preset,
+        nvenc_tune=nvenc_tune,
+        vaapi_target_usage=vaapi_target_usage,
+        qsv_target_usage=qsv_target_usage,
+        rc_mode=rc_mode,
+        cqp_value=cqp_value,
+        key_int_max=key_int_max,
+        bframes=bframes,
+        ref_frames=ref_frames,
+        rtp_mtu=rtp_mtu,
+        queue_max_time_ns=queue_max_time_ns,
+        queue_max_buffers=queue_max_buffers,
+        aggregate_mode=aggregate_mode,
+        udp_buffer_size=udp_buffer_size,
+        show_cursor=show_cursor,
+        colorimetry=colorimetry,
     )
     if success:
         return {"success": True, "host": client_host, "encoder": encoder}

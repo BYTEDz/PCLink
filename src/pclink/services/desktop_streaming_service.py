@@ -10,7 +10,6 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
-# Resolve host operating system and processor architecture properties.
 OS_TYPE = platform.system().lower()
 ARCH_RAW = platform.machine().lower()
 
@@ -58,7 +57,8 @@ class DesktopStreamingService:
         """Prepare the environment for the FerrumCast engine process."""
         env = os.environ.copy()
         if OS_TYPE == "windows":
-            # Prefer the installed MSVC GStreamer runtime if available.
+            # Attempt to locate and configure the standard MSVC GStreamer runtime directories
+            # to establish plugin registries and bin paths before spawning the engine subprocess.
             candidates = [
                 Path(r"C:\Program Files\gstreamer\1.0\msvc_x86_64"),
                 Path(r"C:\gstreamer\1.0\msvc_x86_64"),
@@ -73,9 +73,15 @@ class DesktopStreamingService:
                             env["PATH"] = str(gst_bin) + os.pathsep + path
                     if gst_plugin_path.exists():
                         plugin_path = str(gst_plugin_path)
-                        if "GST_PLUGIN_PATH" not in env or plugin_path not in env["GST_PLUGIN_PATH"]:
+                        if (
+                            "GST_PLUGIN_PATH" not in env
+                            or plugin_path not in env["GST_PLUGIN_PATH"]
+                        ):
                             env["GST_PLUGIN_PATH"] = plugin_path
-                        if "GST_PLUGIN_SYSTEM_PATH" not in env or plugin_path not in env["GST_PLUGIN_SYSTEM_PATH"]:
+                        if (
+                            "GST_PLUGIN_SYSTEM_PATH" not in env
+                            or plugin_path not in env["GST_PLUGIN_SYSTEM_PATH"]
+                        ):
                             env["GST_PLUGIN_SYSTEM_PATH"] = plugin_path
                     scanner = gst_bin / "gst-plugin-scanner.exe"
                     if scanner.exists():
@@ -160,13 +166,19 @@ class DesktopStreamingService:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     env=self._engine_env(),
-                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if platform.system() == "Windows"
+                    else 0,
                 )
                 try:
-                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+                    stdout, stderr = await asyncio.wait_for(
+                        proc.communicate(), timeout=10.0
+                    )
                 except asyncio.TimeoutError:
                     proc.kill()
-                    info["probe_error"] = "Probe timeout (10s) - GStreamer initialization may be failing"
+                    info["probe_error"] = (
+                        "Probe timeout (10s) - GStreamer initialization may be failing"
+                    )
                     info["status"] = "binary_failure"
                     logger.error("FerrumCast probe timed out after 10 seconds")
                     return info
@@ -176,7 +188,10 @@ class DesktopStreamingService:
                         caps = json.loads(lines[-1])
                         info["encoders"] = caps.get("encoders", [])
                 else:
-                    error_text = stderr.decode(errors="ignore").strip() or stdout.decode(errors="ignore").strip()
+                    error_text = (
+                        stderr.decode(errors="ignore").strip()
+                        or stdout.decode(errors="ignore").strip()
+                    )
                     logger.error(
                         f"FerrumCast probe failed (returncode={proc.returncode}): {error_text}"
                     )
@@ -221,11 +236,18 @@ class DesktopStreamingService:
             "errors": [],
         }
 
-        # Prepare env same as engine will see
+        # Replicate the exact environment configuration passed to the engine process
+        # to guarantee diagnostic commands run under identical conditions.
         env = self._engine_env()
 
-        # Capture a minimal set of env variables for debugging
-        for key in ("PATH", "GST_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SCANNER"):
+        # Extract relevant path and registry variables crucial for troubleshooting
+        # dynamic library search paths and GStreamer plugin resolution.
+        for key in (
+            "PATH",
+            "GST_PLUGIN_PATH",
+            "GST_PLUGIN_SYSTEM_PATH",
+            "GST_PLUGIN_SCANNER",
+        ):
             result["env"][key] = env.get(key)
 
         async def run_cmd(*cmd):
@@ -234,33 +256,61 @@ class DesktopStreamingService:
                     *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
                 )
                 stdout, stderr = await proc.communicate()
-                return proc.returncode, stdout.decode(errors="ignore"), stderr.decode(errors="ignore")
+                return (
+                    proc.returncode,
+                    stdout.decode(errors="ignore"),
+                    stderr.decode(errors="ignore"),
+                )
             except FileNotFoundError as e:
                 return 127, "", str(e)
             except Exception as e:
                 return 1, "", str(e)
 
-        # 1) gst-inspect version
+        # Verify core GStreamer runtime installation and tool availability.
         code, out, err = await run_cmd("gst-inspect-1.0", "--version")
         if code == 0:
             result["gst_inspect_version"] = out.strip()
         else:
             result["errors"].append({"gst-inspect-version": err or out})
 
-        # 2) inspect specific plugins useful for troubleshooting
-        plugins_to_check = ["webrtcbin", "d3d11screencapturesrc", "x264enc", "mfh264enc", "gstpython"]
+        # Inspect critical streaming and acceleration modules to verify support
+        # for targeted encoders and capture pipelines.
+        plugins_to_check = [
+            "webrtcbin",
+            "d3d11screencapturesrc",
+            "x264enc",
+            "mfh264enc",
+            "gstpython",
+        ]
         plugin_outputs = {}
         for p in plugins_to_check:
             code, out, err = await run_cmd("gst-inspect-1.0", p)
-            plugin_outputs[p] = {"returncode": code, "stdout": out.strip(), "stderr": err.strip()}
+            plugin_outputs[p] = {
+                "returncode": code,
+                "stdout": out.strip(),
+                "stderr": err.strip(),
+            }
 
         result["gst_inspect_plugins"] = plugin_outputs
 
-        # 3) list plugins (grep for relevant ones)
+        # Filter global registry list to avoid downstream logger buffer bloat
+        # while preserving core media element traces.
         code, out, err = await run_cmd("gst-inspect-1.0", "--plugins")
         if code == 0:
-            # Keep only relevant lines to avoid huge blobs in logs
-            lines = [l for l in out.splitlines() if any(k in l for k in ("webrtcbin", "d3d11screencapturesrc", "x264enc", "mfh264enc", "gstpython"))]
+            lines = [
+                line
+                for line in out.splitlines()
+                if any(
+                    k in line
+                    for k in (
+                        "webrtcbin",
+                        "d3d11screencapturesrc",
+                        "x264enc",
+                        "mfh264enc",
+                        "gstpython",
+                    )
+                )
+            ]
             result["gst_plugins_list"] = "\n".join(lines)
         else:
             result["gst_plugins_list"] = err or out
@@ -281,7 +331,7 @@ class DesktopStreamingService:
         if OS_TYPE == "windows":
             # Establish a connection to the Windows Named Pipe. Because standard synchronous file I/O
             # blocks the asyncio event loop, operations are delegated to a worker thread via asyncio.to_thread.
-            for _ in range(300):  # 30s timeout
+            for _ in range(300):
                 try:
                     pipe = open(IPC_PATH, "r+b", buffering=0)
                     logger.info("Mirror engine IPC connected (Windows Named Pipe)")
@@ -310,7 +360,7 @@ class DesktopStreamingService:
                     pass
                 await asyncio.sleep(0.1)
         else:
-            for _ in range(300):  # 30s timeout
+            for _ in range(300):
                 if os.path.exists(IPC_PATH):
                     try:
                         self.reader, self.writer = await asyncio.open_unix_connection(
@@ -335,6 +385,24 @@ class DesktopStreamingService:
         bitrate=4000,
         audio=True,
         gdi=False,
+        speed_preset="ultrafast",
+        tune="zerolatency",
+        nvenc_preset="p4",
+        nvenc_tune="ultra-low-latency",
+        vaapi_target_usage=1,
+        qsv_target_usage=7,
+        rc_mode="cbr",
+        cqp_value=26,
+        key_int_max=60,
+        bframes=0,
+        ref_frames=1,
+        rtp_mtu=1200,
+        queue_max_time_ns=0,
+        queue_max_buffers=2,
+        aggregate_mode="zero-latency",
+        udp_buffer_size=2097152,
+        show_cursor=True,
+        colorimetry="bt709",
     ):
         """Start or reuse engine. If already running, restart pipeline via IPC."""
         if not ENGINE_PATH.exists():
@@ -359,6 +427,24 @@ class DesktopStreamingService:
                 "framerate": fps,
                 "token": None,
                 "gdi": gdi,
+                "speed_preset": speed_preset,
+                "tune": tune,
+                "nvenc_preset": nvenc_preset,
+                "nvenc_tune": nvenc_tune,
+                "vaapi_target_usage": vaapi_target_usage,
+                "qsv_target_usage": qsv_target_usage,
+                "rc_mode": rc_mode,
+                "cqp_value": cqp_value,
+                "key_int_max": key_int_max,
+                "bframes": bframes,
+                "ref_frames": ref_frames,
+                "rtp_mtu": rtp_mtu,
+                "queue_max_time_ns": queue_max_time_ns,
+                "queue_max_buffers": queue_max_buffers,
+                "aggregate_mode": aggregate_mode,
+                "udp_buffer_size": udp_buffer_size,
+                "show_cursor": show_cursor,
+                "colorimetry": colorimetry,
             }
             await self.send_command(cfg)
             return True
@@ -383,6 +469,42 @@ class DesktopStreamingService:
             str(bitrate),
             "--audio",
             "true" if audio else "false",
+            "--speed-preset",
+            speed_preset,
+            "--tune",
+            tune,
+            "--nvenc-preset",
+            nvenc_preset,
+            "--nvenc-tune",
+            nvenc_tune,
+            "--vaapi-target-usage",
+            str(vaapi_target_usage),
+            "--qsv-target-usage",
+            str(qsv_target_usage),
+            "--rc-mode",
+            rc_mode,
+            "--cqp-value",
+            str(cqp_value),
+            "--key-int-max",
+            str(key_int_max),
+            "--bframes",
+            str(bframes),
+            "--ref-frames",
+            str(ref_frames),
+            "--rtp-mtu",
+            str(rtp_mtu),
+            "--queue-max-time-ns",
+            str(queue_max_time_ns),
+            "--queue-max-buffers",
+            str(queue_max_buffers),
+            "--aggregate-mode",
+            aggregate_mode,
+            "--udp-buffer-size",
+            str(udp_buffer_size),
+            "--show-cursor",
+            "true" if show_cursor else "false",
+            "--colorimetry",
+            colorimetry,
         ]
         if width:
             args += ["--width", str(width)]
@@ -417,10 +539,7 @@ class DesktopStreamingService:
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
         logger.info(f"Starting mirror engine: {args}")
-        self.process = await asyncio.create_subprocess_exec(
-            *args,
-            **kwargs
-        )
+        self.process = await asyncio.create_subprocess_exec(*args, **kwargs)
 
         async def log_engine(stream, prefix):
             while True:
@@ -436,7 +555,8 @@ class DesktopStreamingService:
             return True
         else:
             logger.error("Mirror engine IPC connection failed")
-            # Collect diagnostics to aid debugging of plugin/DLL issues
+            # Execute system capability discovery to diagnose library linkage
+            # or runtime pipeline initialization failures on startup crash.
             try:
                 diags = await self.collect_engine_diagnostics()
                 logger.error("Engine diagnostics: %s", json.dumps(diags))
