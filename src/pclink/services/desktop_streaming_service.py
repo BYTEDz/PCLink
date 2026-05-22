@@ -383,7 +383,7 @@ class DesktopStreamingService:
         height=None,
         fps=None,
         bitrate=4000,
-        audio=True,
+        audio=False,
         gdi=False,
         speed_preset="ultrafast",
         tune="zerolatency",
@@ -627,6 +627,10 @@ class DesktopStreamingService:
                 continue
             try:
                 msg = json.loads(line)
+                # relay portal approval status to frontend subscribers
+                if msg.get("type") == "WAITING_FOR_PORTAL_APPROVAL":
+                    logger.info("Engine is waiting for Wayland portal approval")
+
                 for sub in list(self._subscribers):
                     try:
                         await sub(msg)
