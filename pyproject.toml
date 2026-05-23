@@ -90,7 +90,7 @@ where = ["src"]
 include = ["pclink*"]
 
 [tool.setuptools.package-data]
-pclink = ["assets/**/*", "web_ui/static/**/*"] # <-- UPDATED TO BE RECURSIVE
+pclink = ["assets/**/*", "web_ui/static/**/*", "web_ui/templates/**/*"]
 
 [tool.black]
 line-length = 88

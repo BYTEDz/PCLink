@@ -40,7 +40,7 @@ def create_web_ui_router(app: FastAPI) -> APIRouter:
 
         # Check if setup is completed
         if not web_auth_manager.is_setup_completed():
-            return templates.TemplateResponse("auth.html", {"request": request})
+            return templates.TemplateResponse(request=request, name="auth.html")
 
         # Check for valid session
         session_token = request.cookies.get("pclink_session")
@@ -49,14 +49,14 @@ def create_web_ui_router(app: FastAPI) -> APIRouter:
         if not session_token or not web_auth_manager.validate_session(
             session_token, client_ip
         ):
-            return templates.TemplateResponse("auth.html", {"request": request})
+            return templates.TemplateResponse(request=request, name="auth.html")
 
         # Serve main UI using Jinja2
-        return templates.TemplateResponse("base.html", {"request": request})
+        return templates.TemplateResponse(request=request, name="base.html")
 
     @router.get("/auth", response_class=HTMLResponse)
     async def serve_auth_page(request: Request):
         """Serve the authentication page explicitly."""
-        return templates.TemplateResponse("auth.html", {"request": request})
+        return templates.TemplateResponse(request=request, name="auth.html")
 
     return router
