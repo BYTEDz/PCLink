@@ -36,7 +36,7 @@ jobs:
       - name: Prepare FerrumCast binaries for packaging
         shell: powershell
         run: |
-          $binDir = "src\pclink\assets\bin\windows"
+          $binDir = "src\pclink\assets\bin"
           if (!(Test-Path $binDir)) { New-Item -ItemType Directory -Force -Path $binDir }
           # Copy the exe and all GStreamer DLLs (very important for Windows)
           Copy-Item -Path "temp-ferrumcast\*" -Destination $binDir -Force
@@ -127,11 +127,11 @@ jobs:
 
       - name: Prepare FerrumCast binaries
         run: |
-          mkdir -p src/pclink/assets/bin/linux
+          mkdir -p src/pclink/assets/bin
           if [ -d "temp-ferrumcast" ]; then
             # Normalize filename from 'ferrumcast-linux' to 'ferrumcast'
-            cp temp-ferrumcast/ferrumcast-linux src/pclink/assets/bin/linux/ferrumcast || cp temp-ferrumcast/ferrumcast src/pclink/assets/bin/linux/ferrumcast
-            chmod +x src/pclink/assets/bin/linux/ferrumcast
+            cp temp-ferrumcast/ferrumcast-linux src/pclink/assets/bin/ferrumcast || cp temp-ferrumcast/ferrumcast src/pclink/assets/bin/ferrumcast
+            chmod +x src/pclink/assets/bin/ferrumcast
           fi
 
       - name: Set up Python
