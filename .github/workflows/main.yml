@@ -1,5 +1,6 @@
 name: PCLink CI & Release
 # Updated to use NFPM instead of FPM for Linux package building
+# Integrates FerrumCast binaries for screen streaming support
 
 on:
   push:
@@ -11,12 +12,43 @@ permissions:
   contents: read
 
 jobs:
+  # Build FerrumCast binaries first (reusable workflow from FerrumCast repo)
+  build-ferrumcast:
+    name: Build FerrumCast Binaries
+    uses: BYTEDz/FerrumCast/.github/workflows/build.yml@main
+    permissions:
+      contents: read
+
   build-windows:
+    needs: build-ferrumcast
     name: Build Windows Packages
     runs-on: windows-2022
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Download FerrumCast Windows binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: ferrumcast-x86_64-pc-windows-msvc
+          path: ferrumcast-windows/
+        continue-on-error: true
+
+      - name: Prepare FerrumCast binaries for packaging
+        shell: powershell
+        run: |
+          # Create the assets/bin directory structure
+          $binDir = "src\pclink\assets\bin\windows"
+          New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+
+          # Copy FerrumCast executable and DLLs if available
+          if (Test-Path "ferrumcast-windows") {
+            Copy-Item -Path "ferrumcast-windows\*" -Destination $binDir -Force
+            Write-Host "FerrumCast binaries copied to $binDir"
+            Get-ChildItem $binDir
+          } else {
+            Write-Host "[WARNING] FerrumCast binaries not found - building without screen streaming support"
+          }
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -101,6 +133,7 @@ jobs:
           compression-level: 0
 
   build-linux:
+    needs: build-ferrumcast
     name: Build Linux Packages (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -113,6 +146,33 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Download FerrumCast Linux binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: ferrumcast-x86_64-unknown-linux-gnu
+          path: ferrumcast-linux/
+        continue-on-error: true
+
+      - name: Prepare FerrumCast binaries for packaging
+        run: |
+          # Create the assets/bin directory structure
+          mkdir -p src/pclink/assets/bin/linux
+
+          # Copy FerrumCast binary if available
+          if [ -d "ferrumcast-linux" ]; then
+            # Find the ferrumcast binary (might be named ferrumcast-linux or just ferrumcast)
+            if [ -f "ferrumcast-linux/ferrumcast-linux" ]; then
+              cp ferrumcast-linux/ferrumcast-linux src/pclink/assets/bin/linux/ferrumcast
+            elif [ -f "ferrumcast-linux/ferrumcast" ]; then
+              cp ferrumcast-linux/ferrumcast src/pclink/assets/bin/linux/ferrumcast
+            fi
+            chmod +x src/pclink/assets/bin/linux/ferrumcast
+            echo "FerrumCast binary copied to src/pclink/assets/bin/linux/"
+            ls -la src/pclink/assets/bin/linux/
+          else
+            echo "[WARNING] FerrumCast binaries not found - building without screen streaming support"
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5

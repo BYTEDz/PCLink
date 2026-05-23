@@ -62,6 +62,7 @@ MAIN_SCRIPT = "src/pclink/launcher.py"
 # Define source directories relative to the project root
 ASSETS_SOURCE_DIR = "src/pclink/assets"
 WEBUI_SOURCE_DIR = "src/pclink/web_ui/static"
+FERRUMCAST_DIR = "src/pclink/assets/bin"
 INNO_SETUP_TEMPLATE = "scripts/installer.iss"
 
 HIDDEN_IMPORTS = [
@@ -412,12 +413,18 @@ VSVersionInfo(
         # Define web UI static files source directory
         web_ui_static_dir = self.root_dir / WEBUI_SOURCE_DIR
 
+        # Define FerrumCast binaries directory (platform-specific)
+        ferrumcast_dir = self.root_dir / FERRUMCAST_DIR / self.platform
+
         # Verify required directories exist
         if not self.assets_dir.exists():
             print(f"[WARNING] Assets directory not found: {self.assets_dir}")
 
         if not web_ui_static_dir.exists():
             print(f"[WARNING] Web UI static directory not found: {web_ui_static_dir}")
+
+        if not ferrumcast_dir.exists():
+            print(f"[WARNING] FerrumCast binaries not found: {ferrumcast_dir}")
 
         cmd = [
             sys.executable,
@@ -440,6 +447,13 @@ VSVersionInfo(
             cmd.append(
                 f"--add-data={web_ui_static_dir}{os.pathsep}src/pclink/web_ui/static"
             )
+
+        # Add FerrumCast binaries if available
+        if ferrumcast_dir.exists():
+            cmd.append(
+                f"--add-data={ferrumcast_dir}{os.pathsep}src/pclink/assets/bin/{self.platform}"
+            )
+            print(f"[INFO] Including FerrumCast binaries from: {ferrumcast_dir}")
 
         cmd.append("--onefile" if onefile else "--onedir")
 
