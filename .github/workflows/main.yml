@@ -24,10 +24,10 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Check out PCLink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download FerrumCast Windows binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ferrumcast-x86_64-pc-windows-msvc
           path: temp-ferrumcast
@@ -42,7 +42,7 @@ jobs:
           Write-Host "Binaries injected for PyInstaller: $binDir"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
@@ -65,7 +65,7 @@ jobs:
         run: python scripts/build.py --format installer
 
       - name: Upload Windows Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PCLink-Windows
           path: releases/
@@ -85,10 +85,10 @@ jobs:
             os: ubuntu-24.04-arm
     steps:
       - name: Check out PCLink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download FerrumCast Linux binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: ferrumcast-${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
           path: temp-ferrumcast
@@ -104,7 +104,7 @@ jobs:
           fi
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
@@ -127,7 +127,7 @@ jobs:
         run: python3 scripts/build.py --format nfpm --arch ${{ matrix.arch }}
 
       - name: Upload Linux Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PCLink-Linux-${{ matrix.arch }}
           path: releases/
@@ -143,10 +143,10 @@ jobs:
       contents: write
     steps:
       - name: Check out PCLink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts/
 
