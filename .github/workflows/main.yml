@@ -10,15 +10,14 @@ permissions:
   contents: write
 
 jobs:
-  # 1. TRIGGER FERRUMCAST BUILD
-  # This builds the Rust binaries in the other repo first.
+  # Trigger upstream compilation of FerrumCast Rust binaries required for bundling.
   build-ferrumcast:
     name: Build FerrumCast Binaries
     uses: BYTEDz/FerrumCast/.github/workflows/build.yml@main
     permissions:
       contents: write
 
-  # 2. BUILD WINDOWS PACKAGES (Portable, One-File, and MSI Installer)
+  # Build Windows distributions, including portable, single-executable, and setup installer formats.
   build-windows:
     needs: build-ferrumcast
     name: Build Windows Packages
@@ -38,7 +37,7 @@ jobs:
         run: |
           $binDir = "src\pclink\assets\bin"
           if (!(Test-Path $binDir)) { New-Item -ItemType Directory -Force -Path $binDir }
-          # Copy the exe and all GStreamer DLLs (very important for Windows)
+          # Copy compiled binaries and required GStreamer DLL dependencies to the packaging directory.
           Copy-Item -Path "temp-ferrumcast\*" -Destination $binDir -Force
           Write-Host "Binaries injected for PyInstaller: $binDir"
 
@@ -72,35 +71,7 @@ jobs:
           path: releases/
           compression-level: 0
 
-  # 3. BUILD PYTHON WHEEL
-  build-wheel:
-    name: Build Python Wheel
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Check out PCLink
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build wheel setuptools
-
-      - name: Build Python wheel
-        run: python -m build --wheel
-
-      - name: Upload Wheel Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: PCLink-Wheel
-          path: dist/*.whl
-          compression-level: 0
-
-  # 4. BUILD LINUX PACKAGES (amd64 and arm64 via NFPM)
+  # Package Linux distributions for target architectures (amd64, arm64) using NFPM.
   build-linux:
     needs: build-ferrumcast
     name: Build Linux Packages (${{ matrix.arch }})
@@ -119,9 +90,7 @@ jobs:
       - name: Download FerrumCast Linux binaries
         uses: actions/download-artifact@v4
         with:
-          # Note: We download the x86 binary. If FerrumCast adds ARM support,
-          # you would update this to match the matrix architecture.
-          name: ferrumcast-x86_64-unknown-linux-gnu
+          name: ferrumcast-${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
           path: temp-ferrumcast
         continue-on-error: true
 
@@ -129,7 +98,7 @@ jobs:
         run: |
           mkdir -p src/pclink/assets/bin
           if [ -d "temp-ferrumcast" ]; then
-            # Normalize filename from 'ferrumcast-linux' to 'ferrumcast'
+            # Standardize executable names by removing platform-specific suffixes.
             cp temp-ferrumcast/ferrumcast-linux src/pclink/assets/bin/ferrumcast || cp temp-ferrumcast/ferrumcast src/pclink/assets/bin/ferrumcast
             chmod +x src/pclink/assets/bin/ferrumcast
           fi
@@ -164,10 +133,10 @@ jobs:
           path: releases/
           compression-level: 0
 
-  # 5. PUBLISH RELEASE
+  # Consolidate builds and publish the release onto GitHub.
   publish-release:
     name: Publish GitHub Release
-    needs: [build-windows, build-linux, build-wheel]
+    needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -190,7 +159,7 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          # Pull section from CHANGELOG between the target version and the next header
+          # Parse and extract release notes for the current version block from CHANGELOG.md.
           NOTES=$(awk -v ver="$VERSION" 'BEGIN{p=0} /^## \['"$VERSION"'\]/{p=1;next} /^## \[/{p=0} p' CHANGELOG.md)
           if [ -z "$NOTES" ]; then NOTES="See CHANGELOG.md for details."; fi
           echo "$NOTES" > RELEASE_NOTES.md
@@ -204,36 +173,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Detect Pre-release
+          # Append pre-release flag if the tag format includes alpha, beta, rc, or semver suffixes.
           PRERELEASE_FLAG=""
           if [[ "$TAG" =~ [0-9]+\.[0-9]+\.[0-9]+-.* ]] || [[ "$TAG" =~ (beta|alpha|rc) ]]; then
             PRERELEASE_FLAG="--prerelease"
           fi
 
-          # Flatten artifact structure and create release
+          # Create the GitHub Release with flattened build artifacts, dynamic PKGBUILD, and checksum manifest.
           gh release create "$TAG" ./artifacts/*/* ./artifacts/PKGBUILD SHA256SUMS.txt \
             --title "Release $TAG" \
             --notes-file RELEASE_NOTES.md \
             $PRERELEASE_FLAG
-
-  # 6. PUBLISH TO PYPI
-  publish-pypi:
-    name: Publish to PyPI
-    needs: [build-wheel]
-    runs-on: ubuntu-latest
-    # Only publish stable versions to PyPI (no hyphens in tag)
-    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
-    permissions:
-      id-token: write
-    steps:
-      - name: Download wheel artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: PCLink-Wheel
-          path: dist/
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist/
-          # password: ${{ secrets.PYPI_API_TOKEN }} # Only needed if not using Trusted Publishing
