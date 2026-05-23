@@ -10,20 +10,21 @@ permissions:
   contents: write
 
 jobs:
-  # 1. Build FerrumCast binaries first (reusable workflow from FerrumCast repo)
+  # 1. TRIGGER FERRUMCAST BUILD
+  # This builds the Rust binaries in the other repo first.
   build-ferrumcast:
     name: Build FerrumCast Binaries
     uses: BYTEDz/FerrumCast/.github/workflows/build.yml@main
     permissions:
       contents: write
 
-  # 2. Build Windows Packages
+  # 2. BUILD WINDOWS PACKAGES (Portable, One-File, and MSI Installer)
   build-windows:
     needs: build-ferrumcast
     name: Build Windows Packages
     runs-on: windows-2022
     steps:
-      - name: Check out repository
+      - name: Check out PCLink
         uses: actions/checkout@v4
 
       - name: Download FerrumCast Windows binaries
@@ -37,9 +38,9 @@ jobs:
         run: |
           $binDir = "src\pclink\assets\bin\windows"
           if (!(Test-Path $binDir)) { New-Item -ItemType Directory -Force -Path $binDir }
-          # Copy everything (exe + GStreamer DLLs) from FerrumCast build
+          # Copy the exe and all GStreamer DLLs (very important for Windows)
           Copy-Item -Path "temp-ferrumcast\*" -Destination $binDir -Force
-          Write-Host "FerrumCast binaries prepared in $binDir"
+          Write-Host "Binaries injected for PyInstaller: $binDir"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -47,7 +48,7 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install Python dependencies
+      - name: Install PCLink Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
@@ -71,12 +72,12 @@ jobs:
           path: releases/
           compression-level: 0
 
-  # 3. Build Python Wheel
+  # 3. BUILD PYTHON WHEEL
   build-wheel:
     name: Build Python Wheel
     runs-on: ubuntu-22.04
     steps:
-      - name: Check out repository
+      - name: Check out PCLink
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -99,7 +100,7 @@ jobs:
           path: dist/*.whl
           compression-level: 0
 
-  # 4. Build Linux Packages (Multi-Arch)
+  # 4. BUILD LINUX PACKAGES (amd64 and arm64 via NFPM)
   build-linux:
     needs: build-ferrumcast
     name: Build Linux Packages (${{ matrix.arch }})
@@ -112,12 +113,14 @@ jobs:
           - arch: arm64
             os: ubuntu-24.04-arm
     steps:
-      - name: Check out repository
+      - name: Check out PCLink
         uses: actions/checkout@v4
 
       - name: Download FerrumCast Linux binaries
         uses: actions/download-artifact@v4
         with:
+          # Note: We download the x86 binary. If FerrumCast adds ARM support,
+          # you would update this to match the matrix architecture.
           name: ferrumcast-x86_64-unknown-linux-gnu
           path: temp-ferrumcast
         continue-on-error: true
@@ -126,15 +129,9 @@ jobs:
         run: |
           mkdir -p src/pclink/assets/bin/linux
           if [ -d "temp-ferrumcast" ]; then
-            if [ -f "temp-ferrumcast/ferrumcast-linux" ]; then
-              cp temp-ferrumcast/ferrumcast-linux src/pclink/assets/bin/linux/ferrumcast
-            elif [ -f "temp-ferrumcast/ferrumcast" ]; then
-              cp temp-ferrumcast/ferrumcast src/pclink/assets/bin/linux/ferrumcast
-            fi
+            # Normalize filename from 'ferrumcast-linux' to 'ferrumcast'
+            cp temp-ferrumcast/ferrumcast-linux src/pclink/assets/bin/linux/ferrumcast || cp temp-ferrumcast/ferrumcast src/pclink/assets/bin/linux/ferrumcast
             chmod +x src/pclink/assets/bin/linux/ferrumcast
-            echo "FerrumCast binary ready."
-          else
-            echo "WARNING: FerrumCast binaries not found for this arch."
           fi
 
       - name: Set up Python
@@ -157,7 +154,7 @@ jobs:
           wget "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_${NFPM_ARCH}.deb"
           sudo dpkg -i nfpm_${NFPM_VERSION}_${NFPM_ARCH}.deb
 
-      - name: Build Package (${{ matrix.arch }})
+      - name: Build Packages (${{ matrix.arch }})
         run: python3 scripts/build.py --format nfpm --arch ${{ matrix.arch }}
 
       - name: Upload Linux Artifacts
@@ -167,7 +164,7 @@ jobs:
           path: releases/
           compression-level: 0
 
-  # 5. Publish GitHub Release with Notes and Checksums
+  # 5. PUBLISH RELEASE
   publish-release:
     name: Publish GitHub Release
     needs: [build-windows, build-linux, build-wheel]
@@ -176,7 +173,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Check out repository
+      - name: Check out PCLink
         uses: actions/checkout@v4
 
       - name: Download all build artifacts
@@ -188,12 +185,12 @@ jobs:
         run: |
           cd artifacts
           find . -type f -exec sha256sum {} + | sort > ../SHA256SUMS.txt
-          cd ..
 
       - name: Extract Release Notes from CHANGELOG
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
+          # Pull section from CHANGELOG between the target version and the next header
           NOTES=$(awk -v ver="$VERSION" 'BEGIN{p=0} /^## \['"$VERSION"'\]/{p=1;next} /^## \[/{p=0} p' CHANGELOG.md)
           if [ -z "$NOTES" ]; then NOTES="See CHANGELOG.md for details."; fi
           echo "$NOTES" > RELEASE_NOTES.md
@@ -201,28 +198,30 @@ jobs:
 
       - name: Generate Dynamic PKGBUILD
         run: |
-          # Use your original script to generate PKGBUILD
           python scripts/generate_pkgbuild.py --output artifacts/PKGBUILD || touch artifacts/PKGBUILD
 
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Detect Pre-release
           PRERELEASE_FLAG=""
           if [[ "$TAG" =~ [0-9]+\.[0-9]+\.[0-9]+-.* ]] || [[ "$TAG" =~ (beta|alpha|rc) ]]; then
             PRERELEASE_FLAG="--prerelease"
           fi
 
+          # Flatten artifact structure and create release
           gh release create "$TAG" ./artifacts/*/* ./artifacts/PKGBUILD SHA256SUMS.txt \
             --title "Release $TAG" \
             --notes-file RELEASE_NOTES.md \
             $PRERELEASE_FLAG
 
-  # 6. Publish to PyPI
+  # 6. PUBLISH TO PYPI
   publish-pypi:
     name: Publish to PyPI
     needs: [build-wheel]
     runs-on: ubuntu-latest
+    # Only publish stable versions to PyPI (no hyphens in tag)
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
     permissions:
       id-token: write
@@ -237,4 +236,4 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
-          password: ${{ secrets.PYPI_API_TOKEN }}
+          # password: ${{ secrets.PYPI_API_TOKEN }} # Only needed if not using Trusted Publishing
