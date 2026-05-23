@@ -80,6 +80,7 @@
       "python-fastapi",
       "python-getmac",
       "python-gobject",
+      "python-jinja",
       "python-keyboard",
       "python-mss",
       "python-multipart",

@@ -143,6 +143,8 @@ HIDDEN_IMPORTS = [
     "base64",
     # Plugin metadata parsing
     "yaml",
+    # Template rendering
+    "jinja2",
 ]
 
 
@@ -186,6 +188,7 @@ def check_system_dependencies(build_format=None):
         "uvicorn",
         "cryptography",
         "requests",
+        "jinja2",
     ]
 
     # Optional packages that might not be available in headless environments
