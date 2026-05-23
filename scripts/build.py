@@ -61,7 +61,8 @@ APP_NAME = "PCLink"
 MAIN_SCRIPT = "src/pclink/launcher.py"
 # Define source directories relative to the project root
 ASSETS_SOURCE_DIR = "src/pclink/assets"
-WEBUI_SOURCE_DIR = "src/pclink/web_ui/static"
+WEBUI_STATIC_DIR = "src/pclink/web_ui/static"
+WEBUI_TEMPLATES_DIR = "src/pclink/web_ui/templates"
 FERRUMCAST_DIR = "src/pclink/assets/bin"
 INNO_SETUP_TEMPLATE = "scripts/installer.iss"
 
@@ -413,8 +414,9 @@ VSVersionInfo(
 
         icon_path = self._get_pyinstaller_icon()
 
-        # Define web UI static files source directory
-        web_ui_static_dir = self.root_dir / WEBUI_SOURCE_DIR
+        # Define web UI directories
+        web_ui_static_dir = self.root_dir / WEBUI_STATIC_DIR
+        web_ui_templates_dir = self.root_dir / WEBUI_TEMPLATES_DIR
 
         # Define FerrumCast binaries directory (platform-specific)
         ferrumcast_dir = self.root_dir / FERRUMCAST_DIR / self.platform
@@ -425,6 +427,11 @@ VSVersionInfo(
 
         if not web_ui_static_dir.exists():
             print(f"[WARNING] Web UI static directory not found: {web_ui_static_dir}")
+
+        if not web_ui_templates_dir.exists():
+            print(
+                f"[WARNING] Web UI templates directory not found: {web_ui_templates_dir}"
+            )
 
         if not ferrumcast_dir.exists():
             print(f"[WARNING] FerrumCast binaries not found: {ferrumcast_dir}")
@@ -449,6 +456,11 @@ VSVersionInfo(
         if web_ui_static_dir.exists():
             cmd.append(
                 f"--add-data={web_ui_static_dir}{os.pathsep}src/pclink/web_ui/static"
+            )
+
+        if web_ui_templates_dir.exists():
+            cmd.append(
+                f"--add-data={web_ui_templates_dir}{os.pathsep}src/pclink/web_ui/templates"
             )
 
         # Add FerrumCast binaries if available
