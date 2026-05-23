@@ -17,7 +17,7 @@ jobs:
     name: Build FerrumCast Binaries
     uses: BYTEDz/FerrumCast/.github/workflows/build.yml@main
     permissions:
-      contents: read
+      contents: write
 
   build-windows:
     needs: build-ferrumcast
