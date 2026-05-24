@@ -8,6 +8,8 @@ from pathlib import Path
 import platform
 import tempfile
 
+from ..core.utils import resource_path
+
 logger = logging.getLogger(__name__)
 
 OS_TYPE = platform.system().lower()
@@ -30,14 +32,11 @@ else:
     TOKEN_FILE = "/tmp/ferrumcast.token"
 
 # Compute the absolute paths for the native engine binary, supporting structured system directories with legacy fallbacks.
-STRUCTURED_PATH = (
-    Path(__file__).parent.parent
-    / "assets"
-    / "bin"
-    / f"{OS_TYPE}_{ARCH_NAME}"
-    / BIN_NAME
+
+STRUCTURED_PATH = resource_path(
+    f"src/pclink/assets/bin/{OS_TYPE}_{ARCH_NAME}/{BIN_NAME}"
 )
-LEGACY_PATH = Path(__file__).parent.parent / "assets" / "bin" / BIN_NAME
+LEGACY_PATH = resource_path(f"src/pclink/assets/bin/{BIN_NAME}")
 
 if STRUCTURED_PATH.exists():
     ENGINE_PATH = STRUCTURED_PATH
