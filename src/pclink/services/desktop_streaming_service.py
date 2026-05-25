@@ -332,7 +332,7 @@ class DesktopStreamingService:
             # blocks the asyncio event loop, operations are delegated to a worker thread via asyncio.to_thread.
             for _ in range(300):
                 try:
-                    pipe = open(IPC_PATH, "r+b", buffering=0)
+                    pipe = await asyncio.to_thread(open, IPC_PATH, "r+b", buffering=0)
                     logger.info("Mirror engine IPC connected (Windows Named Pipe)")
 
                     class PipeReader:
@@ -572,7 +572,8 @@ class DesktopStreamingService:
         if self.process:
             try:
                 if OS_TYPE == "windows":
-                    subprocess.run(
+                    await asyncio.to_thread(
+                        subprocess.run,
                         ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
                         creationflags=subprocess.CREATE_NO_WINDOW,
                         stdout=subprocess.DEVNULL,

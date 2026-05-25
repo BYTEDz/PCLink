@@ -17,11 +17,15 @@ jobs:
     permissions:
       contents: write
 
-  # Build Windows distributions, including portable, single-executable, and setup installer formats.
+  # Build Windows distributions in parallel to produce separate, faster-to-download artifacts.
   build-windows:
     needs: build-ferrumcast
-    name: Build Windows Packages
+    name: Build Windows (${{ matrix.format }})
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        format: [portable, onefile, installer]
     steps:
       - name: Check out PCLink
         uses: actions/checkout@v6
@@ -52,22 +56,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Build Portable Archive
-        run: python scripts/build.py --format portable --clean
-
-      - name: Build One-File Executable
-        run: python scripts/build.py --format onefile
-
       - name: Install Inno Setup
+        # Only install Inno Setup when building the installer to save time
+        if: matrix.format == 'installer'
         run: choco install innosetup -y --no-progress
 
-      - name: Build Windows Installer
-        run: python scripts/build.py --format installer
+      - name: Build ${{ matrix.format }} Package
+        run: python scripts/build.py --format ${{ matrix.format }} --clean
 
-      - name: Upload Windows Artifacts
+      - name: Upload Windows Artifact (${{ matrix.format }})
         uses: actions/upload-artifact@v7
         with:
-          name: PCLink-Windows
+          # This dynamically names the artifact (e.g. PCLink-Windows-installer)
+          name: PCLink-Windows-${{ matrix.format }}
           path: releases/
           compression-level: 0
 
