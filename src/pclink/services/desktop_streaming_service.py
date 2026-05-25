@@ -332,29 +332,42 @@ class DesktopStreamingService:
             # blocks the asyncio event loop, operations are delegated to a worker thread via asyncio.to_thread.
             for _ in range(300):
                 try:
-                    pipe = await asyncio.to_thread(open, IPC_PATH, "r+b", buffering=0)
+                    # Use timeout on pipe open to prevent indefinite blocking if the pipe exists
+                    # but the engine is not ready to accept connections.
+                    pipe = await asyncio.wait_for(
+                        asyncio.to_thread(open, IPC_PATH, "r+b", buffering=0),
+                        timeout=2.0,
+                    )
                     logger.info("Mirror engine IPC connected (Windows Named Pipe)")
 
                     class PipeReader:
+                        def __init__(self, pipe):
+                            self._pipe = pipe
+
                         async def readline(self):
-                            return await asyncio.to_thread(pipe.readline)
+                            return await asyncio.to_thread(self._pipe.readline)
 
                     class PipeWriter:
+                        def __init__(self, pipe):
+                            self._pipe = pipe
+
                         def write(self, data):
-                            pipe.write(data)
+                            self._pipe.write(data)
 
                         async def drain(self):
-                            await asyncio.to_thread(pipe.flush)
+                            await asyncio.to_thread(self._pipe.flush)
 
                         def is_closing(self):
                             return False
 
-                    self.reader = PipeReader()
-                    self.writer = PipeWriter()
+                    self.reader = PipeReader(pipe)
+                    self.writer = PipeWriter(pipe)
 
                     if not self.listen_task or self.listen_task.done():
                         self.listen_task = asyncio.create_task(self._listen_ipc())
                     return True
+                except asyncio.TimeoutError:
+                    logger.debug("Pipe open timed out, retrying...")
                 except Exception:
                     pass
                 await asyncio.sleep(0.1)
@@ -572,23 +585,45 @@ class DesktopStreamingService:
         if self.process:
             try:
                 if OS_TYPE == "windows":
-                    await asyncio.to_thread(
-                        subprocess.run,
-                        ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
+                    # Use timeout on taskkill to prevent indefinite blocking if the process
+                    # is in a zombie state. This prevents thread pool exhaustion.
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.to_thread(
+                                subprocess.run,
+                                ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                                creationflags=subprocess.CREATE_NO_WINDOW,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                timeout=5,  # Add timeout to subprocess.run itself
+                            ),
+                            timeout=10.0,  # Outer timeout as safety net
+                        )
+                    except (subprocess.TimeoutExpired, asyncio.TimeoutError):
+                        logger.warning(
+                            "taskkill timed out, attempting direct terminate"
+                        )
+                        try:
+                            self.process.terminate()
+                        except Exception:
+                            pass
                 else:
                     self.process.terminate()
                 await asyncio.wait_for(self.process.wait(), timeout=2.0)
-            except Exception:
-                pass
+            except asyncio.TimeoutError:
+                logger.warning("Engine process did not exit within timeout")
+            except Exception as e:
+                logger.warning(f"Error killing engine: {e}")
             self.process = None
+        # Clear IPC state to unblock any pending reads
         self.reader = None
         self.writer = None
         if self.listen_task:
             self.listen_task.cancel()
+            try:
+                await self.listen_task
+            except asyncio.CancelledError:
+                pass
             self.listen_task = None
         logger.info("Mirror engine killed")
 
@@ -611,11 +646,39 @@ class DesktopStreamingService:
         await self.writer.drain()
 
     async def _listen_ipc(self):
+        """Listen for IPC messages from the engine with timeout protection.
+
+        On Windows, the underlying pipe.readline() is a blocking synchronous call
+        delegated to a thread pool. If the engine process is killed without properly
+        closing the pipe, the readline can block indefinitely, exhausting thread pool
+        workers and freezing the server. We use asyncio.wait_for() with a timeout to
+        prevent this.
+        """
         while True:
             if not self.reader:
                 await asyncio.sleep(0.5)
                 continue
-            line = await self.reader.readline()
+            try:
+                # Use a timeout to prevent indefinite blocking on Windows named pipes.
+                # If the engine is killed, the pipe may not close cleanly, leaving
+                # the blocking readline() in the thread pool stuck forever.
+                line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("IPC readline timeout - engine may be unresponsive")
+                # Check if the engine process is still alive
+                if self.process and self.process.returncode is not None:
+                    logger.info("Engine process has exited, closing IPC")
+                    self.reader = None
+                    self.writer = None
+                    break
+                # If still alive, continue waiting (timeout will recur)
+                continue
+            except Exception as e:
+                logger.warning(f"IPC read error: {e}")
+                self.reader = None
+                self.writer = None
+                break
+
             if not line:
                 logger.warning("Mirror engine IPC closed")
                 self.reader = None
@@ -642,8 +705,9 @@ class DesktopStreamingService:
     def subscribe(self, callback):
         self._subscribers.add(callback)
 
-    def unsubscribe(self, callback):
+    def unsubscribe(self, callback) -> int:
         self._subscribers.discard(callback)
+        return len(self._subscribers)
 
 
 desktop_streaming_service = DesktopStreamingService()

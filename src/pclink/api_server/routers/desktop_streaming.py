@@ -163,4 +163,8 @@ async def desktop_streaming_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        desktop_streaming_service.unsubscribe(send_to_ws)
+        remaining = desktop_streaming_service.unsubscribe(send_to_ws)
+        if remaining == 0:
+            # Stop the engine if no clients are left to prevent it from blocking the server
+            # especially on Windows where zombie engines can cause IPC locks.
+            await desktop_streaming_service.stop_engine()
