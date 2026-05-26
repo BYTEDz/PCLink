@@ -357,8 +357,8 @@ class DesktopStreamingService:
                         def __init__(self, pipe):
                             self._pipe = pipe
 
-                        def write(self, data):
-                            self._pipe.write(data)
+                        async def write(self, data):
+                            await asyncio.to_thread(self._pipe.write, data)
 
                         async def drain(self):
                             await asyncio.to_thread(self._pipe.flush)
@@ -658,7 +658,7 @@ class DesktopStreamingService:
         if not self.writer or self.writer.is_closing():
             logger.warning("IPC not connected, cannot send command")
             return
-        self.writer.write(json.dumps(cmd).encode() + b"\n")
+        await self.writer.write(json.dumps(cmd).encode() + b"\n")
         await self.writer.drain()
 
     async def _listen_ipc(self):
