@@ -42,20 +42,20 @@ PCLinkWebUI.prototype.displayDevices = function() {
 
         return `
         <div class="card bg-base-100 border ${isApproved ? 'border-base-300' : 'border-warning/30 bg-warning/5'} shadow-sm transition-all hover:border-primary">
-            <div class="card-body p-5 flex-row items-center justify-between gap-2 overflow-hidden">
-                <div class="flex items-center gap-4 overflow-hidden">
-                    <div class="relative">
-                        <div class="${isApproved ? (isOnline ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary') : 'bg-warning/20 text-warning-content'} p-3 rounded-xl shrink-0">
+            <div class="card-body p-4 flex-row items-center justify-between gap-4 overflow-hidden">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="relative shrink-0">
+                        <div class="${isApproved ? (isOnline ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary') : 'bg-warning/20 text-warning-content'} p-2.5 rounded-xl">
                             <i data-feather="${isApproved ? 'smartphone' : 'radio'}" class="w-5 h-5"></i>
                         </div>
                         ${isApproved ? `<div class="absolute -top-1 -right-1 bg-base-100 p-0.5 rounded-full">${statusDot}</div>` : ''}
                     </div>
                     <div class="overflow-hidden">
                         <div class="flex items-center gap-2">
-                            <h4 class="font-bold text-lg leading-tight truncate">${device.name}</h4>
+                            <h4 class="font-bold text-base leading-tight truncate">${device.name}</h4>
                             ${isApproved ? `<span class="text-[9px] font-black uppercase ${isOnline ? 'text-success' : 'opacity-30'}">${isOnline ? 'Online' : 'Offline'}</span>` : ''}
                         </div>
-                        <div class="flex items-center gap-2 mt-1">
+                        <div class="flex items-center gap-2 mt-0.5">
                             <span class="text-[10px] font-bold uppercase opacity-50 tracking-wider truncate">${device.ip}</span>
                             <span class="badge badge-xs ${badgeClass}">${badgeText}</span>
                         </div>
@@ -63,9 +63,9 @@ PCLinkWebUI.prototype.displayDevices = function() {
                 </div>
                 <div class="flex gap-1 shrink-0">
                     ${isApproved ? `
-                        <button class="btn btn-square btn-ghost btn-sm" onclick="openPermissions('${device.id}')" title="Manage Permissions"><i data-feather="shield" class="w-4"></i></button>
-                        <button class="btn btn-square btn-ghost btn-sm text-error" onclick="banDevice('${device.id}')" title="Ban Hardware ID"><i data-feather="user-x" class="w-4"></i></button>
-                        <button class="btn btn-square btn-ghost btn-sm text-error" onclick="revokeDevice('${device.id}')" title="Revoke Session"><i data-feather="trash-2" class="w-4"></i></button>
+                        <button class="btn btn-square btn-ghost btn-xs" onclick="openPermissions('${device.id}')" title="Manage Permissions"><i data-feather="shield" class="w-3.5"></i></button>
+                        <button class="btn btn-square btn-ghost btn-xs text-error" onclick="banDevice('${device.id}')" title="Ban Hardware ID"><i data-feather="user-x" class="w-3.5"></i></button>
+                        <button class="btn btn-square btn-ghost btn-xs text-error" onclick="revokeDevice('${device.id}')" title="Revoke Session"><i data-feather="trash-2" class="w-3.5"></i></button>
                     ` : `
                         <div class="tooltip tooltip-left" data-tip="Device seen on network but not paired">
                             <i data-feather="info" class="w-4 opacity-40 mr-2"></i>

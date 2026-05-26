@@ -51,6 +51,7 @@ class DesktopStreamingService:
         self.writer = None
         self.listen_task = None
         self._subscribers = set()
+        self.srtp_key = None
 
     def _engine_env(self) -> dict:
         """Prepare the environment for the FerrumCast engine process."""
@@ -426,8 +427,10 @@ class DesktopStreamingService:
         udp_buffer_size=2097152,
         show_cursor=True,
         colorimetry="bt709",
+        srtp_key=None,
     ):
         """Start or reuse engine. If already running, restart pipeline via IPC."""
+        self.srtp_key = srtp_key
         if not ENGINE_PATH.exists():
             logger.error(f"Mirror engine not found at {ENGINE_PATH}")
             return False
@@ -468,6 +471,7 @@ class DesktopStreamingService:
                 "udp_buffer_size": udp_buffer_size,
                 "show_cursor": show_cursor,
                 "colorimetry": colorimetry,
+                "srtp_key": srtp_key,
             }
             await self.send_command(cfg)
             return True
@@ -537,6 +541,8 @@ class DesktopStreamingService:
             args += ["--fps", str(fps)]
         if gdi:
             args.append("--gdi")
+        if srtp_key:
+            args += ["--srtp-key", srtp_key]
 
         if os.path.exists(TOKEN_FILE):
             try:
@@ -626,6 +632,7 @@ class DesktopStreamingService:
             except Exception as e:
                 logger.warning(f"Error killing engine: {e}")
             self.process = None
+        self.srtp_key = None
         # Clear IPC state to unblock any pending reads
         if self.reader:
             self.reader.close()

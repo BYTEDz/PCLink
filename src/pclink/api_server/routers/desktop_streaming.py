@@ -69,6 +69,13 @@ async def start_desktop_streaming(request: Request):
     show_cursor = body.get("showCursor", True)
     colorimetry = body.get("colorimetry", "bt709")
 
+    srtp = body.get("srtp", False)
+    srtp_key = None
+    if srtp:
+        import secrets
+
+        srtp_key = secrets.token_hex(30)
+
     success = await desktop_streaming_service.start_engine(
         client_host=client_host,
         encoder=encoder,
@@ -96,9 +103,13 @@ async def start_desktop_streaming(request: Request):
         udp_buffer_size=udp_buffer_size,
         show_cursor=show_cursor,
         colorimetry=colorimetry,
+        srtp_key=srtp_key,
     )
     if success:
-        return {"success": True, "host": client_host, "encoder": encoder}
+        res = {"success": True, "host": client_host, "encoder": encoder}
+        if srtp_key:
+            res["srtp_key"] = srtp_key
+        return res
     raise HTTPException(status_code=500, detail="Failed to start mirror engine")
 
 
@@ -114,6 +125,7 @@ async def get_status():
         "active": desktop_streaming_service.process is not None
         and desktop_streaming_service.process.returncode is None,
         "engine": "ferrumcast",
+        "srtp_key": desktop_streaming_service.srtp_key,
     }
 
 
