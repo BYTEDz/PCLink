@@ -347,6 +347,12 @@ class DesktopStreamingService:
                         async def readline(self):
                             return await asyncio.to_thread(self._pipe.readline)
 
+                        def close(self):
+                            try:
+                                self._pipe.close()
+                            except Exception:
+                                pass
+
                     class PipeWriter:
                         def __init__(self, pipe):
                             self._pipe = pipe
@@ -359,6 +365,12 @@ class DesktopStreamingService:
 
                         def is_closing(self):
                             return False
+
+                        def close(self):
+                            try:
+                                self._pipe.close()
+                            except Exception:
+                                pass
 
                     self.reader = PipeReader(pipe)
                     self.writer = PipeWriter(pipe)
@@ -616,6 +628,10 @@ class DesktopStreamingService:
                 logger.warning(f"Error killing engine: {e}")
             self.process = None
         # Clear IPC state to unblock any pending reads
+        if self.reader:
+            self.reader.close()
+        if self.writer:
+            self.writer.close()
         self.reader = None
         self.writer = None
         if self.listen_task:
@@ -695,15 +711,20 @@ class DesktopStreamingService:
                     logger.info("Engine is waiting for Wayland portal approval")
 
                 for sub in list(self._subscribers):
-                    try:
-                        await sub(msg)
-                    except Exception:
-                        pass
+                    # Call subscribers as background tasks to prevent a slow client
+                    # (e.g. app in background) from blocking the IPC listener loop.
+                    asyncio.create_task(self._safe_notify(sub, msg))
             except Exception as e:
                 logger.error(f"Mirror IPC decode fail: {e}")
 
     def subscribe(self, callback):
         self._subscribers.add(callback)
+
+    async def _safe_notify(self, callback, msg):
+        try:
+            await callback(msg)
+        except Exception:
+            pass
 
     def unsubscribe(self, callback) -> int:
         self._subscribers.discard(callback)

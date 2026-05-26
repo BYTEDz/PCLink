@@ -6,6 +6,7 @@ from fastapi import (
     HTTPException,
     Depends,
 )
+import asyncio
 from ...services.desktop_streaming_service import desktop_streaming_service
 from .dependencies import verify_api_key, verify_web_session
 
@@ -150,7 +151,14 @@ async def desktop_streaming_websocket(websocket: WebSocket):
     await websocket.accept()
 
     async def send_to_ws(msg):
-        await websocket.send_json(msg)
+        try:
+            # Use a timeout to prevent slow clients from blocking the server's IPC listener
+            # if the TCP buffer is full (e.g. app in background).
+            await asyncio.wait_for(websocket.send_json(msg), timeout=1.0)
+        except (asyncio.TimeoutError, Exception):
+            # If we can't send, the client is likely unresponsive; the WebSocket
+            # disconnect handler will eventually clean up the subscription.
+            pass
 
     # Bind the connection lifecycle to the mirror service's pub-sub dispatcher
     # to receive real-time engine telemetry, local SDP generation events, and ICE candidates.

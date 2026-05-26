@@ -251,3 +251,4 @@ update_source_headers.py
 wiki/*
 MEMORANDUM
 nfpm.yaml
+src/pclink/assets/bin/ferrumcast
