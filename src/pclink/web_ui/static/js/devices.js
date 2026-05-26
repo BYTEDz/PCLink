@@ -248,7 +248,7 @@ window.openPermissions = async function (deviceId) {
 
 window.applyPermissionTemplate = function (tplName, containerId) {
     const defaultTemplates = {
-        'Admin': ['files_browse', 'files_download', 'files_upload', 'files_delete', 'processes', 'power', 'info', 'mouse', 'keyboard', 'media', 'volume', 'terminal', 'macros', 'extensions', 'apps', 'clipboard', 'screenshot', 'command', 'wol'],
+        'Admin': ['files_browse', 'files_download', 'files_upload', 'files_delete', 'processes', 'power', 'info', 'mouse', 'keyboard', 'media', 'volume', 'terminal', 'macros', 'extensions', 'apps', 'clipboard', 'screenshot', 'command', 'wol','desktop_streaming'],
         'Viewer': ['files_browse', 'info', 'apps'],
         'Media': ['media', 'volume', 'info', 'apps'],
         'Remote': ['mouse', 'keyboard', 'screenshot', 'info', 'volume'],

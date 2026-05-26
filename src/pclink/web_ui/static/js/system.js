@@ -100,8 +100,27 @@ PCLinkWebUI.prototype.loadLogs = async function () {
     try {
         const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
         const res = await this.webUICall('/logs');
-        if (res.ok) { const data = await res.json(); content.textContent = data.logs || '--- clear ---'; if (isAtBottom) container.scrollTop = container.scrollHeight; }
+        if (res.ok) {
+            const data = await res.json();
+            this.lastLogs = data.logs || '--- clear ---';
+            this.applyLogFilter();
+            if (isAtBottom) container.scrollTop = container.scrollHeight;
+        }
     } catch (e) { }
+};
+
+PCLinkWebUI.prototype.applyLogFilter = function () {
+    const content = document.getElementById('logContent');
+    const filter = document.getElementById('logFilter')?.value.toLowerCase();
+    if (!content || !this.lastLogs) return;
+
+    if (!filter) {
+        content.textContent = this.lastLogs;
+    } else {
+        const lines = this.lastLogs.split('\n');
+        const filtered = lines.filter(line => line.toLowerCase().includes(filter)).join('\n');
+        content.textContent = filtered || 'No matching logs found.';
+    }
 };
 
 PCLinkWebUI.prototype.loadSettings = async function () {
@@ -234,6 +253,30 @@ window.loadNotificationSettings = () => {
 
 window.refreshDevices = () => window.pclinkUI.loadDevices();
 window.refreshLogs = () => window.pclinkUI.loadLogs();
+window.filterLogs = () => { if (window.pclinkUI) window.pclinkUI.applyLogFilter(); };
+
+window.copyLogs = async () => {
+    const content = document.getElementById('logContent')?.textContent;
+    if (!content) return;
+    try {
+        await navigator.clipboard.writeText(content);
+        if (window.pclinkUI) window.pclinkUI.showToast('Copied', 'Logs copied to clipboard', 'success');
+    } catch (e) {
+        if (window.pclinkUI) window.pclinkUI.showToast('Error', 'Failed to copy logs', 'error');
+    }
+};
+
+window.downloadLogs = () => {
+    const content = document.getElementById('logContent')?.textContent;
+    if (!content) return;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `pclink-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+};
 
 // clear system logs functon
 window.clearLogs = async () => {

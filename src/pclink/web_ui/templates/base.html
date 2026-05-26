@@ -24,6 +24,11 @@
     <div class="flex flex-col items-center gap-4">
       <div class="loading loading-spinner loading-lg text-primary"></div>
       <span class="text-xs font-black uppercase tracking-widest opacity-50">Initializing PCLink...</span>
+      <div id="loaderTimeoutHint" class="hidden mt-4 text-center animate-pulse">
+        <p class="text-[10px] opacity-40 mb-2">Taking longer than expected?</p>
+        <span class="kbd kbd-xs opacity-60">Ctrl</span> + <span class="kbd kbd-xs opacity-60">F5</span>
+        <span class="text-[10px] opacity-40 ml-2">to force refresh</span>
+      </div>
     </div>
   </div>
 
@@ -76,6 +81,15 @@
 
   <div id="toast-container"></div>
 
+  <script>
+    setTimeout(() => {
+      const loader = document.getElementById('fullScreenLoader');
+      const hint = document.getElementById('loaderTimeoutHint');
+      if (loader && getComputedStyle(loader).opacity !== '0' && hint) {
+        hint.classList.remove('hidden');
+      }
+    }, 7000);
+  </script>
   <script src="/ui/static/qrcode.min.js"></script>
   <script src="/ui/static/feather.min.js"></script>
   <script src="/ui/static/js/core.js"></script>
