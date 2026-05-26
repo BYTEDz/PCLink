@@ -279,7 +279,6 @@ class DesktopStreamingService:
             "d3d11screencapturesrc",
             "x264enc",
             "mfh264enc",
-            "gstpython",
         ]
         plugin_outputs = {}
         for p in plugins_to_check:
@@ -680,7 +679,7 @@ class DesktopStreamingService:
                 # the blocking readline() in the thread pool stuck forever.
                 line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("IPC readline timeout - engine may be unresponsive")
+                logger.debug("IPC readline timeout - engine may be unresponsive")
                 # Check if the engine process is still alive
                 if self.process and self.process.returncode is not None:
                     logger.info("Engine process has exited, closing IPC")
