@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.1] - 2026-05-27
+
+### Added
+- Real-time desktop streaming preview powered by the native FerrumCast GStreamer engine with WebRTC and RTP support.
+- Interactive system diagnostics tool within the control panel to analyze platform support for screen capture, display servers, and hardware encoders.
+- Comprehensive Macro management dashboard to create, edit, run, duplicate, and delete automated task chains with JSON persistence.
+- Modern side details panel for devices and files with full expand and fullscreen toggles.
+- Jinja2 templating system for dynamic page rendering.
+
+### Changed
+- Modularized the monolithic Web UI frontend scripts into dedicated files for core utilities, device fleet, macros, phone operations, and desktop streaming.
+- Updated Linux package definitions to dynamically reference modular system and GStreamer dependencies.
+- Migrated blocking system command execution, local file operations, and terminal shell interfaces to asynchronous thread pools.
+
+### Improved
+- Refactored file downloader to utilize fast, native system file responses.
+- Re-optimized input rate limiter to leverage clock-resilient monotonic timing and highly efficient queue manipulations.
+
+### Fixed
+- Patched potential file upload memory exhaustion vulnerabilities by enforcing strict buffer ceilings.
+- Resolved authentication bypass vectors by strictly validating WebSocket terminal connections and verifying API credentials prior to upgrades.
+- Prevented path traversal vulnerabilities by enforcing strict UUID formats on transfers and doubly validating file browser execution targets.
+
 ## [4.2.0] - 2026-05-27
 
 ### Added
