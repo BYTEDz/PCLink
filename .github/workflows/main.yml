@@ -181,7 +181,15 @@ jobs:
           fi
 
           # Create the GitHub Release with flattened build artifacts, dynamic PKGBUILD, and checksum manifest.
-          gh release create "$TAG" ./artifacts/*/* ./artifacts/PKGBUILD SHA256SUMS.txt \
-            --title "Release $TAG" \
-            --notes-file RELEASE_NOTES.md \
-            $PRERELEASE_FLAG
+          # If the release already exists (e.g. created by scripts/release.py), update notes and upload assets instead.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Updating notes and uploading assets..."
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+            gh release upload "$TAG" ./artifacts/*/* ./artifacts/PKGBUILD SHA256SUMS.txt
+          else
+            echo "Creating new release $TAG..."
+            gh release create "$TAG" ./artifacts/*/* ./artifacts/PKGBUILD SHA256SUMS.txt \
+              --title "Release $TAG" \
+              --notes-file RELEASE_NOTES.md \
+              $PRERELEASE_FLAG
+          fi

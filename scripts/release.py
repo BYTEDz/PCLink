@@ -243,7 +243,7 @@ def main():
         )
         sys.exit(1)
 
-    release_notes_content = update_changelog(version)
+    update_changelog(version)
 
     print_color("\n[5/6] Review and Confirm...", Colors.BOLD)
     print("The script will now perform the following actions:")
@@ -271,8 +271,7 @@ def main():
     run_command(["git", "push", "origin", "HEAD"])
     run_command(["git", "push", "origin", tag])
 
-    # Create GitHub release
-    create_github_release(version, release_notes_content, is_beta)
+    # GitHub release is now handled by the CI workflow to ensure artifacts are attached.
 
     print_color("\n--- Release Process Complete! ---", Colors.HEADER)
     print_color("✓ Successfully pushed commit and tag to GitHub.", Colors.OKGREEN)
