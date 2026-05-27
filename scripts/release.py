@@ -267,9 +267,20 @@ def main():
     run_command(
         ["git", "commit", "-m", f"Bump version to {version}"], allow_errors=True
     )
-    run_command(["git", "tag", "-a", tag, "-m", f"Release {version}"])
+
+    # Create or overwrite the Git tag
+    tag_cmd = ["git", "tag", "-a", tag, "-m", f"Release {version}"]
+    if args.force:
+        tag_cmd.insert(2, "-f")
+    run_command(tag_cmd)
+
     run_command(["git", "push", "origin", "HEAD"])
-    run_command(["git", "push", "origin", tag])
+
+    # Push the tag, forcing it if requested
+    push_tag_cmd = ["git", "push", "origin", tag]
+    if args.force:
+        push_tag_cmd.insert(2, "-f")
+    run_command(push_tag_cmd)
 
     # GitHub release is now handled by the CI workflow to ensure artifacts are attached.
 
