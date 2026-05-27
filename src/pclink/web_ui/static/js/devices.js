@@ -20,6 +20,17 @@ PCLinkWebUI.prototype.loadDevices = async function() {
     }
 };
 
+// static/js/devices.js
+
+PCLinkWebUI.prototype.formatDeviceName = function(name) {
+    if (!name) return '';
+    const parts = name.split(' ');
+    if (parts.length > 1) {
+        return parts.slice(1).join(' ');
+    }
+    return name;
+};
+
 PCLinkWebUI.prototype.displayDevices = function() {
     const el = document.getElementById('deviceList');
     if (!el) return;
@@ -41,36 +52,28 @@ PCLinkWebUI.prototype.displayDevices = function() {
             : '<span class="h-1.5 w-1.5 rounded-full bg-base-300"></span>';
 
         return `
-        <div class="card bg-base-100 border ${isApproved ? 'border-base-300' : 'border-warning/30 bg-warning/5'} shadow-sm transition-all hover:border-primary">
-            <div class="card-body p-4 flex-row items-center justify-between gap-4 overflow-hidden">
-                <div class="flex items-center gap-3 overflow-hidden">
+        <div class="card bg-base-100 border ${isApproved ? 'border-base-300' : 'border-warning/30 bg-warning/5'} shadow-sm transition-all hover:border-primary hover:shadow-md cursor-pointer w-full h-full flex flex-col" onclick="openDevicePanel('${device.id}')">
+            <div class="card-body p-4 flex-row items-center justify-between gap-3 w-full flex-1">
+                <div class="flex items-center gap-3 w-full min-w-0"> <!-- Replaced overflow-hidden with min-w-0 -->
                     <div class="relative shrink-0">
                         <div class="${isApproved ? (isOnline ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary') : 'bg-warning/20 text-warning-content'} p-2.5 rounded-xl">
                             <i data-feather="${isApproved ? 'smartphone' : 'radio'}" class="w-5 h-5"></i>
                         </div>
                         ${isApproved ? `<div class="absolute -top-1 -right-1 bg-base-100 p-0.5 rounded-full">${statusDot}</div>` : ''}
                     </div>
-                    <div class="overflow-hidden">
+                    <div class="overflow-hidden flex-1 min-w-0">
                         <div class="flex items-center gap-2">
-                            <h4 class="font-bold text-base leading-tight truncate">${device.name}</h4>
-                            ${isApproved ? `<span class="text-[9px] font-black uppercase ${isOnline ? 'text-success' : 'opacity-30'}">${isOnline ? 'Online' : 'Offline'}</span>` : ''}
+                            <h4 class="font-bold text-base leading-tight truncate">${this.formatDeviceName(device.name)}</h4>
+                            ${isApproved ? `<span class="text-[9px] shrink-0 font-black uppercase ${isOnline ? 'text-success' : 'opacity-30'}">${isOnline ? 'Online' : 'Offline'}</span>` : ''}
                         </div>
-                        <div class="flex items-center gap-2 mt-0.5">
+                        <div class="flex items-center gap-2 mt-1">
                             <span class="text-[10px] font-bold uppercase opacity-50 tracking-wider truncate">${device.ip}</span>
-                            <span class="badge badge-xs ${badgeClass}">${badgeText}</span>
+                            <span class="badge badge-xs shrink-0 ${badgeClass}">${badgeText}</span>
                         </div>
                     </div>
                 </div>
-                <div class="flex gap-1 shrink-0">
-                    ${isApproved ? `
-                        <button class="btn btn-square btn-ghost btn-xs" onclick="openPermissions('${device.id}')" title="Manage Permissions"><i data-feather="shield" class="w-3.5"></i></button>
-                        <button class="btn btn-square btn-ghost btn-xs text-error" onclick="banDevice('${device.id}')" title="Ban Hardware ID"><i data-feather="user-x" class="w-3.5"></i></button>
-                        <button class="btn btn-square btn-ghost btn-xs text-error" onclick="revokeDevice('${device.id}')" title="Revoke Session"><i data-feather="trash-2" class="w-3.5"></i></button>
-                    ` : `
-                        <div class="tooltip tooltip-left" data-tip="Device seen on network but not paired">
-                            <i data-feather="info" class="w-4 opacity-40 mr-2"></i>
-                        </div>
-                    `}
+                <div class="flex items-center justify-end shrink-0 pl-3 border-l border-base-200/50">
+                    <i data-feather="chevron-right" class="w-4 opacity-30 hover:opacity-100 transition-opacity"></i>
                 </div>
             </div>
         </div>`;
@@ -99,7 +102,7 @@ PCLinkWebUI.prototype.loadPendingRequests = async function() {
                             <p class="text-[10px] opacity-60">IP: ${req.ip} &bull; ${req.platform}</p>
                         </div>
                     </div>
-                    <div class="flex gap-2 w-full sm:w-auto font-black">
+                    <div class="flex gap-2 w-full sm:w-auto font-black shrink-0">
                         <button class="btn btn-sm btn-primary flex-1 sm:flex-none text-white shadow-md uppercase text-[10px]" onclick="approvePairingRequest('${req.pairing_id}')">Approve</button>
                         <button class="btn btn-sm btn-ghost flex-1 sm:flex-none uppercase text-[10px]" onclick="denyPairingRequest('${req.pairing_id}')">Deny</button>
                     </div>
@@ -135,11 +138,11 @@ PCLinkWebUI.prototype.displayBlacklist = function(blacklist) {
     }
     container.innerHTML = blacklist.map(item => `
         <div class="flex items-center justify-between p-3 bg-base-200 rounded-lg border border-base-300">
-            <div class="overflow-hidden">
+            <div class="overflow-hidden min-w-0">
                 <p class="text-xs font-mono font-black truncate">${item.hardware_id}</p>
                 <p class="text-[9px] opacity-50 uppercase font-bold">Banned on: ${new Date(item.banned_at).toLocaleDateString()}</p>
             </div>
-            <button class="btn btn-xs btn-ghost text-success font-black" onclick="window.unbanHardware('${item.hardware_id}')">Unban</button>
+            <button class="btn btn-xs btn-ghost text-success font-black shrink-0" onclick="window.unbanHardware('${item.hardware_id}')">Unban</button>
         </div>
     `).join('');
     if (window.feather) feather.replace();
@@ -207,10 +210,75 @@ window.loadBlacklist = async () => { if (window.pclinkUI) await window.pclinkUI.
 window.revokeDevice = async (id) => { if (await window.confirmDialog('Revoke this device session? It will be disconnected immediately.', { title: 'Revoke Access', danger: true })) { await window.pclinkUI.webUICall(`/ui/devices/revoke?device_id=${id}`, { method: 'POST' }); window.pclinkUI.loadDevices(); } };
 window.removeAllDevices = async () => { if (await window.confirmDialog('Remove ALL paired devices? They will need to re-pair to reconnect.', { title: 'Clear Fleet', danger: true })) { await window.pclinkUI.webUICall('/ui/devices/remove-all', { method: 'POST' }); window.pclinkUI.loadDevices(); } };
 
+window.openDevicePanel = async function (deviceId) {
+    const device = window.pclinkUI.devices.find(d => d.id === deviceId);
+    if (!device) return;
+
+    const isApproved = device.is_approved !== false;
+    const isOnline = device.is_online === true;
+
+    const title = `<i data-feather="smartphone" class="text-primary w-4"></i> Device Details — ${window.pclinkUI.formatDeviceName(device.name)}`;
+
+    const body = `
+        <div class="space-y-6">
+            <div class="flex items-center gap-4 p-4 bg-base-200/50 rounded-2xl border border-base-300/50 flex-wrap">
+                <div class="${isApproved ? (isOnline ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary') : 'bg-warning/20 text-warning-content'} p-3 rounded-xl shrink-0">
+                    <i data-feather="${isApproved ? 'smartphone' : 'radio'}" class="w-6 h-6"></i>
+                </div>
+                <div class="overflow-hidden min-w-0 flex-1">
+                    <h3 class="font-bold text-lg leading-tight truncate">${window.pclinkUI.formatDeviceName(device.name)}</h3>
+                    <p class="text-xs opacity-50 font-mono truncate">${device.ip}</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div class="p-3 bg-base-200/30 rounded-xl border border-base-300/30 flex flex-col justify-center">
+                    <span class="text-[9px] font-black uppercase opacity-40 block mb-1 tracking-widest truncate">Status</span>
+                    <div class="flex items-center gap-2">
+                        ${isOnline ? '<span class="h-2 w-2 rounded-full bg-success animate-pulse shrink-0"></span>' : '<span class="h-2 w-2 rounded-full bg-base-300 shrink-0"></span>'}
+                        <span class="text-xs font-bold truncate">${isOnline ? 'Online' : 'Offline'}</span>
+                    </div>
+                </div>
+                <div class="p-3 bg-base-200/30 rounded-xl border border-base-300/30 flex flex-col justify-center">
+                    <span class="text-[9px] font-black uppercase opacity-40 block mb-1 tracking-widest truncate">Approval</span>
+                    <span class="text-xs font-bold truncate ${isApproved ? 'text-success' : 'text-warning'}">${isApproved ? 'Approved' : 'Discovery Mode'}</span>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <span class="text-[10px] font-black uppercase opacity-40 block tracking-widest">Actions</span>
+                <div class="grid grid-cols-1 gap-2">
+                    ${isApproved ? `
+                        <button class="btn btn-sm btn-ghost border-base-300 justify-start gap-3 font-bold w-full" onclick="openPermissions('${device.id}')">
+                            <i data-feather="shield" class="w-4 text-primary shrink-0"></i> <span class="truncate">Manage Permissions</span>
+                        </button>
+                        <button class="btn btn-sm btn-ghost border-base-300 justify-start gap-3 font-bold text-error w-full" onclick="banDevice('${device.id}')">
+                            <i data-feather="user-x" class="w-4 shrink-0"></i> <span class="truncate">Ban Hardware ID</span>
+                        </button>
+                        <button class="btn btn-sm btn-ghost border-base-300 justify-start gap-3 font-bold text-error w-full" onclick="revokeDevice('${device.id}')">
+                            <i data-feather="trash-2" class="w-4 shrink-0"></i> <span class="truncate">Revoke Session</span>
+                        </button>
+                    ` : `
+                        <div class="alert alert-warning text-xs font-bold opacity-70">
+                            This device is in discovery mode and must be paired before actions can be taken.
+                        </div>
+                    `}
+                </div>
+            </div>
+        </div>
+    `;
+
+    const footer = `
+        <button class="btn btn-sm btn-primary px-6 font-bold uppercase text-xs" onclick="window.closeSidePanel()">Close</button>
+    `;
+
+    window.openSidePanel(title, body, footer);
+};
+
 window.openPermissions = async function (deviceId) {
     const device = window.pclinkUI.devices.find(d => d.id === deviceId);
     if (!device) return;
-    const title = `<i data-feather="shield" class="text-primary w-4"></i> Access Control — ${device.name}`;
+    const title = `<i data-feather="shield" class="text-primary w-4"></i> Access Control — ${window.pclinkUI.formatDeviceName(device.name)}`;
     const body = `
         <div class="space-y-6">
             <div class="bg-base-200/50 p-4 rounded-xl border border-base-300/50">
@@ -228,11 +296,11 @@ window.openPermissions = async function (deviceId) {
                     const perms = (device.permissions || "").split(',').map(s => s.trim());
                     return `
                         <label class="cursor-pointer label border border-base-300 rounded-lg p-3 hover:bg-base-200 transition-colors flex items-center justify-between gap-3">
-                            <div class="flex flex-col text-left">
-                                <span class="label-text font-black text-xs uppercase tracking-tight">${info.title}</span>
-                                <span class="text-[9px] opacity-50 font-bold uppercase tracking-tighter mt-0.5">${info.desc}</span>
+                            <div class="flex flex-col text-left overflow-hidden">
+                                <span class="label-text font-black text-xs uppercase tracking-tight truncate">${info.title}</span>
+                                <span class="text-[9px] opacity-50 font-bold uppercase tracking-tighter mt-0.5 truncate">${info.desc}</span>
                             </div>
-                            <input type="checkbox" class="toggle toggle-sm toggle-primary" data-perm="${key}" ${perms.includes(key) ? 'checked' : ''} onchange="window.updateDevicePerm('${deviceId}', '${key}', this.checked)" />
+                            <input type="checkbox" class="toggle toggle-sm toggle-primary shrink-0" data-perm="${key}" ${perms.includes(key) ? 'checked' : ''} onchange="window.updateDevicePerm('${deviceId}', '${key}', this.checked)" />
                         </label>
                     `;
                 }).join('')}
@@ -240,7 +308,7 @@ window.openPermissions = async function (deviceId) {
         </div>
     `;
     const footer = `
-        <button class="btn btn-sm btn-ghost font-bold text-xs opacity-40 hover:opacity-100" onclick="window.saveCurrentAsTemplate('permList')">Save as Template</button>
+        <button class="btn btn-sm btn-ghost font-bold text-xs opacity-40 hover:opacity-100 shrink-0" onclick="window.saveCurrentAsTemplate('permList')">Save as Template</button>
         <button class="btn btn-sm btn-primary px-6 font-bold uppercase text-xs" onclick="window.closeSidePanel()">Done</button>
     `;
     window.openSidePanel(title, body, footer);
