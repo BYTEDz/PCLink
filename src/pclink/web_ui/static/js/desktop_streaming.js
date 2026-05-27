@@ -157,6 +157,12 @@ window.runDesktopStreamingDiagnostics = async () => {
         }
         const data = await res.json();
 
+        // Toggle Linux-specific requirements visibility
+        const isLinux = data.platform === 'Linux';
+        document.querySelectorAll('.linux-only').forEach(el => {
+            el.classList.toggle('hidden', !isLinux);
+        });
+
         // 1. Binary Check
         if (binaryBadge) {
             if (data.binary_exists) {

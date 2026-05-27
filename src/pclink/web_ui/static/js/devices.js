@@ -5,7 +5,7 @@ PCLinkWebUI.prototype.loadDevices = async function() {
         const res = await this.webUICall('/ui/devices');
         if (res.ok) {
             const data = await res.json();
-            this.devices = data.devices || [];
+            this.devices = (data.devices || []).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
             this.displayDevices();
             this.updatePhoneDeviceSelector();
             const dc = document.getElementById('deviceCount');
