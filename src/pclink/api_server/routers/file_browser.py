@@ -60,7 +60,7 @@ class BatchRenameItem(BaseModel):
 
 
 class BatchRenamePayload(BaseModel):
-    items: List[BatchRenameItem] = Field(..., min_items=1, max_items=10_000)
+    items: List[BatchRenameItem] = Field(..., min_length=1, max_length=10_000)
 
 
 class CreateFolderPayload(BaseModel):
@@ -69,18 +69,18 @@ class CreateFolderPayload(BaseModel):
 
 
 class PastePayload(BaseModel):
-    source_paths: List[str] = Field(..., min_items=1, max_items=5_000)
+    source_paths: List[str] = Field(..., min_length=1, max_length=5_000)
     destination_path: str = Field(..., max_length=4096)
     action: Literal["cut", "copy"]
     conflict_resolution: Literal["skip", "overwrite", "rename"] = "skip"
 
 
 class PathsPayload(BaseModel):
-    paths: List[str] = Field(..., min_items=1, max_items=5_000)
+    paths: List[str] = Field(..., min_length=1, max_length=5_000)
 
 
 class CompressPayload(BaseModel):
-    file_paths: List[str] = Field(..., min_items=1)
+    file_paths: List[str] = Field(..., min_length=1)
     output_path: str
 
 

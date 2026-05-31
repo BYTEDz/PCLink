@@ -11,8 +11,13 @@ TMP_DIR=""
 UPDATE_MODE=false
 ASSUME_YES=false
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+# Setup colors safely (only if outputting to a terminal)
+if [ -t 1 ]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+    CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+else
+    RED=''; GREEN=''; YELLOW=''; CYAN=''; BOLD=''; NC=''
+fi
 
 info()  { echo -e "${CYAN}[INFO]${NC} $1"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
@@ -23,14 +28,17 @@ ask() {
     local prompt="$1"
     local default="${2:-}"
     local response
+
     if [[ "$ASSUME_YES" == "true" ]]; then
         return 0
     fi
-    if [ -t 0 ] || [ -c /dev/tty ]; then
+
+    if [ -t 0 ] && [ -c /dev/tty ]; then
         read -rp "$(echo -e "${YELLOW}${prompt}${NC} ")" response < /dev/tty
     else
         response="$default"
     fi
+
     if [[ -z "$response" ]]; then response="$default"; fi
     [[ "${response,,}" =~ ^(y|yes)$ ]]
 }
@@ -42,6 +50,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Parse CLI Arguments
 for arg in "$@"; do
     case $arg in
         --update|-u) UPDATE_MODE=true ;;
@@ -56,37 +65,55 @@ for arg in "$@"; do
     esac
 done
 
+check_dependencies() {
+    if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
+        fail "Neither 'curl' nor 'wget' was found. Please install one to continue."
+    fi
+}
+
+get_sudo_cmd() {
+    if [ "$EUID" -ne 0 ]; then
+        if command -v sudo &>/dev/null; then
+            echo "sudo"
+        else
+            fail "Root privileges required but 'sudo' is not installed."
+        fi
+    else
+        echo ""
+    fi
+}
+
 detect_arch() {
     local arch
     arch=$(uname -m)
     case "$arch" in
-        x86_64)        echo "amd64" ;;
-        aarch64|arm64) echo "arm64" ;;
-        armv7l)        echo "armhf" ;;
-        *) fail "Unsupported architecture: $arch" ;;
+        x86_64)            echo "amd64" ;;
+        aarch64|arm64)     echo "arm64" ;;
+        armv7l|armv6l)     echo "armhf" ;;
+        i386|i686)         echo "i386" ;;
+        *)                 fail "Unsupported architecture: $arch" ;;
     esac
 }
 
 detect_distro() {
     if [ -f /etc/os-release ]; then
-        # Using a subshell to avoid polluting the installer's environment
-        ( . /etc/os-release && echo "$ID" )
+        ( . /etc/os-release && echo "${ID:-linux}" )
     elif command -v lsb_release &>/dev/null; then
         lsb_release -si | tr '[:upper:]' '[:lower:]'
     else
-        fail "Cannot detect Linux distribution"
+        echo "linux"
     fi
 }
 
 detect_pkg_format() {
     local os_identifiers=""
 
-    # Safely extract ID and ID_LIKE from os-release to determine the OS "family"
     if [ -f /etc/os-release ]; then
+        # Safely extract flat string of ID and ID_LIKE, stripping quotes
         os_identifiers=$(grep -E '^(ID|ID_LIKE)=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d "'" | tr '\n' ' ' | tr '[:upper:]' '[:lower:]' || true)
     fi
 
-    # Smartly map the underlying family to the package type
+    # Smart fallback & family detection
     if [[ "$os_identifiers" == *"debian"* || "$os_identifiers" == *"ubuntu"* ]]; then
         echo "deb"
     elif [[ "$os_identifiers" == *"fedora"* || "$os_identifiers" == *"rhel"* || "$os_identifiers" == *"centos"* || "$os_identifiers" == *"suse"* || "$os_identifiers" == *"alma"* || "$os_identifiers" == *"rocky"* || "$os_identifiers" == *"amzn"* ]]; then
@@ -94,14 +121,11 @@ detect_pkg_format() {
     elif [[ "$os_identifiers" == *"arch"* ]]; then
         echo "archlinux"
     else
-        # Smart fallback: look for high-level package managers first (which are harder to false-positive)
-        if command -v apt-get &>/dev/null; then echo "deb"
-        elif command -v dnf &>/dev/null || command -v yum &>/dev/null || command -v zypper &>/dev/null; then echo "rpm"
+        # Direct Binary Fallback
+        if command -v apt-get &>/dev/null || command -v dpkg &>/dev/null; then echo "deb"
+        elif command -v dnf &>/dev/null || command -v yum &>/dev/null || command -v zypper &>/dev/null || command -v rpm &>/dev/null; then echo "rpm"
         elif command -v pacman &>/dev/null; then echo "archlinux"
-        elif command -v dpkg &>/dev/null; then echo "deb"
-        elif command -v rpm &>/dev/null; then echo "rpm"
-        else
-            fail "No supported package manager found (apt/dnf/pacman)."
+        else echo "unknown"
         fi
     fi
 }
@@ -110,13 +134,14 @@ get_pkg_extension() {
     case "$1" in
         deb)       echo "\.deb" ;;
         rpm)       echo "\.rpm" ;;
-        archlinux) echo "\.pkg\.tar\.zst" ;;
+        archlinux) echo "\.pkg\.tar\.[a-z]+" ;; # Matches .zst, .xz, etc.
+        *)         echo "none" ;;
     esac
 }
 
 get_current_version() {
     if command -v pclink &>/dev/null; then
-        pclink --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "installed-unknown"
+        pclink --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || echo "installed-unknown"
     else
         echo "none"
     fi
@@ -127,11 +152,9 @@ version_gt() { test "$(printf '%s\n' "$@" | sort -V | sed -n '1p')" != "$1"; }
 fetch_release_info() {
     local json
     if command -v curl &>/dev/null; then
-        json=$(curl -fsSL "$API_URL" 2>/dev/null) || fail "Failed to fetch release info from GitHub"
-    elif command -v wget &>/dev/null; then
-        json=$(wget -qO- "$API_URL" 2>/dev/null) || fail "Failed to fetch release info from GitHub"
+        json=$(curl -fsSL --connect-timeout 10 "$API_URL" 2>/dev/null) || fail "Failed to fetch release info from GitHub"
     else
-        fail "Neither curl nor wget found."
+        json=$(wget -q --timeout=10 -O- "$API_URL" 2>/dev/null) || fail "Failed to fetch release info from GitHub"
     fi
 
     if [[ "$json" != *'"tag_name"'* ]]; then
@@ -142,51 +165,54 @@ fetch_release_info() {
 
 find_asset_url() {
     local json="$1" arch="$2" ext="$3"
-    local url
 
-    local arch_patterns=("$arch")
-    [[ "$arch" == "amd64" ]] && arch_patterns+=("x86_64")
-    [[ "$arch" == "arm64" ]] && arch_patterns+=("aarch64")
-    [[ "$ext" == "\.pkg\.tar\.zst" ]] && arch_patterns+=("any")
+    # Map architectures for the grep pattern
+    local arch_pattern="(${arch}"
+    [[ "$arch" == "amd64" ]] && arch_pattern+="|x86_64"
+    [[ "$arch" == "arm64" ]] && arch_pattern+="|aarch64"
+    arch_pattern+=")"
 
-    for pattern in "${arch_patterns[@]}"; do
-        url=$(echo "$json" | grep -oP '"browser_download_url"\s*:\s*"\K[^"]*?'"${pattern}"'[^"]*?'"${ext}"'(?=")' | sed -n '1p' || true)
-        if [[ -n "$url" ]]; then
-            echo "$url"
-            return 0
-        fi
-    done
-    return 1
+    [[ "$ext" == "\.pkg\.tar\.[a-z]+" ]] && arch_pattern="(any|${arch_pattern})"
+
+    # Extract all download URLs and filter robustly without relying on PCRE (\K)
+    echo "$json" | grep -Eo '"browser_download_url":\s*"[^"]+"' | cut -d'"' -f4 | grep -E "${arch_pattern}.*${ext}$" | head -n 1
 }
 
 download_file() {
     local url="$1" dest="$2"
     info "Downloading: $(basename "$dest")"
     if command -v curl &>/dev/null; then
-        curl -fSL --progress-bar -o "$dest" "$url"
-    elif command -v wget &>/dev/null; then
-        wget --show-progress -qO "$dest" "$url"
+        curl -fSL --connect-timeout 15 --progress-bar -o "$dest" "$url"
+    else
+        wget --show-progress -q --timeout=15 -O "$dest" "$url"
     fi
 }
 
 install_package() {
     local pkg="$1" format="$2"
+    local sudo_cmd
+    sudo_cmd=$(get_sudo_cmd)
+
     case "$format" in
         deb)
             info "Installing via apt..."
-            sudo dpkg -i "$pkg" 2>/dev/null || true
-            sudo apt-get install -f -y
+            # apt correctly handles local deb dependencies natively
+            $sudo_cmd apt-get install -y "$pkg"
             ;;
         rpm)
-            info "Installing via dnf/yum..."
-            if command -v dnf &>/dev/null; then sudo dnf install -y "$pkg"
-            elif command -v yum &>/dev/null; then sudo yum install -y "$pkg"
-            else sudo rpm -Uvh "$pkg"
+            info "Installing via dnf/yum/zypper..."
+            if command -v dnf &>/dev/null; then $sudo_cmd dnf install -y "$pkg"
+            elif command -v zypper &>/dev/null; then $sudo_cmd zypper --non-interactive install "$pkg"
+            elif command -v yum &>/dev/null; then $sudo_cmd yum install -y "$pkg"
+            else $sudo_cmd rpm -Uvh "$pkg"
             fi
             ;;
         archlinux)
             info "Installing via pacman..."
-            sudo pacman -U --noconfirm "$pkg"
+            $sudo_cmd pacman -U --noconfirm "$pkg"
+            ;;
+        *)
+            fail "Unsupported package format."
             ;;
     esac
 }
@@ -194,10 +220,16 @@ install_package() {
 fallback_python_install() {
     info "Falling back to Python installation..."
     if command -v pipx &>/dev/null; then
-        pipx install pclink || fail "Pipx installation failed."
-    else
+        info "Using pipx (recommended for isolated environments)..."
+        pipx install pclink || fail "pipx installation failed."
+    elif command -v python3 &>/dev/null && command -v pip &>/dev/null; then
+        info "Using pip..."
+        # Safely attempts user install, falls back to overriding system packages if user insists on pip vs pipx
+        python3 -m pip install --user --upgrade pclink 2>/dev/null || \
         python3 -m pip install --user --upgrade pclink --break-system-packages 2>/dev/null || \
-        python3 -m pip install --user --upgrade pclink || fail "Pip installation failed."
+        fail "Pip installation failed. Consider installing 'pipx' instead."
+    else
+        fail "Python environment (pipx/pip) not found. Cannot fallback."
     fi
     ok "Installed successfully via Python environment."
     exit 0
@@ -205,8 +237,10 @@ fallback_python_install() {
 
 main() {
     echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║          PCLink Smart Installer          ║${NC}"
+    echo -e "${BOLD}║              PCLink Installer            ║${NC}"
     echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}\n"
+
+    check_dependencies
 
     local current_v latest_v arch distro pkg_format ext
     current_v=$(get_current_version)
@@ -216,7 +250,12 @@ main() {
     pkg_format=$(detect_pkg_format)
     ext=$(get_pkg_extension "$pkg_format")
 
-    info "System: ${BOLD}${distro}${NC} (${arch}) → ${pkg_format}"
+    if [[ "$pkg_format" == "unknown" ]]; then
+        warn "System: ${BOLD}${distro}${NC} (${arch}) → Package manager not supported natively."
+        fallback_python_install
+    else
+        info "System: ${BOLD}${distro}${NC} (${arch}) → ${pkg_format}"
+    fi
 
     if [[ "$current_v" != "none" ]]; then
         info "Currently installed: ${BOLD}${current_v}${NC}"
@@ -226,7 +265,12 @@ main() {
     local release_json
     release_json=$(fetch_release_info)
 
-    latest_v=$(echo "$release_json" | grep -oP '"tag_name"\s*:\s*"v?\K[^"]+' | sed -n '1p' || true)
+    # Robust POSIX regex extraction of version
+    latest_v=$(echo "$release_json" | grep -Eo '"tag_name":\s*"v?[^"]+"' | head -n 1 | sed -E 's/.*"v?([^"]+)".*/\1/' || true)
+
+    if [[ -z "$latest_v" ]]; then
+        fail "Could not determine the latest version from GitHub API."
+    fi
 
     ok "Latest version: ${BOLD}${latest_v}${NC}"
 
@@ -243,15 +287,17 @@ main() {
     fi
 
     local asset_url
-    asset_url=$(find_asset_url "$release_json" "$arch" "$ext") || {
-        warn "No matching native package found for ${arch}."
+    asset_url=$(find_asset_url "$release_json" "$arch" "$ext") || true
+
+    if [[ -z "$asset_url" ]]; then
+        warn "No matching native package found for ${arch} on ${pkg_format}."
         fallback_python_install
-    }
+    fi
 
     ok "Target package: $(basename "$asset_url")"
 
     echo ""
-    if ! ask "This will install PCLink ${latest_v} system-wide (requires sudo). Continue? [Y/n]" "y"; then
+    if ! ask "This will install PCLink ${latest_v} system-wide. Continue? [Y/n]" "y"; then
         info "Installation cancelled."
         exit 0
     fi

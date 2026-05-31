@@ -146,10 +146,16 @@ jobs:
       - name: Check out PCLink
         uses: actions/checkout@v6
 
-      - name: Download all build artifacts
+      - name: Download PCLink build artifacts
         uses: actions/download-artifact@v7
         with:
+          pattern: PCLink-* # <-- Fix 1: Only download PCLink artifacts, ignore upstream FerrumCast ones
           path: artifacts/
+
+      - name: Clean up unused artifacts (Safety Measure)
+        run: |
+          # <-- Fix 2: Ensures FerrumCast raw artifacts are completely wiped if they bypassed the pattern filter
+          rm -rf artifacts/ferrumcast-*
 
       - name: Generate Checksum File
         run: |

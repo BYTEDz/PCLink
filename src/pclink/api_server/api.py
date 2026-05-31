@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Any, Dict
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -47,38 +48,8 @@ pairing_results: Dict[str, dict] = {}
 
 # --- FastAPI App Factory ---
 def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
-    app = FastAPI(
-        title="PCLink API",
-        version="8.9.5",
-        docs_url=None,
-        redoc_url=None,
-        generate_unique_id_function=lambda route: (
-            f"{route.tags[0]}-{route.name}" if route.tags else route.name
-        ),
-    )
-
-    from .ws_manager import mobile_manager, ui_manager
-
-    # Expose managers to state for access in routers
-    app.state.mobile_manager = mobile_manager
-    app.state.ui_manager = ui_manager
-    app.state.connected_devices = connected_devices
-    app.state.pairing_events = pairing_events
-    app.state.pairing_results = pairing_results
-    app.state.controller = controller_instance
-    app.state.host_port = getattr(controller_instance, "port", 38080)
-    from .routers.dependencies import MOBILE_API, WEB_AUTH
-
-    # 5. Extension System (Initialize Early for Startup Tasks)
-    from ..core.extension_manager import ExtensionManager
-
-    extension_manager = ExtensionManager()
-    extension_manager.app = app
-    app.state.extension_manager = extension_manager
-
-    # 1. Startup Logic (Restoration & Cleanup)
-    @app.on_event("startup")
-    async def startup_event():
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
         from .routers.transfers import (
             cleanup_stale_sessions,
             restore_sessions_startup,
@@ -108,12 +79,48 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         # Start WebSocket Broadcast Task
         from .routers.websocket_routes import broadcast_updates_task
         from ..services.system_service import system_service
+        from .ws_manager import mobile_manager
 
         asyncio.create_task(system_service.start_background_collection())
         asyncio.create_task(broadcast_updates_task(mobile_manager, app.state))
 
         # Reset extension crash counter
-        extension_manager.mark_startup_success()
+        app.state.extension_manager.mark_startup_success()
+
+        yield
+
+    app = FastAPI(
+        title="PCLink API",
+        version="8.9.5",
+        docs_url=None,
+        redoc_url=None,
+        lifespan=lifespan,
+        generate_unique_id_function=lambda route: (
+            f"{route.tags[0]}-{route.name}" if route.tags else route.name
+        ),
+    )
+
+    from .ws_manager import mobile_manager, ui_manager
+
+    # Expose managers to state for access in routers
+    app.state.mobile_manager = mobile_manager
+    app.state.ui_manager = ui_manager
+    app.state.connected_devices = connected_devices
+    app.state.pairing_events = pairing_events
+    app.state.pairing_results = pairing_results
+    app.state.controller = controller_instance
+    app.state.host_port = getattr(controller_instance, "port", 38080)
+    from .routers.dependencies import MOBILE_API, WEB_AUTH
+
+    # 5. Extension System (Initialize Early for Startup Tasks)
+    from ..core.extension_manager import ExtensionManager
+
+    extension_manager = ExtensionManager()
+    extension_manager.app = app
+    app.state.extension_manager = extension_manager
+
+    # 1. Startup Logic (Restoration & Cleanup)
+    # Moved to lifespan context manager
 
     # 2. Global Middleware
     app.add_middleware(
