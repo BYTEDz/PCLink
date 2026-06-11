@@ -453,51 +453,90 @@ async def paste(payload: PastePayload):
 
 @router.get("/shares", dependencies=[Depends(verify_api_key)])
 async def list_shares(request: Request):
-    """List all active share links created by the calling device."""
+    """List all active share links. Web sessions see all, devices see only their own."""
     from ...core.device_manager import device_manager
 
-    key = request.headers.get("X-API-Key") or request.cookies.get("pclink_device_token")
-    if not key:
-        key = request.query_params.get("token")
+    is_web = False
+    try:
+        from .dependencies import verify_web_session
 
-    device_id = "unknown_device"
-    if key:
-        device = device_manager.get_device_by_api_key(key)
-        if device:
-            device_id = device.device_id
+        if await verify_web_session(request):
+            is_web = True
+    except Exception:
+        pass
 
-    return {"shares": share_manager.list_shares_for_device(device_id)}
+    device_id = None
+    if not is_web:
+        key = request.headers.get("X-API-Key") or request.cookies.get(
+            "pclink_device_token"
+        )
+        if not key:
+            key = request.query_params.get("token")
+
+        device_id = "unknown_device"
+        if key:
+            device = device_manager.get_device_by_api_key(key)
+            if device:
+                device_id = device.device_id
+
+    shares = share_manager.list_shares_for_device(None if is_web else device_id)
+
+    # Map device_id to device_name
+    for s in shares:
+        d_id = s.get("device_id")
+        if d_id == "unknown_device":
+            s["device_name"] = "Web UI"
+        else:
+            dev = device_manager.get_device_by_id(d_id) if d_id else None
+            s["device_name"] = dev.device_name if dev else (d_id or "Web UI")
+
+    return {"shares": shares}
 
 
 @router.delete("/shares/{share_token}", dependencies=[Depends(verify_api_key)])
 async def revoke_share(share_token: str, request: Request):
-    """Revoke a specific share token. Only succeeds if it belongs to the calling device."""
+    """Revoke a specific share token. Web sessions can revoke any, devices only their own."""
     from ...core.device_manager import device_manager
 
-    key = request.headers.get("X-API-Key") or request.cookies.get("pclink_device_token")
-    if not key:
-        key = request.query_params.get("token")
+    is_web = False
+    try:
+        from .dependencies import verify_web_session
 
-    device_id = "unknown_device"
-    if key:
-        device = device_manager.get_device_by_api_key(key)
-        if device:
-            device_id = device.device_id
+        if await verify_web_session(request):
+            is_web = True
+    except Exception:
+        pass
 
-    # Only allow revocation if token belongs to this device
-    shares = share_manager.list_shares_for_device(device_id)
-    owned = any(s["token"] == share_token for s in shares)
-    if not owned:
-        # Also check expired ones to still allow explicit revocation
-        with share_manager._lock:
-            import sqlite3 as _sqlite3
+    if not is_web:
+        key = request.headers.get("X-API-Key") or request.cookies.get(
+            "pclink_device_token"
+        )
+        if not key:
+            key = request.query_params.get("token")
 
-            with _sqlite3.connect(share_manager.db_path) as conn:
-                row = conn.execute(
-                    "SELECT device_id FROM shared_links WHERE token = ?", (share_token,)
-                ).fetchone()
-                if not row or row[0] != device_id:
-                    raise HTTPException(status_code=404, detail="Share token not found")
+        device_id = "unknown_device"
+        if key:
+            device = device_manager.get_device_by_api_key(key)
+            if device:
+                device_id = device.device_id
+
+        # Only allow revocation if token belongs to this device
+        shares = share_manager.list_shares_for_device(device_id)
+        owned = any(s["token"] == share_token for s in shares)
+        if not owned:
+            # Also check expired ones to still allow explicit revocation
+            with share_manager._lock:
+                import sqlite3 as _sqlite3
+
+                with _sqlite3.connect(share_manager.db_path) as conn:
+                    row = conn.execute(
+                        "SELECT device_id FROM shared_links WHERE token = ?",
+                        (share_token,),
+                    ).fetchone()
+                    if not row or row[0] != device_id:
+                        raise HTTPException(
+                            status_code=404, detail="Share token not found"
+                        )
 
     share_manager.revoke_share_link(share_token)
     return {"status": "revoked"}

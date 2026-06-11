@@ -150,6 +150,7 @@ class PCLinkWebUI {
             case 'desktop-streaming': if (window.loadDesktopStreamingTab) await window.loadDesktopStreamingTab(); break;
             case 'extensions': await this.loadExtensions(); break;
             case 'macros': await this.loadMacros(); break;
+            case 'links-management': if (window.refreshLinks) await window.refreshLinks(); break;
         }
         if (window.feather) feather.replace();
     }

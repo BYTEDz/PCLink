@@ -124,22 +124,33 @@ class ShareManager:
                 )
                 conn.commit()
 
-    def list_shares_for_device(self, device_id: str) -> list[dict]:
-        """List all active (non-expired) share links for a device."""
+    def list_shares_for_device(self, device_id: Optional[str] = None) -> list[dict]:
+        """List all active (non-expired) share links for a device, or all devices if None."""
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
             with sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    """
-                    SELECT token, file_path, created_at, expires_at
-                    FROM shared_links
-                    WHERE device_id = ?
-                      AND (expires_at IS NULL OR expires_at > ?)
-                    ORDER BY created_at DESC
-                    """,
-                    (device_id, now),
-                )
+                if device_id is None:
+                    cursor = conn.execute(
+                        """
+                        SELECT token, file_path, created_at, expires_at, device_id
+                        FROM shared_links
+                        WHERE (expires_at IS NULL OR expires_at > ?)
+                        ORDER BY created_at DESC
+                        """,
+                        (now,),
+                    )
+                else:
+                    cursor = conn.execute(
+                        """
+                        SELECT token, file_path, created_at, expires_at, device_id
+                        FROM shared_links
+                        WHERE device_id = ?
+                          AND (expires_at IS NULL OR expires_at > ?)
+                        ORDER BY created_at DESC
+                        """,
+                        (device_id, now),
+                    )
                 return [dict(row) for row in cursor.fetchall()]
 
 
