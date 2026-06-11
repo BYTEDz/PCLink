@@ -5,6 +5,7 @@ from fastapi import Depends, Header, HTTPException, Query, Request
 
 from ...core.device_manager import device_manager
 from ...core.web_auth import web_auth_manager
+from ...core.share_manager import share_manager
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,17 @@ WEB_AUTH = Depends(verify_web_session)
 async def verify_api_key(
     x_api_key: str = Header(None), token: str = Query(None), request: Request = None
 ):
+    # Bypass for file downloads with valid share tokens
+    if request and request.url.path.startswith("/files/download"):
+        req_path = request.query_params.get("path")
+        req_token = x_api_key or token or request.cookies.get("pclink_device_token")
+        if (
+            req_token
+            and req_path
+            and share_manager.validate_share_token(req_token, req_path)
+        ):
+            return True
+
     key = x_api_key or token
     if not key and request:
         key = request.cookies.get("pclink_device_token")

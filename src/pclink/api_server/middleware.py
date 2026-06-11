@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from ..core.config import config_manager
 from ..core.device_manager import device_manager
 from ..core.validators import ValidationError
+from ..core.share_manager import share_manager
 
 log = logging.getLogger(__name__)
 
@@ -118,6 +119,11 @@ async def service_enforcement_middleware(request: Request, call_next):
             return await call_next(request)
 
         if token:
+            if path.startswith("/files/download"):
+                req_path = request.query_params.get("path")
+                if req_path and share_manager.validate_share_token(token, req_path):
+                    return await call_next(request)
+
             try:
                 device = device_manager.get_device_by_api_key(token)
                 if device:

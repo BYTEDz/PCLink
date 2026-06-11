@@ -12,18 +12,19 @@ import subprocess
 import sys
 from typing import List, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ...core.validators import validate_filename
 from ...services.file_service import HOME_DIR, file_service
 from .dependencies import verify_api_key
+from ...core.share_manager import share_manager
 
 log = logging.getLogger(__name__)
 
 # NOTE: Enforce authentication for all file operations
-router = APIRouter(dependencies=[Depends(verify_api_key)])
+router = APIRouter()
 
 ROOT_IDENTIFIER = "_ROOT_"
 
@@ -46,6 +47,11 @@ class DirectoryListing(BaseModel):
 
 class PathPayload(BaseModel):
     path: str
+
+
+class SharePayload(BaseModel):
+    path: str
+    expires_in: int | None = None
 
 
 class RenamePayload(BaseModel):
@@ -127,7 +133,48 @@ async def get_file_hash(path: str) -> str:
 # --- Endpoints ---
 
 
-@router.get("/browse", response_model=DirectoryListing)
+async def verify_download_access(
+    path: str = Query(...),
+    token: str = Query(None),
+    request: Request = None,
+):
+    """
+    Custom dependency for file downloads.
+    Allows access if:
+    1. A valid device API key is provided.
+    2. A valid share token for the specific path is provided.
+    """
+    # 1. Try standard API key verification
+    try:
+        # We simulate the call to verify_api_key by checking the token
+        # since verify_api_key is a dependency and not a simple function.
+        # However, we can use the device_manager directly.
+        from ...core.device_manager import device_manager
+
+        key = token
+        if not key and request:
+            key = request.headers.get("X-API-Key") or request.cookies.get(
+                "pclink_device_token"
+            )
+
+        if key:
+            device = device_manager.get_device_by_api_key(key)
+            if device and device.is_approved:
+                return True
+    except Exception:
+        pass
+
+    # 2. Try share token verification
+    if token and path:
+        if share_manager.validate_share_token(token, path):
+            return True
+
+    raise HTTPException(status_code=403, detail="Invalid or missing access token")
+
+
+@router.get(
+    "/browse", response_model=DirectoryListing, dependencies=[Depends(verify_api_key)]
+)
 async def browse_directory(path: str | None = Query(None)):
     if not path or path == ROOT_IDENTIFIER:
         items = [
@@ -175,7 +222,7 @@ async def browse_directory(path: str | None = Query(None)):
         _map_error(e)
 
 
-@router.get("/thumbnail")
+@router.get("/thumbnail", dependencies=[Depends(verify_api_key)])
 async def get_thumbnail(path: str = Query(...)):
     try:
         p = file_service.validate_path(path)
@@ -187,7 +234,7 @@ async def get_thumbnail(path: str = Query(...)):
         _map_error(e)
 
 
-@router.post("/compress")
+@router.post("/compress", dependencies=[Depends(verify_api_key)])
 async def compress(payload: CompressPayload):
     async def _stream():
         try:
@@ -201,7 +248,7 @@ async def compress(payload: CompressPayload):
     return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
-@router.post("/extract")
+@router.post("/extract", dependencies=[Depends(verify_api_key)])
 async def extract(payload: ExtractPayload):
     async def _stream():
         try:
@@ -219,7 +266,7 @@ async def extract(payload: ExtractPayload):
     return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
-@router.post("/create-folder")
+@router.post("/create-folder", dependencies=[Depends(verify_api_key)])
 async def create_folder(payload: CreateFolderPayload):
     try:
         parent = file_service.validate_path(payload.parent_path)
@@ -238,7 +285,7 @@ async def create_folder(payload: CreateFolderPayload):
         _map_error(e)
 
 
-@router.patch("/rename")
+@router.patch("/rename", dependencies=[Depends(verify_api_key)])
 async def rename(payload: RenamePayload):
     try:
         src = file_service.validate_path(payload.path)
@@ -264,7 +311,7 @@ async def rename(payload: RenamePayload):
         _map_error(e)
 
 
-@router.post("/batch-rename")
+@router.post("/batch-rename", dependencies=[Depends(verify_api_key)])
 async def batch_rename(payload: BatchRenamePayload):  # Fixed payload validation
     items = payload.items
     results, wait_list = [], []
@@ -357,7 +404,7 @@ async def batch_rename(payload: BatchRenamePayload):  # Fixed payload validation
     }
 
 
-@router.post("/delete")
+@router.post("/delete", dependencies=[Depends(verify_api_key)])
 async def delete(payload: PathsPayload):
     results = await file_service.delete_items(payload.paths)
     return {
@@ -366,7 +413,7 @@ async def delete(payload: PathsPayload):
     }
 
 
-@router.post("/open")
+@router.post("/open", dependencies=[Depends(verify_api_key)])
 async def open_file(payload: PathPayload):
     try:
         p = file_service.validate_path(payload.path)
@@ -388,7 +435,7 @@ async def open_file(payload: PathPayload):
         _map_error(e)
 
 
-@router.post("/paste")
+@router.post("/paste", dependencies=[Depends(verify_api_key)])
 async def paste(payload: PastePayload):
     try:
         dest = file_service.validate_path(payload.destination_path)
@@ -404,7 +451,94 @@ async def paste(payload: PastePayload):
         _map_error(e)
 
 
-@router.get("/download")
+@router.get("/shares", dependencies=[Depends(verify_api_key)])
+async def list_shares(request: Request):
+    """List all active share links created by the calling device."""
+    from ...core.device_manager import device_manager
+
+    key = request.headers.get("X-API-Key") or request.cookies.get("pclink_device_token")
+    if not key:
+        key = request.query_params.get("token")
+
+    device_id = "unknown_device"
+    if key:
+        device = device_manager.get_device_by_api_key(key)
+        if device:
+            device_id = device.device_id
+
+    return {"shares": share_manager.list_shares_for_device(device_id)}
+
+
+@router.delete("/shares/{share_token}", dependencies=[Depends(verify_api_key)])
+async def revoke_share(share_token: str, request: Request):
+    """Revoke a specific share token. Only succeeds if it belongs to the calling device."""
+    from ...core.device_manager import device_manager
+
+    key = request.headers.get("X-API-Key") or request.cookies.get("pclink_device_token")
+    if not key:
+        key = request.query_params.get("token")
+
+    device_id = "unknown_device"
+    if key:
+        device = device_manager.get_device_by_api_key(key)
+        if device:
+            device_id = device.device_id
+
+    # Only allow revocation if token belongs to this device
+    shares = share_manager.list_shares_for_device(device_id)
+    owned = any(s["token"] == share_token for s in shares)
+    if not owned:
+        # Also check expired ones to still allow explicit revocation
+        with share_manager._lock:
+            import sqlite3 as _sqlite3
+
+            with _sqlite3.connect(share_manager.db_path) as conn:
+                row = conn.execute(
+                    "SELECT device_id FROM shared_links WHERE token = ?", (share_token,)
+                ).fetchone()
+                if not row or row[0] != device_id:
+                    raise HTTPException(status_code=404, detail="Share token not found")
+
+    share_manager.revoke_share_link(share_token)
+    return {"status": "revoked"}
+
+
+@router.post("/share", response_model=dict, dependencies=[Depends(verify_api_key)])
+async def share_file(payload: SharePayload, request: Request):
+    try:
+        from ...core.device_manager import device_manager
+
+        # Extract API key to find the device_id
+        key = request.headers.get("X-API-Key") or request.cookies.get(
+            "pclink_device_token"
+        )
+        if not key:
+            key = request.query_params.get("token")
+
+        device_id = "unknown_device"
+        if key:
+            device = device_manager.get_device_by_api_key(key)
+            if device:
+                device_id = device.device_id
+
+        token = share_manager.create_share_link(
+            path=payload.path, device_id=device_id, expires_in=payload.expires_in
+        )
+
+        # Construct the full download URL
+        base_url = str(request.base_url).rstrip("/")
+        download_url = f"{base_url}/files/download?path={payload.path}&token={token}"
+
+        return {
+            "token": token,
+            "download_url": download_url,
+            "expires_in": payload.expires_in,
+        }
+    except Exception as e:
+        _map_error(e)
+
+
+@router.get("/download", dependencies=[Depends(verify_download_access)])
 async def download(path: str = Query(...)):
     try:
         p = file_service.validate_path(path)
