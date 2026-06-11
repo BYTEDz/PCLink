@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0] - 2026-06-11
+
+### Added
+- Secure file-sharing capability with support for temporary and permanent share tokens.
+- A "Share Links" management tab in the Web UI to list active links, copy download URLs, and revoke access.
+- Live countdown timers in the Web UI for expiring links.
+- Database persistence for tracking generated share tokens and their expiration states.
+
 ## [4.2.1] - 2026-05-27
 
 ### Added
