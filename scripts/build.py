@@ -165,7 +165,7 @@ def check_system_dependencies(build_format=None):
 
     # For NFPM builds, we only need to ensure the Python environment is ready
     # to run the pre-build script and create a wheel.
-    if build_format == "nfpm":
+    if build_format == "nfpm" or build_format == "pkgbuild":
         # Check for pip (needed to create wheel)
         if not shutil.which("pip") and not shutil.which("pip3"):
             missing_deps.append(
@@ -605,6 +605,10 @@ def main():
         "--arch",
         help="Target architecture for Linux packages (e.g., amd64, arm64, armhf). Default: auto-detect.",
     )
+    parser.add_argument(
+        "--version",
+        help="Override the application version (e.g., 4.3.0).",
+    )
     args = parser.parse_args()
 
     try:
@@ -621,6 +625,8 @@ def main():
             raise BuildError("Project structure verification failed")
 
         builder = Builder(debug=args.debug)
+        if args.version:
+            builder.version = args.version
 
         if args.clean:
             builder.clean()

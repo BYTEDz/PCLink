@@ -174,7 +174,9 @@ jobs:
 
       - name: Generate Dynamic PKGBUILD
         run: |
-          python scripts/generate_pkgbuild.py --output artifacts/PKGBUILD || touch artifacts/PKGBUILD
+          VERSION="${TAG#v}"
+          python scripts/build.py --format pkgbuild --version "$VERSION"
+          mv releases/PKGBUILD artifacts/PKGBUILD
 
       - name: Create GitHub Release
         env:
