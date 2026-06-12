@@ -11,7 +11,7 @@
 [![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Play Store](https://img.shields.io/badge/Android-Play%20Store-3DDC84?style=for-the-badge&logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink)
 
-PCLink is a modern, **web-first** server designed for **secure remote PC management**.
+PCLink is a modern, **web-first** server designed for **secure remote PC management** and **high-performance screen streaming**.
 Featuring a high-performance FastAPI backend, a responsive Web UI, and an extensible plugin system.
 
 [**Download Releases**](https://github.com/BYTEDz/PCLink/releases) • [**Mobile App**](https://play.google.com/store/apps/details?id=xyz.bytedz.pclink) • [**Wiki Portal**](https://github.com/BYTEDz/PCLink/wiki)
@@ -61,6 +61,7 @@ pclink
 - **Peripheral Sync** – Seamlessly control your remote keyboard, mouse, system volume, and media playback.
 - **Remote Explorer** – Full-featured remote file browser and system process manager.
 - **Integrated Shell** – WebSocket-powered terminal access for remote CLI management.
+- **Ultra-Low Latency Streaming** – High-performance screen capture and streaming powered by [`ferrumcast`](https://github.com/BYTEDz/ferrumcast).
 - **Extensible Architecture** – Add capabilities via the built-in [Extension System](https://github.com/BYTEDz/PCLink/wiki/Extension-Development).
 
 ---
