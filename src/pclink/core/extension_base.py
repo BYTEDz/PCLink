@@ -4,7 +4,7 @@
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -49,9 +49,14 @@ class ExtensionMetadata(BaseModel):
     min_server_version: str = "1.0.0"
     ui_capabilities: UICapabilities = UICapabilities()
     dashboard_widgets: List[ExtensionWidgetModel] = []
+    # Venv support: path to requirements.txt relative to extension root
+    requirements_file: Optional[str] = None
 
 
 class ExtensionBase(ABC):
+    # Class-level flag to detect async implementations
+    _is_async: bool = False
+
     def __init__(
         self,
         metadata: ExtensionMetadata,
@@ -65,6 +70,23 @@ class ExtensionBase(ABC):
         self.context = context
         self.router = APIRouter(dependencies=[Depends(self._verify_active)])
         self.logger = logging.getLogger(f"pclink.extensions.{metadata.name}")
+        # Store venv path once created
+        self._venv_path: Optional[Path] = None
+
+        # Detect async implementation
+        self._check_async()
+
+    def _check_async(self):
+        """Detect if subclass implements async initialize/cleanup."""
+        init_method = getattr(type(self), "initialize", None)
+        cleanup_method = getattr(type(self), "cleanup", None)
+
+        import inspect
+
+        if init_method and inspect.iscoroutinefunction(init_method):
+            ExtensionBase._is_async = True
+        elif cleanup_method and inspect.iscoroutinefunction(cleanup_method):
+            ExtensionBase._is_async = True
 
     async def _verify_active(self):
         """Internal dependency to prevent requests hitting unloaded extensions."""
@@ -84,12 +106,12 @@ class ExtensionBase(ABC):
             )
 
     @abstractmethod
-    def initialize(self) -> bool:
-        """Called when the extension is enabled."""
+    def initialize(self) -> Union[bool, "CoroutineType"]:
+        """Called when the extension is enabled. Can be sync or async."""
 
     @abstractmethod
-    def cleanup(self):
-        """Called when the extension is disabled or removed."""
+    def cleanup(self) -> Union[None, "CoroutineType"]:
+        """Called when the extension is disabled or removed. Can be sync or async."""
 
     def get_routes(self) -> APIRouter:
         """Returns the APIRouter for the extension."""
@@ -102,3 +124,17 @@ class ExtensionBase(ABC):
     def get_templates_path(self) -> Path:
         """Returns the path to the extension's templates."""
         return self.extension_path / "templates"
+
+    @property
+    def venv_path(self) -> Optional[Path]:
+        """Returns the path to the extension's virtual environment, if created."""
+        return self._venv_path
+
+    @property
+    def has_venv(self) -> bool:
+        """Returns True if this extension has a virtual environment."""
+        return self._venv_path is not None and self._venv_path.exists()
+
+
+# Type hint for coroutine (forward reference to avoid import issues)
+CoroutineType = "Coroutine"

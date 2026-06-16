@@ -45,23 +45,67 @@ async def install_extension(file: UploadFile = File(...)):
 async def install_extension_from_url(url: str = Query(...)):
     if not url.startswith("http"):
         raise HTTPException(400, "Invalid URL")
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
-        tmp_p = Path(tmp.name)
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=30) as response, open(
-            tmp_p, "wb"
-        ) as out_file:
-            shutil.copyfileobj(response, out_file)
 
-        if extension_service.install(tmp_p):
-            return {"status": "success"}
-        raise HTTPException(400, "Install failed")
-    except Exception as e:
-        raise HTTPException(400, f"Download or install failed: {str(e)}")
-    finally:
-        if tmp_p.exists():
-            os.unlink(tmp_p)
+    import threading
+
+    task_id = f"url-{abs(hash(url))}"
+
+    def download_and_install():
+        manager = extension_service.manager
+        manager.install_states[task_id] = {
+            "status": "downloading",
+            "progress": 0,
+            "error": None,
+        }
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            tmp_p = Path(tmp.name)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=30) as response:
+                content_length = response.headers.get("content-length")
+                total_bytes = int(content_length) if content_length else None
+                downloaded = 0
+
+                with open(tmp_p, "wb") as out_file:
+                    while True:
+                        chunk = response.read(8192)
+                        if not chunk:
+                            break
+                        out_file.write(chunk)
+                        downloaded += len(chunk)
+                        if total_bytes:
+                            percent = int((downloaded / total_bytes) * 100)
+                            manager.install_states[task_id] = {
+                                "status": "downloading",
+                                "progress": min(percent, 99),
+                                "error": None,
+                            }
+            manager.install_states[task_id] = {
+                "status": "downloading",
+                "progress": 100,
+                "error": None,
+            }
+            if not extension_service.install(tmp_p, task_id=task_id):
+                manager.install_states[task_id] = {
+                    "status": "failed",
+                    "progress": 0,
+                    "error": "Install failed",
+                }
+        except Exception as e:
+            manager.install_states[task_id] = {
+                "status": "failed",
+                "progress": 0,
+                "error": str(e),
+            }
+        finally:
+            if tmp_p.exists():
+                try:
+                    os.unlink(tmp_p)
+                except OSError:
+                    pass
+
+    threading.Thread(target=download_and_install, name=f"downloader-{task_id}").start()
+    return {"status": "success", "task_id": task_id}
 
 
 @mgmt_router.delete("/{extension_id}")
@@ -82,6 +126,17 @@ async def toggle_extension(extension_id: str, enabled: bool):
         raise HTTPException(500, "Toggle failed")
     except PermissionError as e:
         raise HTTPException(403, str(e))
+
+
+@mgmt_router.get("/{extension_id}/install-status")
+async def get_install_status(extension_id: str):
+    status = extension_service.manager.install_states.get(extension_id)
+    if not status:
+        ext = extension_service.manager.get_extension(extension_id)
+        if ext:
+            return {"status": "completed", "progress": 100, "error": None}
+        return {"status": "idle", "progress": 0, "error": None}
+    return status
 
 
 @mgmt_router.get("/{extension_id}/logs")

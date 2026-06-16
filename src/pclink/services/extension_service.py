@@ -3,7 +3,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from pathlib import Path
 
 from ..core.config import config_manager
@@ -54,6 +54,14 @@ class ExtensionService:
                 response_meta["id"] = eid
                 response_meta["is_loaded"] = is_loaded
 
+                # Venv info
+                if ext and ext.has_venv:
+                    response_meta["has_venv"] = True
+                    response_meta["venv_path"] = str(ext.venv_path)
+                else:
+                    response_meta["has_venv"] = False
+                    response_meta["venv_path"] = None
+
                 # Security flags
                 perms = response_meta.get("permissions", [])
                 response_meta["has_dangerous_perms"] = any(
@@ -74,9 +82,9 @@ class ExtensionService:
 
         return {"extensions_enabled": enabled_globally, "extensions": all_exts}
 
-    def install(self, zip_path: Path) -> bool:
+    def install(self, zip_path: Path, task_id: Optional[str] = None) -> bool:
         self._ensure_extensions_enabled()
-        return self.manager.install_extension(zip_path)
+        return self.manager.install_extension(zip_path, task_id=task_id)
 
     def uninstall(self, eid: str) -> bool:
         self._ensure_extensions_enabled()

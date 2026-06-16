@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import asyncio
 import importlib.util
 import inspect
 import logging
@@ -8,6 +9,7 @@ import os
 import platform as py_platform
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -86,6 +88,11 @@ class ExtensionManager:
                 m = ModuleType("pclink.extensions")
                 m.__path__ = []  # Mark as package
                 sys.modules["pclink.extensions"] = m
+
+            # Venv base path - each extension gets its own venv
+            self._venvs_base = constants.APP_DATA_PATH / "venvs"
+            self._venvs_base.mkdir(parents=True, exist_ok=True)
+            self.install_states: Dict[str, Dict[str, any]] = {}
 
     @property
     def app(self):
@@ -173,6 +180,222 @@ class ExtensionManager:
 
         return True
 
+    def _update_install_state(
+        self,
+        extension_id: str,
+        status: str,
+        progress: int,
+        error: Optional[str] = None,
+        task_id: Optional[str] = None,
+    ):
+        state = {"status": status, "progress": progress, "error": error}
+        if extension_id:
+            self.install_states[extension_id] = state
+        if task_id:
+            self.install_states[task_id] = state
+
+    def _create_venv(
+        self, extension_id: str, requirements_path: Path, task_id: Optional[str] = None
+    ) -> Optional[Path]:
+        """
+        Creates a dedicated virtual environment for an extension.
+        Returns the path to the venv's site-packages or None on failure.
+        """
+        venv_path = self._venvs_base / extension_id
+        self._update_install_state(extension_id, "preparing", 10, task_id=task_id)
+
+        # Check if venv already exists and is valid
+        if venv_path.exists():
+            # Check for marker file to confirm it's a valid venv
+            if (venv_path / "pyvenv.cfg").exists():
+                log.debug(f"Venv already exists for {extension_id}, skipping creation")
+                self._update_install_state(
+                    extension_id, "completed", 100, task_id=task_id
+                )
+                return venv_path
+
+        log.info(f"Creating venv for extension: {extension_id}")
+        self._update_install_state(extension_id, "creating_venv", 25, task_id=task_id)
+
+        try:
+            # Create venv
+            result = subprocess.run(
+                [sys.executable, "-m", "venv", str(venv_path)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+
+            if result.returncode != 0:
+                log.error(f"Failed to create venv for {extension_id}: {result.stderr}")
+                self._update_install_state(
+                    extension_id,
+                    "failed",
+                    0,
+                    f"Venv creation failed: {result.stderr}",
+                    task_id=task_id,
+                )
+                return None
+
+            # Determine pip path based on platform
+            if sys.platform == "win32":
+                pip_path = venv_path / "Scripts" / "pip.exe"
+                python_path = venv_path / "Scripts" / "python.exe"
+            else:
+                pip_path = venv_path / "bin" / "pip"
+                python_path = venv_path / "bin" / "python"
+
+            # Install requirements
+            if not pip_path.exists():
+                log.error(f"Pip not found at {pip_path}")
+                self._update_install_state(
+                    extension_id,
+                    "failed",
+                    0,
+                    "Pip executable not found in venv",
+                    task_id=task_id,
+                )
+                return None
+
+            self._update_install_state(
+                extension_id, "upgrading_pip", 45, task_id=task_id
+            )
+
+            # Upgrade pip first
+            result = subprocess.run(
+                [str(python_path), "-m", "pip", "install", "--upgrade", "pip"],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+
+            if result.returncode != 0:
+                log.warning(
+                    f"Failed to upgrade pip for {extension_id}: {result.stderr}"
+                )
+
+            self._update_install_state(
+                extension_id, "installing_requirements", 60, task_id=task_id
+            )
+
+            # Install requirements line by line
+            proc = subprocess.Popen(
+                [str(pip_path), "install", "-r", str(requirements_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                log.debug(f"[{extension_id} pip]: {line.strip()}")
+                if "Downloading" in line:
+                    self._update_install_state(
+                        extension_id, "installing_requirements", 75, task_id=task_id
+                    )
+                elif "Installing collected packages" in line:
+                    self._update_install_state(
+                        extension_id, "installing_requirements", 90, task_id=task_id
+                    )
+
+            proc.wait(timeout=300)
+
+            if proc.returncode != 0:
+                stderr_output = proc.stderr.read()
+                log.error(
+                    f"Failed to install requirements for {extension_id}: {stderr_output}"
+                )
+                self._update_install_state(
+                    extension_id,
+                    "failed",
+                    0,
+                    f"Pip install failed: {stderr_output}",
+                    task_id=task_id,
+                )
+                return None
+
+            self._update_install_state(extension_id, "completed", 100, task_id=task_id)
+            log.info(
+                f"Successfully created venv and installed requirements for {extension_id}"
+            )
+            return venv_path
+
+        except subprocess.TimeoutExpired:
+            log.error(f"Timeout creating venv for {extension_id}")
+            self._update_install_state(
+                extension_id, "failed", 0, "Process timed out", task_id=task_id
+            )
+            return None
+        except Exception as e:
+            log.error(f"Error creating venv for {extension_id}: {e}")
+            self._update_install_state(
+                extension_id, "failed", 0, str(e), task_id=task_id
+            )
+            return None
+
+    def _get_venv_site_packages(self, venv_path: Path) -> Optional[Path]:
+        """Returns the site-packages path for a given venv."""
+        if sys.platform == "win32":
+            return venv_path / "Lib" / "site-packages"
+        else:
+            # Try to find site-packages in the venv
+            result = subprocess.run(
+                [
+                    str(venv_path / "bin" / "python"),
+                    "-c",
+                    "import site; print(site.getsitepackages()[0])",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                return Path(result.stdout.strip())
+            return None
+
+    def _cleanup_venv(self, extension_id: str) -> bool:
+        """Removes the venv for an extension."""
+        venv_path = self._venvs_base / extension_id
+        if not venv_path.exists():
+            return True
+
+        try:
+            shutil.rmtree(venv_path)
+            log.info(f"Cleaned up venv for extension: {extension_id}")
+            return True
+        except Exception as e:
+            log.error(f"Failed to cleanup venv for {extension_id}: {e}")
+            return False
+
+    def _run_coro(self, coro):
+        """Helper to run async functon in sync context."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+
+        if loop.is_running():
+            import threading
+
+            res, err = None, None
+
+            def target():
+                nonlocal res, err
+                try:
+                    res = asyncio.run(coro)
+                except Exception as e:
+                    err = e
+
+            t = threading.Thread(target=target)
+            t.start()
+            t.join()
+            if err:
+                raise err
+            return res
+        return loop.run_until_complete(coro)
+
     def _import_module_safely(
         self, extension_id: str, entry_point: Path, lib_path: Path
     ):
@@ -245,7 +468,9 @@ class ExtensionManager:
                 discovered.append(entry.name)
         return discovered
 
-    def load_extension(self, extension_id: str) -> bool:
+    def load_extension(
+        self, extension_id: str, background: bool = False, task_id: Optional[str] = None
+    ) -> bool:
         """Loads a specific extension by its directory name (extension_id)."""
         from ..core.config import config_manager
 
@@ -282,6 +507,26 @@ class ExtensionManager:
             )
             return False
 
+        if background:
+            self._update_install_state(extension_id, "pending", 0, task_id=task_id)
+
+            def run_load():
+                try:
+                    self._load_extension_impl(extension_id, task_id=task_id)
+                except Exception as e:
+                    log.exception(f"Background load failed for {extension_id}: {e}")
+                    self._update_install_state(
+                        extension_id, "failed", 0, str(e), task_id=task_id
+                    )
+
+            threading.Thread(target=run_load, name=f"ext-loader-{extension_id}").start()
+            return True
+
+        return self._load_extension_impl(extension_id, task_id=task_id)
+
+    def _load_extension_impl(
+        self, extension_id: str, task_id: Optional[str] = None
+    ) -> bool:
         log.info(f"Loading extension: {extension_id}")
 
         manifest = self.get_manifest(extension_id)
@@ -309,10 +554,57 @@ class ExtensionManager:
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
+            # --- Venv creation for requirements.txt ---
+            venv_path: Optional[Path] = None
+            added_venv_to_path = False
+            site_packages = None
+
+            if metadata.requirements_file:
+                requirements_path = extension_dir / metadata.requirements_file
+                if requirements_path.exists():
+                    venv_path = self._create_venv(
+                        extension_id, requirements_path, task_id=task_id
+                    )
+                    if venv_path:
+                        # Add venv site-packages to sys.path for imports
+                        site_packages = self._get_venv_site_packages(venv_path)
+                        if (
+                            site_packages
+                            and site_packages.exists()
+                            and str(site_packages) not in sys.path
+                        ):
+                            sys.path.insert(0, str(site_packages))
+                            added_venv_to_path = True
+                            log.info(
+                                f"Added venv site-packages to path: {site_packages}"
+                            )
+                    else:
+                        log.warning(
+                            f"Failed to create venv for {extension_id}, falling back to server libs"
+                        )
+                else:
+                    log.warning(
+                        f"Requirements file specified but not found: {requirements_path}"
+                    )
+
+            # Import with potential venv site-packages in path
             module = self._import_module_safely(
                 extension_id, entry_point_path, lib_path
             )
+
             if not module:
+                if added_venv_to_path and site_packages:
+                    try:
+                        sys.path.remove(str(site_packages))
+                    except ValueError:
+                        pass
+                self._update_install_state(
+                    extension_id,
+                    "failed",
+                    0,
+                    "Failed to import safely",
+                    task_id=task_id,
+                )
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
@@ -321,7 +613,19 @@ class ExtensionManager:
                 module, "Extension", None
             )
             if not extension_class:
+                if added_venv_to_path and site_packages:
+                    try:
+                        sys.path.remove(str(site_packages))
+                    except ValueError:
+                        pass
                 log.error(f"No 'Extension' class found in {entry_point_path}")
+                self._update_install_state(
+                    extension_id,
+                    "failed",
+                    0,
+                    "No Extension class found",
+                    task_id=task_id,
+                )
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
@@ -350,7 +654,30 @@ class ExtensionManager:
                     f"pclink.extensions.{extension_id}"
                 )
 
-            if extension_instance.initialize():
+            # Store venv path on extension instance
+            if venv_path:
+                extension_instance._venv_path = venv_path
+
+            # --- Async support: handle both sync and async initialize ---
+            import inspect as inspect_module
+
+            init_result = extension_instance.initialize()
+            init_success = False
+
+            if inspect_module.iscoroutinefunction(
+                extension_instance.initialize
+            ) or inspect.iscoroutine(init_result):
+                # Async initialize - run in event loop safely
+                try:
+                    init_success = self._run_coro(init_result)
+                except Exception as e:
+                    log.error(f"Failed to run async initialize for {extension_id}: {e}")
+                    init_success = False
+            else:
+                # Sync initialize
+                init_success = init_result
+
+            if init_success:
                 self.extensions[extension_id] = extension_instance
                 if self.app:
                     log.info(
@@ -369,14 +696,42 @@ class ExtensionManager:
                 log.info(
                     f"Successfully loaded extension: {metadata.display_name} ({metadata.version})"
                 )
+                self._update_install_state(
+                    extension_id, "completed", 100, task_id=task_id
+                )
                 self.failed_extensions.pop(extension_id, None)
                 return True
             else:
+                if added_venv_to_path and site_packages:
+                    try:
+                        sys.path.remove(str(site_packages))
+                    except ValueError:
+                        pass
                 log.error(f"Extension '{extension_id}' initialize() returned False")
+                self._update_install_state(
+                    extension_id,
+                    "failed",
+                    0,
+                    "Initialize returned False",
+                    task_id=task_id,
+                )
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
         except Exception as e:
+            if (
+                "added_venv_to_path" in locals()
+                and added_venv_to_path
+                and "site_packages" in locals()
+                and site_packages
+            ):
+                try:
+                    sys.path.remove(str(site_packages))
+                except ValueError:
+                    pass
+            self._update_install_state(
+                extension_id, "failed", 0, str(e), task_id=task_id
+            )
             self.failed_extensions[extension_id] = time.time()
             log.exception(f"Critical error loading extension '{extension_id}': {e}")
             return False
@@ -394,9 +749,9 @@ class ExtensionManager:
 
         # Safe Mode: Abort extension loading after repeated crashes.
         if self.safe_mode:
-            log.warning("⚠️ SAFE MODE ACTIVE: Skipping all extension loading.")
+            log.warning("SAFE MODE ACTIVE: Skipping all extension loading.")
             log.warning(
-                "⚠️ To re-enable extensions, delete the crash file and restart PCLink."
+                "To re-enable extensions, delete the crash file and restart PCLink."
             )
             return
 
@@ -424,8 +779,34 @@ class ExtensionManager:
             return
 
         if extension_id in self.extensions:
+            extension = self.extensions[extension_id]
             try:
-                self.extensions[extension_id].cleanup()
+                # --- Async support: handle both sync and async cleanup ---
+                import inspect as inspect_module
+
+                cleanup_result = extension.cleanup()
+
+                if inspect_module.iscoroutinefunction(
+                    extension.cleanup
+                ) or inspect.iscoroutine(cleanup_result):
+                    # Async cleanup - run in event loop safely
+                    try:
+                        self._run_coro(cleanup_result)
+                    except Exception as e:
+                        log.error(
+                            f"Failed to run async cleanup for {extension_id}: {e}"
+                        )
+                # Sync cleanup returns None, no handling needed
+
+                # Remove venv site-packages from sys.path
+                if extension.venv_path:
+                    site_packages = self._get_venv_site_packages(extension.venv_path)
+                    if site_packages:
+                        try:
+                            sys.path.remove(str(site_packages))
+                        except ValueError:
+                            pass
+
                 del self.extensions[extension_id]
 
                 # Full module purge: remove root and ALL sub-modules from sys.modules
@@ -438,6 +819,9 @@ class ExtensionManager:
                 ]
                 for m in to_remove:
                     del sys.modules[m]
+
+                # Cleanup venv for this extension
+                self._cleanup_venv(extension_id)
 
                 log.info(
                     f"Unloaded extension and purged {len(to_remove)} modules: {extension_id}"
@@ -490,7 +874,9 @@ class ExtensionManager:
                 log.error(f"Verification failed: {e}")
                 return None
 
-    def install_extension(self, bundle_path: Path) -> bool:
+    def install_extension(
+        self, bundle_path: Path, task_id: Optional[str] = None
+    ) -> bool:
         """
         Installs an extension from a zip bundle.
         """
@@ -560,13 +946,23 @@ class ExtensionManager:
                 log.info(
                     f"Installed extension {metadata.name} to {target_dir} (Disabled pending approval)"
                 )
+                if task_id:
+                    self._update_install_state(
+                        metadata.name, "completed", 100, task_id=task_id
+                    )
                 return True
             else:
                 log.info(f"Installed extension {metadata.name} to {target_dir}")
-                # Auto-load if safe
-                return self.load_extension(metadata.name)
+                # Auto-load if safe (background=True to avoid blocking the API)
+                return self.load_extension(
+                    metadata.name, background=True, task_id=task_id
+                )
         except Exception as e:
             log.error(f"Installation failed: {e}")
+            if task_id:
+                self._update_install_state(
+                    metadata.name, "failed", 0, str(e), task_id=task_id
+                )
             return False
 
     def delete_extension(self, extension_id: str) -> bool:
@@ -639,9 +1035,9 @@ class ExtensionManager:
             if enabled:
                 # Clear any previous failure cooldown — user explicitly wants this ON
                 self.failed_extensions.pop(extension_id, None)
-                # Try to load, but return True anyway because the manifest was updated.
-                # If load fails, the user can see logs or try again later.
-                self.load_extension(extension_id)
+                # Try to load in background, but return True anyway because the manifest was updated.
+                # If load fails, the user can see logs or status later.
+                self.load_extension(extension_id, background=True)
                 return True
             else:
                 self.unload_extension(extension_id)
