@@ -90,7 +90,15 @@ Join the wider PCLink ecosystem:
 
 [![GitHub Release Date](https://img.shields.io/github/release-date/BYTEDz/PCLink?style=flat-square&color=blue)](https://github.com/BYTEDz/PCLink/releases) [![GitHub Last Commit](https://img.shields.io/github/last-commit/BYTEDz/PCLink?style=flat-square&color=green)](https://github.com/BYTEDz/PCLink/commits/main) [![GitHub Issues](https://img.shields.io/github/issues/BYTEDz/PCLink?style=flat-square&color=orange)](https://github.com/BYTEDz/PCLink/issues)
 
-[![PCLink Stars](https://starchart.cc/BYTEDz/PCLink.svg?variant=adaptive)](https://starchart.cc/BYTEDz/PCLink)
+## Star History
+
+<a href="https://www.star-history.com/?repos=bytedz%2Fpclink&type=timeline&logscale=&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=bytedz/pclink&type=timeline&theme=dark&logscale&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=bytedz/pclink&type=timeline&logscale&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=bytedz/pclink&type=timeline&logscale&legend=bottom-right" />
+ </picture>
+</a>
 
 </div>
 
