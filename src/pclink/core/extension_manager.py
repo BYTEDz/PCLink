@@ -650,9 +650,28 @@ class ExtensionManager:
                 extension_instance.context = context
 
             if not hasattr(extension_instance, "logger"):
-                extension_instance.logger = logging.getLogger(
-                    f"pclink.extensions.{extension_id}"
+                logger = logging.getLogger(f"pclink.extensions.{extension_id}")
+
+                class ExtensionLogHandler(logging.Handler):
+                    def __init__(self, manager, eid):
+                        super().__init__()
+                        self.manager = manager
+                        self.eid = eid
+
+                    def emit(self, record):
+                        msg = self.format(record)
+                        if self.eid not in self.manager.logs:
+                            self.manager.logs[self.eid] = []
+                        self.manager.logs[self.eid].append(msg)
+                        if len(self.manager.logs[self.eid]) > 1000:
+                            self.manager.logs[self.eid].pop(0)
+
+                handler = ExtensionLogHandler(self, extension_id)
+                handler.setFormatter(
+                    logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
                 )
+                logger.addHandler(handler)
+                extension_instance.logger = logger
 
             # Store venv path on extension instance
             if venv_path:
@@ -831,6 +850,15 @@ class ExtensionManager:
 
     def get_extension(self, extension_id: str) -> Optional[ExtensionBase]:
         return self.extensions.get(extension_id)
+
+    def get_extension_logs(self, extension_id: str) -> List[str]:
+        """Retrieve logs for a specific extension."""
+        return self.logs.get(extension_id, [])
+
+    def clear_extension_logs(self, extension_id: str):
+        """Clear logs for a specific extension."""
+        if extension_id in self.logs:
+            self.logs[extension_id] = []
 
     def get_all_extensions(self) -> List[ExtensionBase]:
         return list(self.extensions.values())
