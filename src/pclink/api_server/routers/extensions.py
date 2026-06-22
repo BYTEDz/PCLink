@@ -49,14 +49,18 @@ async def install_extension_from_url(url: str = Query(...)):
     import threading
 
     task_id = f"url-{abs(hash(url))}"
+    manager = extension_service.manager
+
+    # TODO(Legacy): Seeding state before the thread starts prevents UI polling race conditions.
+    # This was added as a hotfix for async installs and should be refactored into a proper
+    # task management system in future server updates.
+    manager.install_states[task_id] = {
+        "status": "downloading",
+        "progress": 0,
+        "error": None,
+    }
 
     def download_and_install():
-        manager = extension_service.manager
-        manager.install_states[task_id] = {
-            "status": "downloading",
-            "progress": 0,
-            "error": None,
-        }
         with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
             tmp_p = Path(tmp.name)
         try:

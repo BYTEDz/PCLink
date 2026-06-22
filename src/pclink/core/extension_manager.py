@@ -981,6 +981,10 @@ class ExtensionManager:
                 return True
             else:
                 log.info(f"Installed extension {metadata.name} to {target_dir}")
+                # TODO(Legacy): Clearing failed_extensions here prevents a previous background load
+                # failure from blocking fresh installs. This is a workaround for legacy state management
+                # and should be removed once the extension state machine is properly overhauled.
+                self.failed_extensions.pop(metadata.name, None)
                 # Auto-load if safe (background=True to avoid blocking the API)
                 return self.load_extension(
                     metadata.name, background=True, task_id=task_id
