@@ -1,4 +1,3 @@
-# src/pclink/services/app_service.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -40,10 +39,11 @@ class AppService:
             return self._cache["apps"]
 
         apps = []
+        # Run synchronous and heavy directory scanning operations in a thread pool to avoid blocking the event loop
         if sys.platform == "win32":
-            apps = self._discover_win32()
+            apps = await asyncio.to_thread(self._discover_win32)
         elif sys.platform.startswith("linux"):
-            apps = self._discover_linux()
+            apps = await asyncio.to_thread(self._discover_linux)
 
         self._cache = {"apps": apps, "timestamp": now}
         return apps
@@ -99,15 +99,17 @@ class AppService:
                         name = entry.get("Name")
                         cmd = entry.get("Exec")
                         if name and cmd:
+                            # Clean execution field codes according to Desktop Entry Specification
                             clean_cmd = (
-                                re.sub(r"\s%[a-zA-Z]", "", cmd).strip().strip('"')
+                                re.sub(r"\s*%[a-zA-Z]", "", cmd).strip().strip('"')
                             )
                             icon = entry.get("Icon")
+                            resolved_icon = self.find_linux_icon(icon) if icon else None
                             if name not in apps:
                                 apps[name] = {
                                     "name": name,
                                     "command": clean_cmd,
-                                    "icon_path": icon,
+                                    "icon_path": resolved_icon or icon,
                                     "is_custom": False,
                                 }
                 except Exception:
@@ -120,30 +122,71 @@ class AppService:
         if Path(name).is_absolute() and Path(name).exists():
             return name
 
-        search = [
-            "/usr/share/icons",
-            str(Path.home() / ".local/share/icons"),
-            "/usr/share/pixmaps",
+        # Common directories where app icons are located
+        search_bases = [
+            Path("/usr/share/pixmaps"),
+            Path("/usr/share/icons/hicolor/scalable/apps"),
+            Path("/usr/share/icons/hicolor/48x48/apps"),
+            Path("/usr/share/icons/hicolor/512x512/apps"),
+            Path("/usr/share/icons/hicolor/256x256/apps"),
+            Path("/usr/share/icons/hicolor/128x128/apps"),
+            Path.home() / ".local/share/icons",
+            Path("/usr/share/icons"),
         ]
-        for base in search:
-            p = Path(base)
-            if not p.is_dir():
+
+        extensions = [".png", ".svg", ".xpm"]
+
+        # Pass 1: Direct path lookup (extremely fast, avoids heavy disk crawling)
+        for base in search_bases:
+            if not base.is_dir():
                 continue
-            for ext in [".svg", ".png"]:
-                matches = list(p.rglob(f"**/{name}{ext}"))
-                if matches:
-                    return str(matches[0])
+            for ext in extensions:
+                candidate = base / f"{name}{ext}"
+                if candidate.exists():
+                    return str(candidate)
+
+        # Pass 2: Fallback to targeted shallow searches if direct lookup is missed
+        for base in search_bases:
+            if not base.is_dir():
+                continue
+
+            # Prevent rglob over huge parent directories directly
+            if str(base) in (
+                "/usr/share/icons",
+                str(Path.home() / ".local/share/icons"),
+            ):
+                for ext in extensions:
+                    matches = list(base.glob(f"*/apps/{name}{ext}")) or list(
+                        base.glob(f"hicolor/*/apps/{name}{ext}")
+                    )
+                    if matches:
+                        return str(matches[0])
+            else:
+                for ext in extensions:
+                    matches = list(base.rglob(f"**/{name}{ext}"))
+                    if matches:
+                        return str(matches[0])
+
         return None
 
     async def launch(self, command: str):
         def _run():
             flags = 0
+            kwargs = {
+                "shell": True,
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+                "stdin": subprocess.DEVNULL,
+            }
             if sys.platform == "win32":
                 flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
-                command_run = f'"{command}"'
+                kwargs["creationflags"] = flags
+                command_run = command if command.startswith('"') else f'"{command}"'
             else:
+                kwargs["start_new_session"] = True
                 command_run = command
-            subprocess.Popen(command_run, shell=True, creationflags=flags)
+
+            subprocess.Popen(command_run, **kwargs)
 
         await asyncio.to_thread(_run)
 
