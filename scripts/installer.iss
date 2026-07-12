@@ -19,7 +19,8 @@ SetupIconFile=__SETUP_ICON_FILE__
 OutputDir=__OUTPUT_DIR__
 Compression=lzma2/ultra
 SolidCompression=yes
-WizardStyle=modern
+
+WizardStyle=modern dynamic
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
