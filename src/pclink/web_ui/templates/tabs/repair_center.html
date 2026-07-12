@@ -1,0 +1,85 @@
+<!-- Repair Center Tab -->
+<div id="repairTab" class="tab-content hidden flex-1 h-full overflow-hidden">
+  <div class="flex flex-col h-full bg-base-100 rounded-box shadow-xl border border-base-300">
+    <!-- Header -->
+    <div class="p-6 border-b border-base-300 bg-base-200/50 flex justify-between items-center">
+      <div>
+        <h2 class="text-2xl font-bold flex items-center gap-3 text-primary">
+          <i data-feather="tool" class="w-6 h-6"></i> Repair Center
+        </h2>
+        <p class="text-sm opacity-70 mt-1">Diagnose and automatically fix common system issues.</p>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn btn-error" onclick="repairModule.forceRepair()">
+          <i data-feather="alert-octagon" class="w-4 h-4"></i> Force Repair
+        </button>
+        <button class="btn btn-primary" onclick="repairModule.runDiagnostics()">
+          <i data-feather="refresh-cw" class="w-4 h-4"></i> Run Diagnostics
+        </button>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="p-6 flex-1 overflow-y-auto">
+      <div id="repairLoading" class="hidden flex-col items-center justify-center h-40">
+        <span class="loading loading-spinner text-primary loading-lg"></span>
+        <p class="mt-4 opacity-70">Running system diagnostics...</p>
+      </div>
+
+      <div id="repairContent" class="space-y-4">
+        <!-- Diagnostic items will be injected here -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Port Conflict Modal -->
+<dialog id="portConflictModal" class="modal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg text-error flex items-center gap-2">
+      <i data-feather="alert-triangle"></i> Port Conflict Detected
+    </h3>
+    <p class="py-4">The required port is being used by another application. How would you like to resolve this?</p>
+
+    <div class="space-y-4">
+      <div class="p-4 border border-base-300 rounded-box">
+        <h4 class="font-bold mb-2">Option 1: Change Port (Safe)</h4>
+        <p class="text-sm opacity-70 mb-3">Automatically assign a new, unused port to PCLink.</p>
+        <button class="btn btn-sm btn-primary w-full" onclick="repairModule.submitPortFix('change_port')">
+          Change Port
+        </button>
+      </div>
+
+      <div class="p-4 border border-error/30 bg-error/5 rounded-box">
+        <h4 class="font-bold text-error mb-2">Option 2: Kill Process (Risky)</h4>
+        <p class="text-sm opacity-70 mb-3">Forcefully terminate the application currently using the port. <span class="font-bold text-error">Warning: You may lose unsaved data in that application.</span></p>
+        <button class="btn btn-sm btn-error w-full text-white" onclick="repairModule.submitPortFix('kill_process')">
+          Kill Process
+        </button>
+      </div>
+    </div>
+
+    <div class="modal-action">
+      <form method="dialog">
+        <button class="btn">Cancel</button>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<!-- Linux Firewall Password Modal -->
+<dialog id="linuxFirewallModal" class="modal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg">Elevated Privileges Required</h3>
+    <p class="py-4">Modifying the firewall on Linux requires administrator (sudo) privileges. Please enter your password to allow PCLink to create the rule.</p>
+
+    <input type="password" id="linuxSudoPassword" class="input input-bordered w-full mb-4" placeholder="Sudo Password">
+
+    <div class="modal-action">
+      <form method="dialog">
+        <button class="btn">Cancel</button>
+        <button class="btn btn-primary" onclick="repairModule.submitFirewallFix(event)">Authorize & Fix</button>
+      </form>
+    </div>
+  </div>
+</dialog>

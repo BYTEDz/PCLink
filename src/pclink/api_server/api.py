@@ -151,6 +151,7 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         mgmt_router as pairing_mgmt,
         mobile_router as pairing_mobile,
     )
+    from .routers.repair import router as repair_router
     from .routers.server import core_router as server_core, mgmt_router as server_mgmt
     from .routers.websocket_routes import router as ws_router
 
@@ -163,6 +164,7 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     app.include_router(devices_router)  # /ui/devices/...
     app.include_router(pairing_mgmt)  # /ui/pairing/...
     app.include_router(pairing_mobile)  # /pairing/...
+    app.include_router(repair_router, prefix="/ui/repair", dependencies=[WEB_AUTH])
 
     # Aliases for UI Compatibility (Force /ui/devices without slash)
     @app.get("/ui/devices", dependencies=[WEB_AUTH])

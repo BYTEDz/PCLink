@@ -826,8 +826,77 @@ def fix_wayland():
     )
 
 
+@cli.group()
+def repair():
+    """Repair Center: diagnose and fix common issues."""
+    pass
+
+
+@repair.command()
+def diagnose():
+    """Run diagnostics on ports, firewall, config, and database."""
+    from .services.repair_service import repair_service
+    import click
+
+    click.echo("Running diagnostics...")
+    results = repair_service.run_diagnostics()
+    for component, res in results.items():
+        status = res.get("status")
+        msg = res.get("message")
+        if status == "ok":
+            click.echo(click.style(f"✓ {component.upper()}: {msg}", fg="green"))
+        elif status == "warning":
+            click.echo(click.style(f"⚠ {component.upper()}: {msg}", fg="yellow"))
+        else:
+            click.echo(click.style(f"✗ {component.upper()}: {msg}", fg="red"))
+
+
+@repair.command(name="run")
+@click.argument("issue_id", type=click.Choice(["port", "firewall", "config", "db"]))
+@click.option(
+    "--action",
+    type=click.Choice(["change_port", "kill_process"]),
+    help="Action for port conflicts.",
+)
+def run_repair(issue_id: str, action: str):
+    """Attempt to fix a specific issue."""
+    from .services.repair_service import repair_service
+    import click
+    import sys
+    import getpass
+
+    click.echo(f"Attempting to repair: {issue_id}")
+    if issue_id == "db":
+        res = repair_service.fix_db()
+    elif issue_id == "config":
+        res = repair_service.fix_config()
+    elif issue_id == "firewall":
+        pwd = None
+        if sys.platform.startswith("linux"):
+            click.echo("Firewall fix on Linux might require sudo password.")
+            pwd = getpass.getpass("Sudo password (leave blank if passwordless): ")
+        res = repair_service.fix_firewall(password=pwd)
+    elif issue_id == "port":
+        if not action:
+            click.echo(
+                "Error: --action is required for port repair (change_port or kill_process).",
+                err=True,
+            )
+            return
+        res = repair_service.fix_port(action)
+    else:
+        click.echo("Unknown issue.")
+        return
+
+    if res.get("status") == "ok":
+        click.echo(click.style(f"✓ Success: {res.get('message')}", fg="green"))
+    else:
+        click.echo(click.style(f"✗ Failed: {res.get('message')}", fg="red"))
+
+
 cli.add_command(startup)
 cli.add_command(tray)
+cli.add_command(repair)
 
 if __name__ == "__main__":
     cli()

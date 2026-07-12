@@ -7,3 +7,7 @@
 %plugdev ALL=(ALL) NOPASSWD: /sbin/reboot
 %plugdev ALL=(ALL) NOPASSWD: /sbin/shutdown
 %plugdev ALL=(ALL) NOPASSWD: /usr/sbin/pm-suspend
+
+# PCLink firewall management
+%plugdev ALL=(ALL) NOPASSWD: /usr/sbin/ufw status
+%plugdev ALL=(ALL) NOPASSWD: /usr/sbin/ufw allow *
