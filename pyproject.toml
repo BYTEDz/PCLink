@@ -56,6 +56,7 @@ dependencies = [
     "winrt-Windows.UI.Notifications; sys_platform == 'win32'",
     "winrt-Windows.Media.Control; sys_platform == 'win32'",
     "winshell>=0.6; sys_platform == 'win32'",
+    "av>=11.0.0",
 ]
 
 [project.scripts]

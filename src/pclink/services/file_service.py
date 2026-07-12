@@ -1,4 +1,3 @@
-# src/pclink/services/file_service.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -10,6 +9,7 @@ import os
 import platform
 import shutil
 import tempfile
+import time
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -24,6 +24,13 @@ try:
     PIL_INSTALLED = True
 except ImportError:
     PIL_INSTALLED = False
+
+try:
+    import av
+
+    AV_INSTALLED = True
+except ImportError:
+    AV_INSTALLED = False
 
 try:
     import aiofiles
@@ -43,10 +50,13 @@ class FileService:
 
     def __init__(self):
         self._roots_cache = None
+        self._roots_cache_time = 0.0
+        self._metadata_cache = {}  # (str_path, mtime, size) -> dict / duration
 
     def get_system_roots(self) -> List[Path]:
-        """Get available system roots (drives on Windows, / on Unix)."""
-        if self._roots_cache:
+        """Get available system roots (drives on Windows, / on Unix) with a short TTL cache."""
+        now = time.time()
+        if self._roots_cache and (now - self._roots_cache_time < 5.0):
             return self._roots_cache
 
         if platform.system() == "Windows":
@@ -65,8 +75,13 @@ class FileService:
                     if p.exists():
                         roots.append(p)
             self._roots_cache = roots
+            self._roots_cache_time = now
             return roots
-        return [Path("/")]
+
+        roots = [Path("/")]
+        self._roots_cache = roots
+        self._roots_cache_time = now
+        return roots
 
     def is_path_safe(self, path: Path) -> bool:
         """Checks if a path is within allowed system roots or home."""
@@ -77,8 +92,11 @@ class FileService:
             resolved = path.absolute()
 
         for root in safe_roots:
-            if str(resolved).startswith(str(root)):
+            try:
+                resolved.relative_to(root)
                 return True
+            except ValueError:
+                continue
         return False
 
     def validate_path(self, user_path: str, check_existence: bool = True) -> Path:
@@ -108,6 +126,7 @@ class FileService:
     def get_item_type(self, name: str, is_dir: bool) -> str:
         if is_dir:
             return "folder"
+
         mime, _ = mimetypes.guess_type(name)
         if mime:
             if mime.startswith("video/"):
@@ -116,8 +135,37 @@ class FileService:
                 return "image"
             if mime.startswith("audio/"):
                 return "audio"
-            if mime == "application/zip":
+            if mime in (
+                "application/zip",
+                "application/x-zip-compressed",
+                "application/x-tar",
+                "application/x-gzip",
+                "application/x-bzip2",
+                "application/x-7z-compressed",
+                "application/x-rar-compressed",
+            ):
                 return "archive"
+
+        ext = Path(name).suffix.lower()
+        if ext in (".mp4", ".mkv", ".avi", ".webm", ".mov", ".flv", ".wmv", ".m4v"):
+            return "video"
+        if ext in (
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".webp",
+            ".bmp",
+            ".tiff",
+            ".svg",
+            ".ico",
+        ):
+            return "image"
+        if ext in (".mp3", ".wav", ".ogg", ".flac", ".m4a", ".aac", ".wma"):
+            return "audio"
+        if ext in (".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"):
+            return "archive"
+
         return "file"
 
     async def scan_directory(self, path: Path) -> List[Dict[str, Any]]:
@@ -132,6 +180,39 @@ class FileService:
                 try:
                     stat = entry.stat()
                     is_dir = entry.is_dir()
+                    item_type = self.get_item_type(entry.name, is_dir)
+                    duration_ms = 0
+
+                    if not is_dir and item_type in ("video", "audio") and AV_INSTALLED:
+                        file_path = path / entry.name
+                        cache_key = (str(file_path), stat.st_mtime, stat.st_size)
+
+                        if cache_key in self._metadata_cache:
+                            duration_ms = self._metadata_cache[cache_key].get(
+                                "duration", 0
+                            )
+                        else:
+                            try:
+                                with av.open(str(file_path)) as container:
+                                    if container.duration is not None:
+                                        duration_ms = container.duration // 1000
+                                    elif container.streams and getattr(
+                                        container.streams, "video", None
+                                    ):
+                                        stream = container.streams.video[0]
+                                        if stream.duration and stream.time_base:
+                                            duration_ms = int(
+                                                float(
+                                                    stream.duration * stream.time_base
+                                                )
+                                                * 1000
+                                            )
+                                self._metadata_cache[cache_key] = {
+                                    "duration": duration_ms
+                                }
+                            except Exception:
+                                pass
+
                     items.append(
                         {
                             "name": entry.name,
@@ -139,7 +220,8 @@ class FileService:
                             "is_dir": is_dir,
                             "size": stat.st_size,
                             "modified_at": stat.st_mtime,
-                            "item_type": self.get_item_type(entry.name, is_dir),
+                            "item_type": item_type,
+                            "duration": duration_ms,
                         }
                     )
                 except Exception:
@@ -151,7 +233,7 @@ class FileService:
         return await asyncio.to_thread(_scan)
 
     async def get_thumbnail(self, file_path: Path) -> Optional[bytes]:
-        """Generates or retrieves a cached thumbnail for an image."""
+        """Generates or retrieves a cached thumbnail for an image or a video."""
         if not PIL_INSTALLED or not file_path.is_file():
             return None
 
@@ -167,7 +249,16 @@ class FileService:
                     return cache_file.read_bytes()
 
                 mime, _ = mimetypes.guess_type(file_path.name)
-                if mime and mime.startswith("image/"):
+                ext = file_path.suffix.lower()
+
+                if (mime and mime.startswith("image/")) or ext in (
+                    ".jpg",
+                    ".jpeg",
+                    ".png",
+                    ".gif",
+                    ".webp",
+                    ".bmp",
+                ):
                     with Image.open(file_path) as img:
                         img.thumbnail((256, 256))
                         buf = BytesIO()
@@ -175,17 +266,113 @@ class FileService:
                         data = buf.getvalue()
                         cache_file.write_bytes(data)
                         return data
-            except Exception:
-                pass
+                elif (
+                    (mime and mime.startswith("video/"))
+                    or ext in (".mp4", ".mkv", ".avi", ".mov")
+                ) and AV_INSTALLED:
+                    with av.open(str(file_path)) as container:
+                        if not container.streams.video:
+                            return None
+                        stream = container.streams.video[0]
+
+                        if container.duration:
+                            try:
+                                container.seek(container.duration // 2)
+                            except Exception:
+                                if stream.duration:
+                                    try:
+                                        container.seek(
+                                            stream.duration // 2,
+                                            any_frame=False,
+                                            backward=True,
+                                            stream=stream,
+                                        )
+                                    except Exception:
+                                        pass
+                        elif stream.duration:
+                            try:
+                                container.seek(
+                                    stream.duration // 2,
+                                    any_frame=False,
+                                    backward=True,
+                                    stream=stream,
+                                )
+                            except Exception:
+                                pass
+
+                        for frame in container.decode(stream):
+                            img = frame.to_image()
+                            img.thumbnail((256, 256))
+                            buf = BytesIO()
+                            img.convert("RGB").save(buf, format="PNG")
+                            data = buf.getvalue()
+                            cache_file.write_bytes(data)
+                            return data
+            except Exception as e:
+                log.error(f"Failed to generate thumbnail for {file_path}: {e}")
             return None
 
         return await asyncio.to_thread(_get_thumb)
+
+    async def get_media_info(self, file_path: Path) -> Optional[Dict[str, Any]]:
+        """Extracts media info (duration, resolution) from a video or audio file."""
+        if not AV_INSTALLED or not file_path.is_file():
+            return None
+
+        def _get_info():
+            try:
+                stat = file_path.stat()
+                cache_key = (str(file_path), stat.st_mtime, stat.st_size)
+
+                if (
+                    cache_key in self._metadata_cache
+                    and "width" in self._metadata_cache[cache_key]
+                ):
+                    return self._metadata_cache[cache_key]
+
+                mime, _ = mimetypes.guess_type(file_path.name)
+                ext = file_path.suffix.lower()
+                is_media = (
+                    mime and (mime.startswith("video/") or mime.startswith("audio/"))
+                ) or ext in (
+                    ".mp4",
+                    ".mkv",
+                    ".avi",
+                    ".mov",
+                    ".mp3",
+                    ".wav",
+                    ".flac",
+                    ".m4a",
+                )
+
+                if not is_media:
+                    return None
+
+                with av.open(str(file_path)) as container:
+                    video_streams = container.streams.video
+                    stream = video_streams[0] if video_streams else None
+                    duration_ms = 0
+                    if container.duration is not None:
+                        duration_ms = container.duration // 1000
+                    elif stream and stream.duration and stream.time_base:
+                        duration_ms = int(
+                            float(stream.duration * stream.time_base) * 1000
+                        )
+
+                    info = {"duration": duration_ms}
+                    if stream:
+                        info.update({"width": stream.width, "height": stream.height})
+                    self._metadata_cache[cache_key] = info
+                    return info
+            except Exception:
+                return None
+
+        return await asyncio.to_thread(_get_info)
 
     async def compress(
         self, source_paths: List[str], target_zip: str
     ) -> Generator[int, None, None]:
         """Compresses files/folders into a ZIP archive."""
-        # This will be used with StreamingResponse in router
 
         def _gen():
             resolved = [self.validate_path(p) for p in source_paths]
@@ -201,9 +388,12 @@ class FileService:
                     for root, _, fs in os.walk(p):
                         for f in fs:
                             fp = Path(root) / f
-                            size = fp.stat().st_size
-                            total += size
-                            files.append((fp, fp.relative_to(p.parent), size))
+                            try:
+                                size = fp.stat().st_size
+                                total += size
+                                files.append((fp, fp.relative_to(p.parent), size))
+                            except Exception:
+                                continue
 
             if not total:
                 with zipfile.ZipFile(out, "w") as zf:
@@ -215,7 +405,10 @@ class FileService:
             yield 0
             with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
                 for fp, arcname, size in files:
-                    zf.write(fp, arcname)
+                    try:
+                        zf.write(fp, arcname)
+                    except Exception as e:
+                        log.error(f"Failed to compress {fp}: {e}")
                     written += size
                     yield int((written / total) * 100)
 
@@ -228,6 +421,7 @@ class FileService:
 
         def _gen():
             pwd = password.encode() if password else None
+            resolved_dest = dest.resolve()
             with zipfile.ZipFile(zip_path, "r") as zf:
                 info = zf.infolist()
                 total = sum(i.file_size for i in info)
@@ -241,6 +435,13 @@ class FileService:
                 for m in info:
                     if ".." in m.filename or os.path.isabs(m.filename):
                         continue
+
+                    target_path = Path(dest / m.filename).resolve()
+                    try:
+                        target_path.relative_to(resolved_dest)
+                    except ValueError:
+                        continue
+
                     zf.extract(m, dest, pwd=pwd)
                     ext += m.file_size
                     yield int((ext / total) * 100)
@@ -256,7 +457,6 @@ class FileService:
                 if p.is_dir():
                     await asyncio.to_thread(shutil.rmtree, p)
                 else:
-                    # Pathlib's unlink runs fast enough, but we still to_thread it to avoid blocking
                     await asyncio.to_thread(p.unlink)
                 return {"path": p_str, "success": True}
             except Exception as e:
@@ -282,6 +482,15 @@ class FileService:
                 src = self.validate_path(p_str)
                 target = dest_dir / src.name
 
+                if src.is_dir() and (dest_dir == src or src in dest_dir.parents):
+                    return {
+                        "action": "failed",
+                        "val": {
+                            "path": p_str,
+                            "reason": "Cannot copy or move a directory into itself",
+                        },
+                    }
+
                 if target.exists():
                     if resolution == "skip":
                         return {"action": "conflict", "val": src.name}
@@ -289,10 +498,9 @@ class FileService:
                         target = self.get_unique_path(target)
                     elif resolution == "overwrite":
                         if target.is_dir():
-                            # Synchronous, but safe for file_service rules when nested
-                            shutil.rmtree(target)
+                            await asyncio.to_thread(shutil.rmtree, target)
                         else:
-                            target.unlink()
+                            await asyncio.to_thread(target.unlink)
 
                 if action == "cut":
                     await asyncio.to_thread(shutil.move, str(src), str(target))
@@ -336,16 +544,25 @@ class FileService:
                         remaining -= len(chunk)
                         yield chunk
             else:
-                log.info("Using sync I/O fallback for streaming")
-                with path.open("rb") as f:
-                    f.seek(start)
+                log.info("Using non-blocking sync I/O fallback for streaming")
+
+                def _read_chunk(f_obj, size):
+                    return f_obj.read(size)
+
+                f = await asyncio.to_thread(path.open, "rb")
+                try:
+                    await asyncio.to_thread(f.seek, start)
                     remaining = (end - start) + 1
                     while remaining > 0:
-                        data = f.read(min(chunk_size, remaining))
-                        if not data:
+                        chunk = await asyncio.to_thread(
+                            _read_chunk, f, min(chunk_size, remaining)
+                        )
+                        if not chunk:
                             break
-                        remaining -= len(data)
-                        yield data
+                        remaining -= len(chunk)
+                        yield chunk
+                finally:
+                    await asyncio.to_thread(f.close)
         except Exception as e:
             log.error(f"Streaming error for {path}: {e}")
 

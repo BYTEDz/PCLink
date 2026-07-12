@@ -1,4 +1,3 @@
-# src/pclink/api_server/file_browser.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -37,6 +36,7 @@ class FileItem(BaseModel):
     size: int
     modified_at: float
     item_type: str
+    duration: int | None = None
 
 
 class DirectoryListing(BaseModel):
@@ -108,6 +108,8 @@ def _map_error(e: Exception):
         raise HTTPException(status_code=400, detail=str(e))
     if isinstance(e, shutil.SameFileError):
         raise HTTPException(status_code=409, detail="SOURCE_IS_DEST")
+    if isinstance(e, NotADirectoryError):
+        raise HTTPException(status_code=400, detail="Target is not a directory")
 
     log.error(f"Internal file error: {e}", exc_info=True)
     raise HTTPException(status_code=500, detail="Internal server error")
@@ -146,9 +148,6 @@ async def verify_download_access(
     """
     # 1. Try standard API key verification
     try:
-        # We simulate the call to verify_api_key by checking the token
-        # since verify_api_key is a dependency and not a simple function.
-        # However, we can use the device_manager directly.
         from ...core.device_manager import device_manager
 
         key = token
@@ -189,17 +188,20 @@ async def browse_directory(path: str | None = Query(None)):
             for r in file_service.get_system_roots()
         ]
         if HOME_DIR.exists():
-            st = HOME_DIR.stat()
-            items.append(
-                FileItem(
-                    name="Home",
-                    path=str(HOME_DIR),
-                    is_dir=True,
-                    size=st.st_size,
-                    modified_at=st.st_mtime,
-                    item_type="home",
+            try:
+                st = HOME_DIR.stat()
+                items.append(
+                    FileItem(
+                        name="Home",
+                        path=str(HOME_DIR),
+                        is_dir=True,
+                        size=st.st_size,
+                        modified_at=st.st_mtime,
+                        item_type="home",
+                    )
                 )
-            )
+            except Exception:
+                pass
         return DirectoryListing(
             current_path=ROOT_IDENTIFIER, parent_path=None, items=items
         )
@@ -210,8 +212,14 @@ async def browse_directory(path: str | None = Query(None)):
 
         is_root = any(str(p) == str(r) for r in file_service.get_system_roots())
         parent = str(p.parent) if not is_root else ROOT_IDENTIFIER
-        if p.samefile(HOME_DIR):
-            parent = ROOT_IDENTIFIER
+
+        # Safe resolution check to avoid crash if HOME_DIR is offline/missing
+        try:
+            if HOME_DIR.exists() and p.samefile(HOME_DIR):
+                parent = ROOT_IDENTIFIER
+        except Exception:
+            if p == HOME_DIR:
+                parent = ROOT_IDENTIFIER
 
         return DirectoryListing(
             current_path=str(p),
@@ -229,7 +237,26 @@ async def get_thumbnail(path: str = Query(...)):
         data = await file_service.get_thumbnail(p)
         if not data:
             raise HTTPException(404, "Thumbnail not available")
-        return Response(content=data, media_type="image/png")
+        # Optimization: Enforce smart client-side HTTP cache headers to speed up repeated UI visits
+        return Response(
+            content=data,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "public, max-age=604800, stale-while-revalidate=86400"
+            },
+        )
+    except Exception as e:
+        _map_error(e)
+
+
+@router.get("/media-info", dependencies=[Depends(verify_api_key)])
+async def get_media_info(path: str = Query(...)):
+    try:
+        p = file_service.validate_path(path)
+        info = await file_service.get_media_info(p)
+        if not info:
+            raise HTTPException(404, "Media info not available")
+        return info
     except Exception as e:
         _map_error(e)
 
@@ -270,6 +297,9 @@ async def extract(payload: ExtractPayload):
 async def create_folder(payload: CreateFolderPayload):
     try:
         parent = file_service.validate_path(payload.parent_path)
+        if not parent.is_dir():
+            raise HTTPException(400, "Parent path is not a directory")
+
         name = validate_filename(payload.folder_name)
         new_p = parent / name
 
@@ -299,7 +329,11 @@ async def rename(payload: RenamePayload):
         # Security: Always validate the final destination path
         dest = file_service.validate_path(str(dest), check_existence=False)
 
-        if dest.exists() and src.resolve() != dest.resolve():
+        # Optimization: Instantly succeed if renaming to exact same location (prevent locks/samefile crashes)
+        if src.resolve() == dest.resolve():
+            return {"status": "success"}
+
+        if dest.exists():
             raise HTTPException(409, "Target already exists")
 
         if not dest.parent.exists():
@@ -312,7 +346,7 @@ async def rename(payload: RenamePayload):
 
 
 @router.post("/batch-rename", dependencies=[Depends(verify_api_key)])
-async def batch_rename(payload: BatchRenamePayload):  # Fixed payload validation
+async def batch_rename(payload: BatchRenamePayload):
     items = payload.items
     results, wait_list = [], []
     success_count = 0
@@ -348,7 +382,11 @@ async def batch_rename(payload: BatchRenamePayload):  # Fixed payload validation
 
             dest = dest.resolve(strict=False)
 
-            if dest.exists() and src.resolve() != dest.resolve():
+            # Optimization: Instantly succeed if renaming to exact same location
+            if src.resolve() == dest.resolve():
+                return {"path": item.path, "status": "success", "new_path": str(dest)}
+
+            if dest.exists():
                 if not is_retry:
                     return {"path": item.path, "status": "conflict"}
 
@@ -439,6 +477,9 @@ async def open_file(payload: PathPayload):
 async def paste(payload: PastePayload):
     try:
         dest = file_service.validate_path(payload.destination_path)
+        if not dest.is_dir():
+            raise HTTPException(400, "Destination path must be a directory")
+
         res = await file_service.move_copy(
             payload.source_paths, dest, payload.action, payload.conflict_resolution
         )
@@ -546,6 +587,9 @@ async def revoke_share(share_token: str, request: Request):
 async def share_file(payload: SharePayload, request: Request):
     try:
         from ...core.device_manager import device_manager
+
+        # Security: Enforce validation to make sure shared file actually exists and is safe
+        file_service.validate_path(payload.path)
 
         # Extract API key to find the device_id
         key = request.headers.get("X-API-Key") or request.cookies.get(
