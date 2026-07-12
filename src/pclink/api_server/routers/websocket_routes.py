@@ -16,7 +16,7 @@ from .dependencies import verify_web_session
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["WebSocket"])
 
-AUTH_CHECK_INTERVAL = 5.0  # seconds
+AUTH_CHECK_INTERVAL = 30.0  # seconds — reduced DB hits per connection
 
 
 async def handle_mouse_command(data: Dict[str, Any], permissions: List[str]):
@@ -131,7 +131,9 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
 
             # 3. Safe Command Execution
             try:
-                if msg_type == "mouse_control":
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+                elif msg_type == "mouse_control":
                     await handle_mouse_command(data, permissions)
                 elif msg_type == "keyboard_control":
                     await handle_keyboard_command(data, permissions)

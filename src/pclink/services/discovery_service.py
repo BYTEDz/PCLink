@@ -44,6 +44,10 @@ class DiscoveryService:
 
     def _get_beacon_payload(self) -> bytes:
         """Prepare JSON beacon payload."""
+        try:
+            from ..core.version import __version__ as _ver
+        except Exception:
+            _ver = "unknown"
         payload = {
             "magic": BEACON_MAGIC,
             "port": self.api_port,
@@ -51,6 +55,7 @@ class DiscoveryService:
             "https": True,  # Indicates if the API server uses HTTPS.
             "os": platform.system().lower(),
             "server_id": self.server_id,
+            "version": _ver,
         }
         # Encode payload to binary.
         return json.dumps(payload).encode("utf-8")
@@ -104,12 +109,19 @@ class DiscoveryService:
             f"Broadcasting to {len(broadcast_addresses)} addresses: {broadcast_addresses}"
         )
 
+        # Send an immediate first beacon so clients discover us without waiting 5s
+        for broadcast_addr in broadcast_addresses:
+            try:
+                self._socket.sendto(beacon_payload, (broadcast_addr, DISCOVERY_PORT))
+            except Exception:
+                pass
+
         iteration = 0
         while self._running:
             try:
                 # Refresh broadcast addresses every 60 seconds (12 iterations of 5s)
                 # to handle network interface changes/wake-from-sleep.
-                if iteration % 12 == 0:
+                if iteration % 12 == 0 and iteration > 0:
                     broadcast_addresses = self._get_broadcast_addresses()
                 iteration += 1
 
