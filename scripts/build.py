@@ -190,6 +190,8 @@ def check_system_dependencies(build_format=None):
         "cryptography",
         "requests",
         "jinja2",
+        "prettytable",
+        "questionary",
     ]
 
     # Optional packages that might not be available in headless environments
