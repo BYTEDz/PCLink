@@ -8,13 +8,11 @@ Prepares the staging directory and generates the nfpm.yaml config and
 maintainer scripts for package creation via nfpm or GoReleaser.
 """
 
-import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-import yaml
 
 # Add src to path for version info
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -553,87 +551,6 @@ exit 0
             "postrm": postrm_path,
         }
 
-    def generate_nfpm_config(self):
-        """Generates the nfpm.yaml configuration file."""
-        print("[NFPM] Generating nfpm.yaml configuration...")
-
-        deps_path = self.root_dir / "scripts" / "deps.json"
-        with open(deps_path, "r", encoding="utf-8") as f:
-            deps_config = json.load(f)
-
-        nfpm_config = {
-            "name": self.metadata["name"],
-            "arch": self.metadata["architecture"],
-            "platform": "linux",
-            "version": self.metadata["version"],
-            "section": "net",
-            "priority": "optional",
-            "maintainer": self.metadata["maintainer"],
-            "description": self.metadata["description"],
-            "homepage": self.metadata["homepage"],
-            "license": self.metadata["license"],
-            "depends": deps_config["debian"],
-            "overrides": {
-                "rpm": deps_config["rpm"],
-                "archlinux": {
-                    "depends": deps_config["arch_nfpm"],
-                },
-            },
-            "contents": [
-                {"src": "build/nfpm/staging/usr/lib/pclink", "dst": "/usr/lib/pclink"},
-                {"src": "build/nfpm/staging/usr/bin/pclink", "dst": "/usr/bin/pclink"},
-                {
-                    "src": "build/nfpm/staging/usr/bin/pclink-power-wrapper",
-                    "dst": "/usr/bin/pclink-power-wrapper",
-                },
-                {
-                    "src": "build/nfpm/staging/usr/bin/test-power-permissions",
-                    "dst": "/usr/bin/test-power-permissions",
-                },
-                {
-                    "src": "build/nfpm/staging/usr/share/applications/xyz.bytedz.PCLink.desktop",
-                    "dst": "/usr/share/applications/xyz.bytedz.PCLink.desktop",
-                },
-                {
-                    "src": "build/nfpm/staging/usr/share/icons/hicolor/256x256/apps/xyz.bytedz.PCLink.png",
-                    "dst": "/usr/share/icons/hicolor/256x256/apps/xyz.bytedz.PCLink.png",
-                },
-                {
-                    "src": "build/nfpm/staging/usr/share/man/man1/pclink.1",
-                    "dst": "/usr/share/man/man1/pclink.1",
-                },
-                {
-                    "src": "build/nfpm/staging/usr/lib/systemd/user/pclink.service",
-                    "dst": "/usr/lib/systemd/user/pclink.service",
-                },
-                {
-                    "src": "build/nfpm/staging/etc/sudoers.d/pclink",
-                    "dst": "/etc/sudoers.d/pclink",
-                    "file_info": {"mode": 0o440},
-                },
-                {
-                    "src": "build/nfpm/staging/etc/udev/rules.d/99-uinput.rules",
-                    "dst": "/etc/udev/rules.d/99-uinput.rules",
-                    "file_info": {"mode": 0o644},
-                },
-                # Include documentation files
-                {
-                    "src": "build/nfpm/staging/usr/share/doc/pclink",
-                    "dst": "/usr/share/doc/pclink",
-                },
-            ],
-            "scripts": {
-                "postinstall": "build/nfpm/scripts/postinst",
-                "preremove": "build/nfpm/scripts/prerm",
-                "postremove": "build/nfpm/scripts/postrm",
-            },
-        }
-
-        with open(self.nfpm_config_path, "w") as f:
-            yaml.safe_dump(nfpm_config, f, default_flow_style=False)
-
-        print(f"[OK] Generated NFPM config at {self.nfpm_config_path}")
-
     def build_all(self):
         """Prepare files and NFPM config for external packaging."""
         print(f"--- PCLink Pre-Packager v{VERSION} ---")
@@ -646,7 +563,6 @@ exit 0
             self.create_staging_structure()
             self.install_application_files()
             self.create_scripts()
-            self.generate_nfpm_config()
 
             print("\n--- Preparation Complete ---")
             print("To build packages, run NFPM from the project root:")

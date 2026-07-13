@@ -52,7 +52,7 @@ try:
                     AppIndicator3 = _AppIndicator
                     LINUX_NATIVE_TRAY_AVAILABLE = True
                 except (ImportError, ValueError) as e:
-                    LINUX_TRAY_ERROR = f"{e} - Try: sudo dnf install libayatana-appindicator-gtk3 (Fedora) or sudo apt install gir1.2-appindicator3-0.1 (Ubuntu)"
+                    LINUX_TRAY_ERROR = f"{e} - Try: sudo dnf install libayatana-appindicator-gtk3 (Fedora) or sudo apt install gir1.2-ayatanaappindicator3-0.1 (Debian/Ubuntu)"
         else:
             LINUX_TRAY_ERROR = "No display detected (DISPLAY or WAYLAND_DISPLAY not set). Headless mode."
 except (ImportError, ValueError, Exception) as e:

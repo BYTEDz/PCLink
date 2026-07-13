@@ -723,7 +723,6 @@ def main():
             # Pass the wheel path we just built
             nfpm_builder.install_application_files(existing_wheel_path=wheel_path)
             nfpm_builder.create_scripts()
-            nfpm_builder.generate_nfpm_config()
 
             print("\n[INFO] NFPM pre-build complete. Starting final packaging...")
 
