@@ -43,6 +43,7 @@ DEFAULT_SETTINGS = {
         "screenshot",
         "utils",
         "macros",
+        "processes",
     ],
     # Services (API features that can be enabled/disabled)
     "services": {
