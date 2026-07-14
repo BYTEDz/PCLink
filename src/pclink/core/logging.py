@@ -4,7 +4,7 @@
 
 """
 PCLink Logging Configuration
-Configures application-wide logging with spam filtering and file rotation
+Configures application-wide logging with message deduplication and file rotation.
 """
 
 import logging
@@ -15,10 +15,36 @@ from pathlib import Path
 
 from . import constants
 
+# Localization catalog for application logging messages
+_STRINGS = {
+    "prev_repeated": "  (previous message repeated {count} times)",
+    "log_init": "[+] PCLink Logging Initialized",
+    "log_file_loc": "[-] Log file: {path}",
+    "fail_file_logger": "Failed to configure file logger: {error}",
+    "log_separator": "=" * 50,
+    "log_configured": "Logging configured. Log file located at: {path}",
+}
+
+
+def _(key: str, **kwargs) -> str:
+    """Retrieves and formats a localized string from the logging catalog."""
+    return _STRINGS.get(key, key).format(**kwargs)
+
+
+def _safe_print(msg: str) -> None:
+    """Prints text to stdout, ignoring errors if stdout is unavailable or closed."""
+    if sys.stdout is None or not hasattr(sys.stdout, "write"):
+        return
+    try:
+        print(msg)
+    except Exception:
+        pass
+
 
 class CleanConsoleHandler(logging.StreamHandler):
     """
-    Console handler that filters out repetitive HTTP requests and other spam
+    Console handler that filters redundant HTTP requests and repeated log entries.
+    Deduplicates identical consecutive log entries to prevent console flooding.
     """
 
     def __init__(self, stream=None):
@@ -26,41 +52,65 @@ class CleanConsoleHandler(logging.StreamHandler):
         self.last_message = None
         self.repeat_count = 0
 
-        self.spam_patterns = [
-            r"GET /status HTTP/1\.1.*200 OK",
-            r"GET /ping HTTP/1\.1.*200 OK",
-            r"GET /qr-payload HTTP/1\.1.*200 OK",
-            r"connection (open|closed)",
+        self.filter_patterns = [
+            re.compile(r"GET /status HTTP/1\.1.*200 OK"),
+            re.compile(r"GET /ping HTTP/1\.1.*200 OK"),
+            re.compile(r"GET /qr-payload HTTP/1\.1.*200 OK"),
+            re.compile(r"connection (open|closed)"),
         ]
-        self.compiled_patterns = [re.compile(pattern) for pattern in self.spam_patterns]
 
     def emit(self, record):
-        """Override emit to filter spam messages"""
+        """Processes and writes log records, filtering repetitive entries."""
         try:
             msg = self.format(record)
 
-            for pattern in self.compiled_patterns:
+            # Drop logs matching the defined filter patterns
+            for pattern in self.filter_patterns:
                 if pattern.search(msg):
                     return
 
+            # Check for consecutive identical entries
             if msg == self.last_message:
                 self.repeat_count += 1
                 return
-            else:
-                if self.repeat_count > 0:
-                    print(f"  (previous message repeated {self.repeat_count} times)")
-                    self.repeat_count = 0
 
-                super().emit(record)
-                self.last_message = msg
+            # Output the repetition count before emitting the new log record
+            if self.repeat_count > 0:
+                repeat_msg = (
+                    _("prev_repeated", count=self.repeat_count) + self.terminator
+                )
+                self.stream.write(repeat_msg)
+                self.flush()
+                self.repeat_count = 0
+
+            self.last_message = msg
+            super().emit(record)
 
         except Exception:
             self.handleError(record)
 
+    def close(self):
+        """Flushes any remaining repetition counts upon handler closure."""
+        try:
+            self.acquire()
+            if self.repeat_count > 0:
+                try:
+                    repeat_msg = (
+                        _("prev_repeated", count=self.repeat_count) + self.terminator
+                    )
+                    self.stream.write(repeat_msg)
+                    self.flush()
+                except Exception:
+                    pass
+                self.repeat_count = 0
+            super().close()
+        finally:
+            self.release()
+
 
 def setup_logging(level=logging.INFO):
     """
-    Configures application-wide logging with reduced console spam.
+    Configures application-wide logging with reduced console logging.
     """
     log_dir = Path(constants.APP_DATA_PATH)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +129,7 @@ def setup_logging(level=logging.INFO):
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
 
+    # Configure rotating file logging
     try:
         file_handler = RotatingFileHandler(
             log_file, maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
@@ -86,16 +137,24 @@ def setup_logging(level=logging.INFO):
         file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
     except Exception as e:
-        logging.basicConfig()
-        logging.error(f"Failed to configure file logger: {e}")
+        err_msg = _("fail_file_logger", error=e)
+        if sys.stderr and hasattr(sys.stderr, "write"):
+            sys.stderr.write(f"ERROR: {err_msg}\n")
 
-    if not getattr(sys, "frozen", False):
+    # Add console logging if a functional output stream is active
+    show_console = sys.stdout is not None and hasattr(sys.stdout, "write")
+    if show_console:
         console_handler = CleanConsoleHandler(sys.stdout)
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
 
+    # Configure third-party log levels dynamically
     is_frozen = getattr(sys, "frozen", False)
-    if is_frozen:
+    if level == logging.DEBUG:
+        logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+        logging.getLogger("uvicorn.error").setLevel(logging.DEBUG)
+        logging.getLogger("asyncio").setLevel(logging.WARNING)
+    elif is_frozen:
         logging.getLogger("uvicorn").setLevel(logging.ERROR)
         logging.getLogger("uvicorn.access").setLevel(logging.ERROR)
         logging.getLogger("uvicorn.error").setLevel(logging.ERROR)
@@ -106,15 +165,10 @@ def setup_logging(level=logging.INFO):
         logging.getLogger("uvicorn.error").setLevel(logging.INFO)
         logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
-    if not is_frozen:
-        try:
-            print("🚀 PCLink Logging Initialized")
-            print(f"📁 Log file: {log_file}")
-        except UnicodeEncodeError:
-            # Fallback for Windows consoles that don't support UTF-8/Emojis
-            print("[+] PCLink Logging Initialized")
-            print(f"[-] Log file: {log_file}")
+    if show_console and not is_frozen:
+        _safe_print(_("log_init"))
+        _safe_print(_("log_file_loc", path=log_file))
 
-    logging.info("=" * 50)
-    logging.info("Logging configured. Log file located at: %s", log_file)
-    logging.info("=" * 50)
+    logging.info(_("log_separator"))
+    logging.info(_("log_configured", path=log_file))
+    logging.info(_("log_separator"))
