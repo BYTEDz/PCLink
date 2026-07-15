@@ -8,7 +8,6 @@ consistent, professional naming convention.
 """
 
 import argparse
-import json
 import os
 import platform
 import shutil
@@ -806,62 +805,21 @@ def main():
         elif args.format == "pkgbuild":
             print("[INFO] Generating PKGBUILD for Arch Linux...")
 
-            deps_path = builder.root_dir / "scripts" / "deps.json"
-            with open(deps_path, "r", encoding="utf-8") as f:
-                deps_config = json.load(f)
+            pkgbuild_src = builder.root_dir / "PKGBUILD"
+            if not pkgbuild_src.exists():
+                raise BuildError(f"Source PKGBUILD not found at {pkgbuild_src}")
 
-            arch_cfg = deps_config["arch_pkgbuild"]
-            depends_str = "\\n  ".join(f"'{d}'" for d in arch_cfg["depends"])
-            makedepends_str = "\\n  ".join(f"'{d}'" for d in arch_cfg["makedepends"])
-            optdepends_str = "\\n  ".join(f"'{d}'" for d in arch_cfg["optdepends"])
+            import re
 
-            pkgbuild_template = f"""# Maintainer: AZHAR ZOUHIR <support@bytedz.com>
-# Co-maintainer: Mark Wagie <mark dot wagie at proton dot me>
-pkgname=pclink
-_app_id=xyz.bytedz.PCLink
-pkgver={builder.version.replace("-", "_")}
-pkgrel=1
-pkgdesc="Desktop app for secure remote PC control and management"
-arch=('any')
-url="https://github.com/BYTEDz/PCLink"
-license=('AGPL-3.0-or-later AND LicenseRef-custom')
-depends=(
-  {depends_str}
-)
-makedepends=(
-  {makedepends_str}
-)
-optdepends=(
-  {optdepends_str}
-)
-source=("PCLink-$pkgver.tar.gz::https://github.com/BYTEDz/PCLink/archive/refs/tags/v{builder.version}.tar.gz"
-        "$pkgname.1::https://raw.githubusercontent.com/BYTEDz/PCLink/main/scripts/linux/pclink.1")
-sha256sums=('SKIP'
-            'SKIP')
+            content = pkgbuild_src.read_text(encoding="utf-8")
+            # Update pkgver dynamically
+            new_ver = builder.version.replace("-", "_")
+            content = re.sub(
+                r"^pkgver=.*$", f"pkgver={new_ver}", content, flags=re.MULTILINE
+            )
 
-build() {{
-  cd "PCLink-{builder.version}"
-  python -m build --wheel --no-isolation
-}}
-
-package() {{
-  cd "PCLink-{builder.version}"
-  python -m installer --destdir="$pkgdir" dist/*.whl
-
-  install -Dm755 "scripts/linux/$pkgname-power-wrapper" -t "$pkgdir/usr/bin/"
-  install -Dm755 scripts/linux/test-power-permissions -t "$pkgdir/usr/bin/"
-  install -dm750 "$pkgdir/etc/sudoers.d/"
-  install -m440 "scripts/linux/$pkgname-sudoers" "$pkgdir/etc/sudoers.d/$pkgname"
-  install -Dm644 "scripts/linux/$pkgname.service.template" "$pkgdir/usr/lib/systemd/user/$pkgname.service"
-  install -Dm644 scripts/linux/99-uinput.rules -t "$pkgdir/usr/lib/udev/rules.d/"
-  install -Dm644 "assets/${{pkgname}}_icon.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/${{_app_id}}.svg"
-  install -Dm644 "${{_app_id}}.desktop" -t "$pkgdir/usr/share/applications/"
-  install -Dm644 "$srcdir/$pkgname.1" -t "$pkgdir/usr/share/man/man1/"
-  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
-}}
-"""
             pkgbuild_path = builder.releases_dir / "PKGBUILD"
-            pkgbuild_path.write_text(pkgbuild_template, encoding="utf-8")
+            pkgbuild_path.write_text(content, encoding="utf-8")
             print(f"[OK] Generated PKGBUILD at {pkgbuild_path}")
 
         print(
