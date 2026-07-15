@@ -725,7 +725,7 @@ def main():
 
             print("\n[INFO] NFPM pre-build complete. Starting final packaging...")
 
-            # Dynamically update version in nfpm.yaml
+            # Dynamically update version and arch in nfpm.yaml
             nfpm_config_path = builder.root_dir / "nfpm.yaml"
             if nfpm_config_path.exists():
                 import re
@@ -737,8 +737,16 @@ def main():
                     content,
                     flags=re.MULTILINE,
                 )
+                content = re.sub(
+                    r"^arch:\s*.*$",
+                    f"arch: {nfpm_arch}",
+                    content,
+                    flags=re.MULTILINE,
+                )
                 nfpm_config_path.write_text(content, encoding="utf-8")
-                print(f"[INFO] Updated version in nfpm.yaml to {builder.version}")
+                print(
+                    f"[INFO] Updated version ({builder.version}) and arch ({nfpm_arch}) in nfpm.yaml"
+                )
 
             # Check for nfpm executable
             if not shutil.which("nfpm"):
