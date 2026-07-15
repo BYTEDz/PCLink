@@ -13,6 +13,8 @@ try:
 except ImportError:
     EVDEV_AVAILABLE = False
 
+from ..core.config import config_manager
+
 log = logging.getLogger(__name__)
 
 
@@ -132,8 +134,7 @@ class LinuxEvdevService:
             self.ui = UInput(capabilities, name="PCLink Virtual Input")
             log.info("Successfully created PCLink Virtual Input device via uinput.")
 
-            # Map standard strings to ecodes
-            self.key_map = {
+            self.qwerty_key_map = {
                 "enter": ecodes.KEY_ENTER,
                 "esc": ecodes.KEY_ESC,
                 "shift": ecodes.KEY_LEFTSHIFT,
@@ -151,7 +152,45 @@ class LinuxEvdevService:
                 "down": ecodes.KEY_DOWN,
                 "left": ecodes.KEY_LEFT,
                 "right": ecodes.KEY_RIGHT,
+                "q": ecodes.KEY_Q,
+                "w": ecodes.KEY_W,
+                "e": ecodes.KEY_E,
+                "r": ecodes.KEY_R,
+                "t": ecodes.KEY_T,
+                "y": ecodes.KEY_Y,
+                "u": ecodes.KEY_U,
+                "i": ecodes.KEY_I,
+                "o": ecodes.KEY_O,
+                "p": ecodes.KEY_P,
+                "a": ecodes.KEY_A,
+                "s": ecodes.KEY_S,
+                "d": ecodes.KEY_D,
+                "f": ecodes.KEY_F,
+                "g": ecodes.KEY_G,
+                "h": ecodes.KEY_H,
+                "j": ecodes.KEY_J,
+                "k": ecodes.KEY_K,
+                "l": ecodes.KEY_L,
+                "z": ecodes.KEY_Z,
+                "x": ecodes.KEY_X,
+                "c": ecodes.KEY_C,
+                "v": ecodes.KEY_V,
+                "b": ecodes.KEY_B,
+                "n": ecodes.KEY_N,
+                "m": ecodes.KEY_M,
             }
+
+            self.azerty_key_map = self.qwerty_key_map.copy()
+            self.azerty_key_map.update(
+                {
+                    "a": ecodes.KEY_Q,
+                    "q": ecodes.KEY_A,
+                    "z": ecodes.KEY_W,
+                    "w": ecodes.KEY_Z,
+                    "m": ecodes.KEY_SEMICOLON,
+                    ",": ecodes.KEY_M,
+                }
+            )
 
             self.btn_map = {
                 "left": ecodes.BTN_LEFT,
@@ -205,14 +244,21 @@ class LinuxEvdevService:
                 self.ui.write(ecodes.EV_KEY, code, 0)
                 self.ui.syn()
 
+    def _get_active_map(self):
+        layout = config_manager.get("keyboard_layout", "qwerty").lower()
+        if layout == "azerty":
+            return self.azerty_key_map
+        return self.qwerty_key_map
+
     def press_key(self, key_str: str, modifiers: List[str] = None):
         if not self.ui:
             return
         try:
-            mods = [self.key_map.get(m.lower(), None) for m in (modifiers or [])]
+            active_map = self._get_active_map()
+            mods = [active_map.get(m.lower(), None) for m in (modifiers or [])]
             mods = [m for m in mods if m is not None]
 
-            main_key = self.key_map.get(key_str.lower(), None)
+            main_key = active_map.get(key_str.lower(), None)
             if main_key is None:
                 # Fallback to single char mapping if it's a letter
                 main_key = self._char_to_ecode(key_str)
@@ -233,33 +279,13 @@ class LinuxEvdevService:
     def _char_to_ecode(self, char: str):
         # basic ASCII to ecode bridge
         c = char.lower()
+        active_map = self._get_active_map()
+
+        # Check layout map first
+        if c in active_map:
+            return active_map[c]
+
         mapping = {
-            "a": ecodes.KEY_A,
-            "b": ecodes.KEY_B,
-            "c": ecodes.KEY_C,
-            "d": ecodes.KEY_D,
-            "e": ecodes.KEY_E,
-            "f": ecodes.KEY_F,
-            "g": ecodes.KEY_G,
-            "h": ecodes.KEY_H,
-            "i": ecodes.KEY_I,
-            "j": ecodes.KEY_J,
-            "k": ecodes.KEY_K,
-            "l": ecodes.KEY_L,
-            "m": ecodes.KEY_M,
-            "n": ecodes.KEY_N,
-            "o": ecodes.KEY_O,
-            "p": ecodes.KEY_P,
-            "q": ecodes.KEY_Q,
-            "r": ecodes.KEY_R,
-            "s": ecodes.KEY_S,
-            "t": ecodes.KEY_T,
-            "u": ecodes.KEY_U,
-            "v": ecodes.KEY_V,
-            "w": ecodes.KEY_W,
-            "x": ecodes.KEY_X,
-            "y": ecodes.KEY_Y,
-            "z": ecodes.KEY_Z,
             "1": ecodes.KEY_1,
             "2": ecodes.KEY_2,
             ".": ecodes.KEY_DOT,
