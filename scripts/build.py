@@ -725,6 +725,21 @@ def main():
 
             print("\n[INFO] NFPM pre-build complete. Starting final packaging...")
 
+            # Dynamically update version in nfpm.yaml
+            nfpm_config_path = builder.root_dir / "nfpm.yaml"
+            if nfpm_config_path.exists():
+                import re
+
+                content = nfpm_config_path.read_text(encoding="utf-8")
+                content = re.sub(
+                    r"^version:\s*.*$",
+                    f"version: {builder.version}",
+                    content,
+                    flags=re.MULTILINE,
+                )
+                nfpm_config_path.write_text(content, encoding="utf-8")
+                print(f"[INFO] Updated version in nfpm.yaml to {builder.version}")
+
             # Check for nfpm executable
             if not shutil.which("nfpm"):
                 raise BuildError(
