@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.0] - 2026-07-15
+
+> [!IMPORTANT]
+> **Compatibility Reminder:** To ensure optimal performance and prevent connection issues, please make sure both this server and the companion app are updated to the same version.
+
+## Features
+- add keyboard layout configuration and support for AZERTY mapping in evdev service ([e9cfea9](https://github.com/BYTEDz/PCLink/commit/e9cfea9)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- add processes module to allowed plugins list in configuration ([1081882](https://github.com/BYTEDz/PCLink/commit/1081882)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- implement system repair center for diagnostics and automated troubleshooting of server configurations, database integrity, and firewall settings. ([a354a74](https://github.com/BYTEDz/PCLink/commit/a354a74)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- implement hardware-ID based re-auth, silent reconnection, IP change notification, and optimize discovery/websocket performance. ([ab7be0a](https://github.com/BYTEDz/PCLink/commit/ab7be0a)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- add PyAV integration to file service for media metadata extraction and thumbnail generation ([744dcf2](https://github.com/BYTEDz/PCLink/commit/744dcf2)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
+## Performance Improvements
+- move heavy IO tasks to thread pool and optimize linux icon discovery for faster application loading ([af15a3c](https://github.com/BYTEDz/PCLink/commit/af15a3c)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
+## Refactoring
+- implement string localization and enhance console logging deduplication in core utilities ([5bc44e1](https://github.com/BYTEDz/PCLink/commit/5bc44e1)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- remove manual NFPM config generation, cleanup dependencies, and update tray indicator package requirements ([06ed090](https://github.com/BYTEDz/PCLink/commit/06ed090)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- internationalize CLI output, add interactive menu support, and include prettytable and questionary dependencies. ([55933dd](https://github.com/BYTEDz/PCLink/commit/55933dd)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
+## Chores & Maintenance
+- update installer WizardStyle to modern dynamic ([df175b7](https://github.com/BYTEDz/PCLink/commit/df175b7)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
+## Other Changes
+- update project dependencies in pyproject.toml ([6afb687](https://github.com/BYTEDz/PCLink/commit/6afb687)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
 ## [4.4.0] - 2026-06-28
 
 ### Added
