@@ -4,7 +4,6 @@
 
 from .app_service import app_service
 from .discovery_service import DiscoveryService
-from .extension_service import extension_service
 from .file_service import file_service
 from .input_service import input_service
 from .macro_service import macro_service
@@ -23,7 +22,6 @@ __all__ = [
     "utility_service",
     "file_service",
     "app_service",
-    "extension_service",
     "macro_service",
     "terminal_service",
     "DiscoveryService",
