@@ -6,10 +6,12 @@ import gettext
 import hashlib
 import json
 import logging
+import mimetypes
 import os
 import shutil
 import subprocess
 import sys
+import urllib.parse
 from typing import List, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -24,7 +26,6 @@ from .dependencies import extract_token, verify_api_key, verify_web_session
 log = logging.getLogger(__name__)
 _ = gettext.gettext
 
-# NOTE: Enforce authentication for all file operations
 router = APIRouter()
 
 ROOT_IDENTIFIER = "_ROOT_"
@@ -122,19 +123,14 @@ async def get_file_hash(path: str) -> str:
 
     def _read():
         with open(path, "rb") as f:
-            # Python 3.11+ native file hashing
             if hasattr(hashlib, "file_digest"):
                 return hashlib.file_digest(f, "md5").hexdigest()
-            # Fallback
             hasher = hashlib.md5()
             for chunk in iter(lambda: f.read(131072), b""):
                 hasher.update(chunk)
             return hasher.hexdigest()
 
     return await asyncio.to_thread(_read)
-
-
-# --- Endpoints ---
 
 
 async def verify_download_access(
@@ -148,7 +144,6 @@ async def verify_download_access(
     1. A valid device API key is provided.
     2. A valid share token for the specific path is provided.
     """
-    # 1. Try standard API key verification
     try:
         from ...core.device_manager import device_manager
 
@@ -160,12 +155,14 @@ async def verify_download_access(
     except Exception:
         pass
 
-    # 2. Try share token verification
     if token and path:
         if share_manager.validate_share_token(token, path):
             return True
 
     raise HTTPException(status_code=403, detail=_("Invalid or missing access token"))
+
+
+# --- Endpoints ---
 
 
 @router.get(
@@ -210,7 +207,6 @@ async def browse_directory(path: str | None = Query(None)):
         is_root = any(str(p) == str(r) for r in file_service.get_system_roots())
         parent = str(p.parent) if not is_root else ROOT_IDENTIFIER
 
-        # Safe resolution check to avoid crash if HOME_DIR is offline/missing
         try:
             if HOME_DIR.exists() and p.samefile(HOME_DIR):
                 parent = ROOT_IDENTIFIER
@@ -234,7 +230,6 @@ async def get_thumbnail(path: str = Query(...)):
         data = await file_service.get_thumbnail(p)
         if not data:
             raise HTTPException(404, _("Thumbnail not available"))
-        # Optimization: Enforce smart client-side HTTP cache headers to speed up repeated UI visits
         return Response(
             content=data,
             media_type="image/png",
@@ -244,6 +239,59 @@ async def get_thumbnail(path: str = Query(...)):
         )
     except Exception as e:
         _map_error(e)
+
+
+@router.get("/stream", dependencies=[Depends(verify_api_key)])
+async def stream_media(request: Request, path: str = Query(...)):
+    """Streams a media file with HTTP Range headers for seeking."""
+    try:
+        p = file_service.validate_path(path)
+        if not p.is_file():
+            raise HTTPException(404, _("File or directory not found"))
+
+        stat = p.stat()
+        file_size = stat.st_size
+        mime, _encoding = mimetypes.guess_type(p)
+        content_type = mime or "application/octet-stream"
+
+        range_header = request.headers.get("Range")
+        start, end = 0, file_size - 1
+        status_code = 200
+        headers = {
+            "Content-Type": content_type,
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size),
+            "Content-Disposition": f'inline; filename="{urllib.parse.quote(p.name)}"',
+        }
+
+        if range_header:
+            try:
+                range_bytes = range_header.replace("bytes=", "").split("-")
+                start = int(range_bytes[0])
+                if range_bytes[1]:
+                    end = int(range_bytes[1])
+
+                if start >= file_size or end >= file_size or start > end:
+                    raise HTTPException(416, _("Range Not Satisfiable"))
+
+                status_code = 206
+                chunk_size = (end - start) + 1
+                headers["Content-Length"] = str(chunk_size)
+                headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+            except (ValueError, IndexError):
+                raise HTTPException(400, _("Invalid Range header"))
+
+        log.debug(f"Streaming {p.name}: {start}-{end} (status {status_code})")
+        return StreamingResponse(
+            file_service.get_file_iterator(p, start, end),
+            status_code=status_code,
+            headers=headers,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Stream failed for {path}: {e}")
+        raise HTTPException(500, _("Streaming failed"))
 
 
 @router.get("/media-info", dependencies=[Depends(verify_api_key)])
@@ -299,8 +347,6 @@ async def create_folder(payload: CreateFolderPayload):
 
         name = validate_filename(payload.folder_name)
         new_p = parent / name
-
-        # Security: Re-validate to ensure name traversal didn't escape constraints
         new_p = file_service.validate_path(str(new_p), check_existence=False)
 
         if new_p.exists():
@@ -323,10 +369,8 @@ async def rename(payload: RenamePayload):
             new_n = validate_filename(payload.new_name)
             dest = src.parent / new_n
 
-        # Security: Always validate the final destination path
         dest = file_service.validate_path(str(dest), check_existence=False)
 
-        # Optimization: Instantly succeed if renaming to exact same location (prevent locks/samefile crashes)
         if src.resolve() == dest.resolve():
             return {"status": "success"}
 
@@ -368,7 +412,6 @@ async def batch_rename(payload: BatchRenamePayload):
                         "error": "UNSAFE_PATH",
                     }
                 raw_dest = src.parent / item.new_name
-                # Security: Enforce final validation check
                 dest = file_service.validate_path(str(raw_dest), check_existence=False)
             else:
                 return {
@@ -379,7 +422,6 @@ async def batch_rename(payload: BatchRenamePayload):
 
             dest = dest.resolve(strict=False)
 
-            # Optimization: Instantly succeed if renaming to exact same location
             if src.resolve() == dest.resolve():
                 return {"path": item.path, "status": "success", "new_path": str(dest)}
 
@@ -512,7 +554,6 @@ async def list_shares(request: Request):
 
     shares = share_manager.list_shares_for_device(None if is_web else device_id)
 
-    # Map device_id to device_name
     for s in shares:
         d_id = s.get("device_id")
         if d_id == "unknown_device":
@@ -544,11 +585,9 @@ async def revoke_share(share_token: str, request: Request):
             if device:
                 device_id = device.device_id
 
-        # Only allow revocation if token belongs to this device
         shares = share_manager.list_shares_for_device(device_id)
         owned = any(s["token"] == share_token for s in shares)
         if not owned:
-            # Also check expired ones to still allow explicit revocation
             with share_manager._lock:
                 import sqlite3 as _sqlite3
 
@@ -571,10 +610,7 @@ async def share_file(payload: SharePayload, request: Request):
     try:
         from ...core.device_manager import device_manager
 
-        # Security: Enforce validation to make sure shared file actually exists and is safe
         file_service.validate_path(payload.path)
-
-        # Extract API key to find the device_id
         key = extract_token(request)
 
         device_id = "unknown_device"
@@ -587,7 +623,6 @@ async def share_file(payload: SharePayload, request: Request):
             path=payload.path, device_id=device_id, expires_in=payload.expires_in
         )
 
-        # Construct the full download URL
         base_url = str(request.base_url).rstrip("/")
         download_url = f"{base_url}/files/download?path={payload.path}&token={token}"
 
@@ -607,7 +642,6 @@ async def download(path: str = Query(...)):
         if not p.is_file():
             raise HTTPException(400, _("Requested path is not a file"))
 
-        # FastAPI Native FileResponse handles chunking, async I/O, range headers, and mime-types securely
         return FileResponse(
             path=str(p), filename=p.name, content_disposition_type="attachment"
         )

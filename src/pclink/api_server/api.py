@@ -16,18 +16,16 @@ from .routers.extensions import mgmt_router, runtime_router
 
 # --- API Router Imports ---
 from .routers.file_browser import router as file_browser_router
-from .routers.info import router as info_router
 from .routers.input import router as input_router
 from .routers.macros import router as macro_router
 from .routers.media import router as media_router
-from .routers.media_streaming import router as media_streaming_router
 from .routers.phone_files import router as phone_file_router
 from .routers.processes import router as process_manager_router
 from .routers.services_management import router as services_router
-from .routers.system import router as system_router
+from .routers.system import info_router, system_router
 from .routers.terminal import create_terminal_router
 
-# UPDATED: Import from the new transfers package
+# UPDATED: Import from the transfers package
 from .routers.transfers import (
     download_router,
     upload_router,
@@ -36,14 +34,9 @@ from .routers.utils import router as utils_router
 
 log = logging.getLogger(__name__)
 
-
-# --- Pydantic Models ---
-
 # --- Pairing State ---
 pairing_events: Dict[str, asyncio.Event] = {}
 pairing_results: Dict[str, dict] = {}
-
-# --- WebSocket Command Handlers ---
 
 
 # --- FastAPI App Factory ---
@@ -112,23 +105,20 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     app.state.host_port = getattr(controller_instance, "port", 38080)
     from .routers.dependencies import MOBILE_API, WEB_AUTH
 
-    # 5. Extension System (Initialize Early for Startup Tasks)
+    # Extension System (Initialize Early for Startup Tasks)
     from ..core.extension_manager import ExtensionManager
 
     extension_manager = ExtensionManager()
     extension_manager.app = app
     app.state.extension_manager = extension_manager
 
-    # 1. Startup Logic (Restoration & Cleanup)
-    # Moved to lifespan context manager
-
-    # 2. Global Middleware
+    # Global Middleware
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-    # 3. Router Registration
+    # Router Registration
     # - Services & Settings
     app.include_router(
         services_router,
@@ -144,7 +134,7 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
 
         return RedirectResponse(url="/ui/")
 
-    # - NEW: Modularized Routers
+    # Modularized Routers
     from .routers.auth import router as auth_router
     from .routers.devices import router as devices_router, get_connected_devices
     from .routers.pairing import (
@@ -185,14 +175,14 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
 
     app.include_router(ws_router)  # /ws, /ws/ui
 
-    # - Services Support
+    # Services Support
     @app.get("/ui/services/list", dependencies=[WEB_AUTH])
     async def list_services_states():
         from ..core.config import config_manager
 
         return {"services": config_manager.get("services", {})}
 
-    # - Core Domain Routers
+    # Core Domain Routers
     app.include_router(
         upload_router, prefix="/files/upload", tags=["Uploads"], dependencies=MOBILE_API
     )
@@ -213,12 +203,6 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     )
     app.include_router(
         system_router, prefix="/system", tags=["System"], dependencies=MOBILE_API
-    )
-    app.include_router(
-        media_streaming_router,
-        prefix="/files",
-        tags=["Streaming"],
-        dependencies=MOBILE_API,
     )
     app.include_router(
         process_manager_router,
@@ -249,12 +233,12 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         dependencies=MOBILE_API,
     )
 
-    # - Mirroring (Core)
+    # Mirroring (Core)
     from .routers.desktop_streaming import router as desktop_streaming_router
 
     app.include_router(desktop_streaming_router)
 
-    # 4. Web UI & Extensions
+    # Web UI & Extensions
     try:
         from ..web_ui.router import create_web_ui_router
 
@@ -263,7 +247,7 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     except Exception as e:
         log.warning(f"Web UI failed to load: {e}")
 
-    # 5. Extension Loading
+    # Extension Loading
     extension_manager.load_all_extensions()
 
     app.include_router(mgmt_router, prefix="/api/extensions", dependencies=MOBILE_API)

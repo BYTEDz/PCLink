@@ -1,31 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-import os
 import sys
-
-
-class DummyTty:
-    """A dummy file-like object to redirect stdout/stderr."""
-
-    def __init__(self):
-        self.encoding = "utf-8"
-        self.errors = "strict"
-        self._devnull = None
-
-    def write(self, x):
-        pass
-
-    def flush(self):
-        pass
-
-    def isatty(self):
-        return False
-
-    def fileno(self):
-        # Return a valid file descriptor for libraries like speedtest that wrap stdout
-        # using FileIO. We open os.devnull and let the caller own/close the fd.
-        return os.open(os.devnull, os.O_WRONLY)
+from .utils import DummyTty
 
 
 def hide_console_window():

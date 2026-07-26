@@ -26,6 +26,14 @@ def extract_token(
         return x_api_key
     if token:
         return token
+    if hasattr(conn, "query_params"):
+        query_key = (
+            conn.query_params.get("token")
+            or conn.query_params.get("x-api-key")
+            or conn.query_params.get("api_key")
+        )
+        if query_key:
+            return query_key
     if hasattr(conn, "headers"):
         header_key = conn.headers.get("X-API-Key") or conn.headers.get("x-api-key")
         if header_key:
