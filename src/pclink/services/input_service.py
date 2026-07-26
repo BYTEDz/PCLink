@@ -1,3 +1,7 @@
+# src/pclink/services/input_service.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import logging
 from typing import List
 
@@ -25,7 +29,7 @@ class InputService:
         self.button_map = {}
         self.key_map = {}
 
-        # Prefer evdev on linux + Wayland
+        # Prefer evdev on Linux + Wayland
         if is_wayland():
             self.evdev = LinuxEvdevService()
             if self.evdev.ui:
@@ -33,7 +37,7 @@ class InputService:
                 log.info("InputService: Using evdev (Wayland mode)")
 
         if not self.use_evdev and PYNPUT_AVAILABLE:
-            log.info("InputService: Using pynput (X11/Standalone mode)")
+            log.info("InputService: Using pynput (Standard OS mode)")
             from pynput.keyboard import Controller as KeyboardController
             from pynput.keyboard import Key
             from pynput.mouse import Button
@@ -96,7 +100,23 @@ class InputService:
         if self.use_evdev:
             self.evdev.type_text(text)
         elif self.keyboard:
-            self.keyboard.type(text)
+            try:
+                self.keyboard.type(text)
+            except Exception as e:
+                log.warning(
+                    f"[INPUT_SERVICE] pynput type failed, attempting clipboard paste: {e}"
+                )
+                try:
+                    import pyperclip
+                    from pynput.keyboard import Key
+
+                    pyperclip.copy(text)
+                    self.keyboard.press(Key.ctrl)
+                    self.keyboard.press("v")
+                    self.keyboard.release("v")
+                    self.keyboard.release(Key.ctrl)
+                except Exception as ex:
+                    log.error(f"[INPUT_SERVICE] Clipboard paste fallback failed: {ex}")
 
     def keyboard_press_key(self, key_str: str, modifiers: List[str] = None):
         log.info(
