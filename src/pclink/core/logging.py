@@ -8,6 +8,7 @@ Configures application-wide logging with structured ring-buffer caching,
 sensitive data redaction, deduplication, and file rotation.
 """
 
+import gettext
 import logging
 import re
 import sys
@@ -20,18 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from . import constants
 
-_STRINGS = {
-    "prev_repeated": "  (previous message repeated {count} times)",
-    "log_init": "[+] PCLink Logging Initialized",
-    "log_file_loc": "[-] Log file: {path}",
-    "fail_file_logger": "Failed to configure file logger: {error}",
-    "log_separator": "=" * 50,
-    "log_configured": "Logging configured. Log file located at: {path}",
-}
-
-
-def _(key: str, **kwargs) -> str:
-    return _STRINGS.get(key, key).format(**kwargs)
+_ = gettext.gettext
 
 
 def _safe_print(msg: str) -> None:
@@ -169,7 +159,10 @@ class CleanConsoleHandler(logging.StreamHandler):
 
             if self.repeat_count > 0:
                 repeat_msg = (
-                    _("prev_repeated", count=self.repeat_count) + self.terminator
+                    _("  (previous message repeated {count} times)").format(
+                        count=self.repeat_count
+                    )
+                    + self.terminator
                 )
                 self.stream.write(repeat_msg)
                 self.flush()
@@ -187,7 +180,10 @@ class CleanConsoleHandler(logging.StreamHandler):
             if self.repeat_count > 0:
                 try:
                     repeat_msg = (
-                        _("prev_repeated", count=self.repeat_count) + self.terminator
+                        _("  (previous message repeated {count} times)").format(
+                            count=self.repeat_count
+                        )
+                        + self.terminator
                     )
                     self.stream.write(repeat_msg)
                     self.flush()
@@ -235,7 +231,7 @@ def setup_logging(level=logging.INFO):
         file_handler.addFilter(sensitive_filter)
         root_logger.addHandler(file_handler)
     except Exception as e:
-        err_msg = _("fail_file_logger", error=e)
+        err_msg = _("Failed to configure file logger: {error}").format(error=e)
         if sys.stderr and hasattr(sys.stderr, "write"):
             sys.stderr.write(f"ERROR: {err_msg}\n")
 
@@ -263,9 +259,12 @@ def setup_logging(level=logging.INFO):
         logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
     if show_console and not is_frozen:
-        _safe_print(_("log_init"))
-        _safe_print(_("log_file_loc", path=log_file))
+        _safe_print(_("[+] PCLink Logging Initialized"))
+        _safe_print(_("[-] Log file: {path}").format(path=log_file))
 
-    logging.info(_("log_separator"))
-    logging.info(_("log_configured", path=log_file))
-    logging.info(_("log_separator"))
+    log_separator = "=" * 50
+    logging.info(log_separator)
+    logging.info(
+        _("Logging configured. Log file located at: {path}").format(path=log_file)
+    )
+    logging.info(log_separator)

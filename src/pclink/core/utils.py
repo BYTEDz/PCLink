@@ -3,6 +3,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import datetime
+import gettext
 import importlib.resources
 import ipaddress
 import logging
@@ -19,47 +20,7 @@ import psutil
 from . import constants
 
 log = logging.getLogger(__name__)
-
-# Localization catalog for utility logs and notifications
-_STRINGS = {
-    "resource_path_err": "Could not find resource path for '{path}': {error}",
-    "preflight_failed": "Preflight checks failed: {error}",
-    "increased_limits": "Increased open files limit: {soft} -> {new_soft}",
-    "failed_limits": "Could not increase open files limit: {error}",
-    "psutil_failed": "Could not get IP addresses using psutil: {error}",
-    "socket_failed": "Socket fallback for IP address failed: {error}",
-    "no_valid_ip": "Could not determine any valid IP address, defaulting to 127.0.0.1",
-    "cert_missing": "Certificate file does not exist: {path}",
-    "cert_empty": "Certificate file is empty: {path}",
-    "cert_fingerprint": "Certificate fingerprint: {fingerprint}...",
-    "crypto_missing": "Cryptography library not available: {error}",
-    "fingerprint_error": "Error calculating cert fingerprint: {error}",
-    "cert_exists": "Certificate and key already exist",
-    "cert_valid": "Existing certificate is valid",
-    "cert_invalid": "Existing certificate is invalid, regenerating...",
-    "crypto_required": "Cryptography library required. Install with: pip install cryptography",
-    "cert_generating": "Generating new self-signed certificate",
-    "cert_success": "Successfully generated certificate",
-    "cert_validation_failed": "Certificate validation failed after generation",
-    "cert_generation_failed": "Failed to generate self-signed certificate: {error}",
-    "dir_not_found": "Attempted to open non-existent directory: {path}",
-    "xdg_open_missing": "Could not find xdg-open to open directory.",
-    "open_dir_err": "Error opening directory {path}: {error}",
-    "reset_initiated": "FACTORY RESET INITIATED (wipe_auth={wipe_auth}, wipe_extensions={wipe_extensions})",
-    "reset_purging": "FACTORY RESET INITIATED. PURGING SYSTEM DATA...",
-    "reset_wiping_auth": "Wiping ALL authentication data (Password & SSL)...",
-    "reset_wiping_ext": "Wiping ALL installed extensions...",
-    "reset_purged_item": "Purged: {item}",
-    "reset_failed_item": "Failed to delete {item}: {error}",
-    "reset_purged_transfers": "Purged transfers directory: {path}",
-    "reset_failed_transfers": "Failed to delete transfers path: {error}",
-    "reset_complete": "Factory reset sequence complete. Terminating process for restart.",
-}
-
-
-def _(key: str, **kwargs) -> str:
-    """Retrieves and formats a localized string from the utility catalog."""
-    return _STRINGS.get(key, key).format(**kwargs)
+_ = gettext.gettext
 
 
 def resource_path(relative_path: Union[str, Path]) -> Path:
@@ -86,7 +47,11 @@ def resource_path(relative_path: Union[str, Path]) -> Path:
             package_rel = Path(relative_path)
         return importlib.resources.files("pclink") / package_rel
     except Exception as e:
-        log.error(_("resource_path_err", path=relative_path, error=e))
+        log.error(
+            _("Could not find resource path for '{path}': {error}").format(
+                path=relative_path, error=e
+            )
+        )
         return Path(relative_path)
 
 
@@ -102,7 +67,7 @@ def run_preflight_checks() -> bool:
 
         return True
     except Exception as e:
-        log.error(_("preflight_failed", error=e))
+        log.error(_("Preflight checks failed: {error}").format(error=e))
         return False
 
 
@@ -122,9 +87,13 @@ def increase_open_files_limit(target: int = 4096):
             new_soft = min(target, hard)
             if new_soft > soft:
                 resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
-                log.info(_("increased_limits", soft=soft, new_soft=new_soft))
+                log.info(
+                    _("Increased open files limit: {soft} -> {new_soft}").format(
+                        soft=soft, new_soft=new_soft
+                    )
+                )
     except Exception as e:
-        log.warning(_("failed_limits", error=e))
+        log.warning(_("Could not increase open files limit: {error}").format(error=e))
 
 
 def get_available_ips() -> List[str]:
@@ -136,14 +105,12 @@ def get_available_ips() -> List[str]:
 
     # Primary method: psutil with structured parsing
     try:
-        # Cache interface stats to avoid slow repeated calls inside the iteration
         try:
             if_stats = psutil.net_if_stats()
         except Exception:
             if_stats = {}
 
         for iface, addrs in psutil.net_if_addrs().items():
-            # Filter virtual/loopback interfaces
             if any(
                 x in iface.lower()
                 for x in [
@@ -159,7 +126,6 @@ def get_available_ips() -> List[str]:
             ) or iface.startswith(("lo", "br-")):
                 continue
 
-            # Check if interface is up
             stats = if_stats.get(iface)
             if stats and not stats.isup:
                 continue
@@ -168,7 +134,6 @@ def get_available_ips() -> List[str]:
                 if addr.family == socket.AF_INET:
                     try:
                         ip_obj = ipaddress.IPv4Address(addr.address)
-                        # Filter out loopback, link-local, multicast, or unspecified IPs
                         if (
                             ip_obj.is_loopback
                             or ip_obj.is_link_local
@@ -177,7 +142,6 @@ def get_available_ips() -> List[str]:
                         ):
                             continue
 
-                        # Prioritize private IP ranges
                         if ip_obj.is_private:
                             if addr.address not in local_ips:
                                 local_ips.append(addr.address)
@@ -187,7 +151,7 @@ def get_available_ips() -> List[str]:
                     except ValueError:
                         continue
     except Exception as e:
-        log.error(_("psutil_failed", error=e))
+        log.error(_("Could not get IP addresses using psutil: {error}").format(error=e))
 
     # Linux fallback: Try ip route command
     if not local_ips and not other_ips and sys.platform == "linux":
@@ -230,12 +194,16 @@ def get_available_ips() -> List[str]:
                     except ValueError:
                         pass
         except Exception as e:
-            log.error(_("socket_failed", error=e))
+            log.error(
+                _("Socket fallback for IP address failed: {error}").format(error=e)
+            )
 
     result = sorted(list(set(local_ips))) + sorted(list(set(other_ips)))
 
     if not result:
-        log.warning(_("no_valid_ip"))
+        log.warning(
+            _("Could not determine any valid IP address, defaulting to 127.0.0.1")
+        )
         return ["127.0.0.1"]
 
     return result
@@ -244,7 +212,7 @@ def get_available_ips() -> List[str]:
 def get_cert_fingerprint(cert_path: Path) -> Optional[str]:
     """Generate SHA-256 hash for TLS certificate verification."""
     if not cert_path.is_file():
-        log.error(_("cert_missing", path=cert_path))
+        log.error(_("Certificate file does not exist: {path}").format(path=cert_path))
         return None
 
     try:
@@ -253,30 +221,34 @@ def get_cert_fingerprint(cert_path: Path) -> Optional[str]:
 
         cert_data = cert_path.read_bytes()
         if not cert_data:
-            log.error(_("cert_empty", path=cert_path))
+            log.error(_("Certificate file is empty: {path}").format(path=cert_path))
             return None
 
         cert = x509.load_pem_x509_certificate(cert_data)
         fingerprint_hex = cert.fingerprint(hashes.SHA256()).hex()
-        log.debug(_("cert_fingerprint", fingerprint=fingerprint_hex[:16]))
+        log.debug(
+            _("Certificate fingerprint: {fingerprint}...").format(
+                fingerprint=fingerprint_hex[:16]
+            )
+        )
         return fingerprint_hex
 
     except ImportError as e:
-        log.error(_("crypto_missing", error=e))
+        log.error(_("Cryptography library not available: {error}").format(error=e))
         return None
     except Exception as e:
-        log.error(_("fingerprint_error", error=e))
+        log.error(_("Error calculating cert fingerprint: {error}").format(error=e))
         return None
 
 
 def generate_self_signed_cert(cert_path: Path, key_path: Path):
     """Bootstrap self-signed TLS credentials."""
     if cert_path.exists() and key_path.exists():
-        log.debug(_("cert_exists"))
+        log.debug(_("Certificate and key already exist"))
         if get_cert_fingerprint(cert_path):
-            log.debug(_("cert_valid"))
+            log.debug(_("Existing certificate is valid"))
             return
-        log.warning(_("cert_invalid"))
+        log.warning(_("Existing certificate is invalid, regenerating..."))
 
     try:
         from cryptography import x509
@@ -284,11 +256,13 @@ def generate_self_signed_cert(cert_path: Path, key_path: Path):
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.x509.oid import NameOID
     except ImportError:
-        log.error(_("crypto_required"))
+        log.error(
+            _("Cryptography library required. Install with: pip install cryptography")
+        )
         raise
 
     try:
-        log.info(_("cert_generating"))
+        log.info(_("Generating new self-signed certificate"))
 
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -309,7 +283,6 @@ def generate_self_signed_cert(cert_path: Path, key_path: Path):
         )
         now = datetime.datetime.now(datetime.timezone.utc)
 
-        # Build list of Subject Alternative Names dynamically using active local network IPs
         san_entries = [
             x509.DNSName("localhost"),
             x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")),
@@ -342,13 +315,14 @@ def generate_self_signed_cert(cert_path: Path, key_path: Path):
 
         fingerprint = get_cert_fingerprint(cert_path)
         if fingerprint:
-            log.info(_("cert_success"))
+            log.info(_("Successfully generated certificate"))
         else:
-            raise Exception(_("cert_validation_failed"))
+            raise Exception(_("Certificate validation failed after generation"))
 
     except Exception as e:
-        log.error(_("cert_generation_failed", error=e))
-        # Cleanup partial files
+        log.error(
+            _("Failed to generate self-signed certificate: {error}").format(error=e)
+        )
         for path in [cert_path, key_path]:
             try:
                 if path.exists():
@@ -370,7 +344,6 @@ class DummyTty:
         return False
 
     def fileno(self) -> int:
-        # Lazily open and cache the file descriptor to avoid fd leaks
         if self._fd is None:
             try:
                 self._fd = os.open(os.devnull, os.O_WRONLY)
@@ -410,7 +383,9 @@ def open_directory(path: Union[str, Path]):
     try:
         path = Path(path).resolve()
         if not path.exists():
-            log.warning(_("dir_not_found", path=path))
+            log.warning(
+                _("Attempted to open non-existent directory: {path}").format(path=path)
+            )
             return
 
         if sys.platform == "win32":
@@ -421,9 +396,11 @@ def open_directory(path: Union[str, Path]):
             try:
                 subprocess.run(["xdg-open", str(path)], check=False)
             except (FileNotFoundError, subprocess.SubprocessError):
-                log.error(_("xdg_open_missing"))
+                log.error(_("Could not find xdg-open to open directory."))
     except Exception as e:
-        log.error(_("open_dir_err", path=path, error=e))
+        log.error(
+            _("Error opening directory {path}: {error}").format(path=path, error=e)
+        )
 
 
 def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False):
@@ -436,11 +413,12 @@ def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False
     import time
 
     log.warning(
-        _("reset_initiated", wipe_auth=wipe_auth, wipe_extensions=wipe_extensions)
+        _(
+            "FACTORY RESET INITIATED (wipe_auth={wipe_auth}, wipe_extensions={wipe_extensions})"
+        ).format(wipe_auth=wipe_auth, wipe_extensions=wipe_extensions)
     )
-    log.warning(_("reset_purging"))
+    log.warning(_("FACTORY RESET INITIATED. PURGING SYSTEM DATA..."))
 
-    # Files to always delete in a factory reset
     items_to_delete = [
         constants.CONFIG_FILE,
         constants.APP_DATA_PATH / "devices.db",
@@ -449,7 +427,7 @@ def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False
     ]
 
     if wipe_auth:
-        log.warning(_("reset_wiping_auth"))
+        log.warning(_("Wiping ALL authentication data (Password & SSL)..."))
         items_to_delete.extend(
             [
                 constants.APP_DATA_PATH / "web_auth.json",
@@ -459,10 +437,9 @@ def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False
         )
 
     if wipe_extensions:
-        log.warning(_("reset_wiping_ext"))
+        log.warning(_("Wiping ALL installed extensions..."))
         items_to_delete.append(constants.APP_DATA_PATH / "extensions")
 
-    # 1. Clean up items
     for item in items_to_delete:
         try:
             if item.exists():
@@ -470,21 +447,23 @@ def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False
                     shutil.rmtree(item)
                 else:
                     item.unlink()
-                log.debug(_("reset_purged_item", item=item))
+                log.debug(_("Purged: {item}").format(item=item))
         except Exception as e:
-            log.error(_("reset_failed_item", item=item, error=e))
+            log.error(_("Failed to delete {item}: {error}").format(item=item, error=e))
 
-    # 2. Clean up transfers directory (always purge)
     if constants.TRANSFERS_PATH.exists():
         try:
             shutil.rmtree(constants.TRANSFERS_PATH)
-            log.debug(_("reset_purged_transfers", path=constants.TRANSFERS_PATH))
+            log.debug(
+                _("Purged transfers directory: {path}").format(
+                    path=constants.TRANSFERS_PATH
+                )
+            )
         except Exception as e:
-            log.error(_("reset_failed_transfers", error=e))
+            log.error(_("Failed to delete transfers path: {error}").format(error=e))
 
-    log.info(_("reset_complete"))
+    log.info(_("Factory reset sequence complete. Terminating process for restart."))
 
-    # Ensure all open logging streams are safely written out before termination
     try:
         logging.shutdown()
     except Exception:
