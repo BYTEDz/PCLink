@@ -133,80 +133,100 @@ def run_extension_process(
         ipc_conn.send({"status": "ready", "pid": os.getpid()})
 
         # 6. Enter IPC Command & HTTP Route Dispatcher Loop
-        while True:
-            if not ipc_conn.poll(0.1):
-                continue
-
-            cmd = ipc_conn.recv()
-            cmd_type = cmd.get("type")
-
-            if cmd_type == "PING":
-                ipc_conn.send({"status": "pong", "pid": os.getpid()})
-
-            elif cmd_type == "HTTP_REQUEST":
-                req_id = cmd.get("req_id")
-                method = cmd.get("method", "GET").upper()
-                subpath = cmd.get("subpath", "/")
-                if not subpath.startswith("/"):
-                    subpath = "/" + subpath
-
-                body_data = cmd.get("body")
-
-                # Match route handler
-                handler = route_handlers.get((method, subpath)) or route_handlers.get(
-                    ("ANY", subpath)
-                )
-
-                if handler:
-                    try:
-                        sig = inspect.signature(handler)
-                        if len(sig.parameters) > 0 and body_data is not None:
-                            res = handler(body_data)
-                        else:
-                            res = handler()
-
-                        if asyncio.iscoroutine(res):
-                            res = asyncio.run(res)
-
-                        ipc_conn.send(
-                            {
-                                "type": "HTTP_RESPONSE",
-                                "req_id": req_id,
-                                "status_code": 200,
-                                "content": res,
-                            }
-                        )
-                    except Exception as e:
-                        ipc_conn.send(
-                            {
-                                "type": "HTTP_RESPONSE",
-                                "req_id": req_id,
-                                "status_code": 500,
-                                "error": str(e),
-                            }
-                        )
-                else:
-                    ipc_conn.send(
-                        {
-                            "type": "HTTP_RESPONSE",
-                            "req_id": req_id,
-                            "status_code": 404,
-                            "error": f"Route '{method} {subpath}' not found in worker process",
-                        }
-                    )
-
-            elif cmd_type == "CLEANUP":
+        cleaned_up = False
+        try:
+            while True:
                 try:
-                    clean_res = instance.cleanup()
-                    if asyncio.iscoroutine(clean_res):
-                        asyncio.run(clean_res)
-                    ipc_conn.send({"status": "cleaned"})
-                except Exception as e:
-                    ipc_conn.send({"status": "error", "error": str(e)})
-                break
+                    if not ipc_conn.poll(0.1):
+                        continue
+                except KeyboardInterrupt:
+                    # Graceful shutdown on SIGINT
+                    log.info(f"Extension '{extension_id}' received interrupt signal")
+                    break
 
-            elif cmd_type == "SHUTDOWN":
-                break
+                cmd = ipc_conn.recv()
+                cmd_type = cmd.get("type")
+
+                if cmd_type == "PING":
+                    ipc_conn.send({"status": "pong", "pid": os.getpid()})
+
+                elif cmd_type == "HTTP_REQUEST":
+                    req_id = cmd.get("req_id")
+                    method = cmd.get("method", "GET").upper()
+                    subpath = cmd.get("subpath", "/")
+                    if not subpath.startswith("/"):
+                        subpath = "/" + subpath
+
+                    body_data = cmd.get("body")
+
+                    # Match route handler
+                    handler = route_handlers.get(
+                        (method, subpath)
+                    ) or route_handlers.get(("ANY", subpath))
+
+                    if handler:
+                        try:
+                            sig = inspect.signature(handler)
+                            if len(sig.parameters) > 0 and body_data is not None:
+                                res = handler(body_data)
+                            else:
+                                res = handler()
+
+                            if asyncio.iscoroutine(res):
+                                res = asyncio.run(res)
+
+                            ipc_conn.send(
+                                {
+                                    "type": "HTTP_RESPONSE",
+                                    "req_id": req_id,
+                                    "status_code": 200,
+                                    "content": res,
+                                }
+                            )
+                        except Exception as e:
+                            ipc_conn.send(
+                                {
+                                    "type": "HTTP_RESPONSE",
+                                    "req_id": req_id,
+                                    "status_code": 500,
+                                    "error": str(e),
+                                }
+                            )
+                    else:
+                        ipc_conn.send(
+                            {
+                                "type": "HTTP_RESPONSE",
+                                "req_id": req_id,
+                                "status_code": 404,
+                                "error": f"Route '{method} {subpath}' not found in worker process",
+                            }
+                        )
+
+                elif cmd_type == "CLEANUP":
+                    try:
+                        clean_res = instance.cleanup()
+                        if asyncio.iscoroutine(clean_res):
+                            asyncio.run(clean_res)
+                        cleaned_up = True
+                        ipc_conn.send({"status": "cleaned"})
+                    except Exception as e:
+                        ipc_conn.send({"status": "error", "error": str(e)})
+                    break
+
+                elif cmd_type == "SHUTDOWN":
+                    break
+
+        except KeyboardInterrupt:
+            log.info(f"Extension '{extension_id}' shutdown by signal")
+
+        # Cleanup before exit (only if not already cleaned up)
+        if not cleaned_up:
+            try:
+                clean_res = instance.cleanup()
+                if asyncio.iscoroutine(clean_res):
+                    asyncio.run(clean_res)
+            except Exception as e:
+                log.error(f"Cleanup error in extension '{extension_id}': {e}")
 
     except Exception as e:
         tb = traceback.format_exc()
