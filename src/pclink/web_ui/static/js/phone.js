@@ -1,27 +1,88 @@
 // static/js/phone.js
 
+PCLinkWebUI.prototype.saveCurrentPhoneScroll = function() {
+    const container = document.getElementById('phoneFileList');
+    if (container && this.currentPhonePath) {
+        if (!this.phoneScrollPositions) this.phoneScrollPositions = {};
+        this.phoneScrollPositions[this.currentPhonePath] = container.scrollTop;
+    }
+};
+
+PCLinkWebUI.prototype.restorePhoneScroll = function() {
+    const container = document.getElementById('phoneFileList');
+    if (!container) return;
+    if (!this.phoneScrollPositions) this.phoneScrollPositions = {};
+    const pos = this.phoneScrollPositions[this.currentPhonePath] || 0;
+    requestAnimationFrame(() => {
+        if (container) container.scrollTop = pos;
+    });
+};
+
 PCLinkWebUI.prototype.updatePhoneDeviceSelector = function() {
     const selector = document.getElementById('phoneDeviceSelector');
     if (!selector) return;
     const currentSelection = this.currentPhoneDeviceId;
     selector.innerHTML = '<option value="">Select Device...</option>';
+
+    let onlineDevice = null;
+
     this.devices.forEach(device => {
         const option = document.createElement('option');
         option.value = device.id;
-        option.textContent = `${device.name} (${device.ip})`;
+        const statusStr = device.is_online ? 'Online' : 'Offline';
+        option.textContent = `${device.name} [${statusStr}]`;
+
         if (device.id === currentSelection) option.selected = true;
+        if (device.is_online && !onlineDevice) onlineDevice = device;
+
         selector.appendChild(option);
     });
-    if (!this.currentPhoneDeviceId && this.devices.length > 0) {
-        this.currentPhoneDeviceId = this.devices[0].id;
-        selector.value = this.currentPhoneDeviceId;
+
+    if (!this.currentPhoneDeviceId && onlineDevice) {
+        this.currentPhoneDeviceId = onlineDevice.id;
+        selector.value = onlineDevice.id;
     }
 };
 
 PCLinkWebUI.prototype.handlePhoneDeviceChange = async function(deviceId) {
+    this.saveCurrentPhoneScroll();
     this.currentPhoneDeviceId = deviceId;
     this.currentPhonePath = '/';
+
+    if (!deviceId) {
+        this.renderPhoneConnectPrompt();
+        return;
+    }
+
     await this.loadPhoneFiles('/');
+};
+
+PCLinkWebUI.prototype.renderPhoneConnectPrompt = function() {
+    const container = document.getElementById('phoneFileList');
+    if (!container) return;
+
+    const selectedDevice = this.devices.find(d => d.id === this.currentPhoneDeviceId);
+    const isOnline = selectedDevice?.is_online;
+
+    container.innerHTML = `
+        <div class="flex flex-col items-center justify-center h-full py-20 px-6 text-center">
+            <div class="p-5 rounded-3xl ${isOnline ? 'bg-success/10 text-success' : 'bg-base-200 text-base-content/40'} mb-4 shadow-sm">
+                <i data-feather="${isOnline ? 'smartphone' : 'wifi-off'}" class="w-12 h-12"></i>
+            </div>
+            <h3 class="font-black text-lg mb-1">${selectedDevice ? selectedDevice.name : 'No Device Selected'}</h3>
+            <p class="text-xs opacity-60 max-w-sm mb-6 font-medium leading-relaxed">
+                ${isOnline
+                    ? 'Device is online and ready. Click below to browse phone storage.'
+                    : 'Select an online device or connect your phone via the PCLink companion app.'}
+            </p>
+            ${isOnline ? `
+                <button class="btn btn-primary text-white font-bold uppercase tracking-wider text-xs px-8 shadow-lg" onclick="window.refreshPhoneFiles()">
+                    <i data-feather="folder" class="w-4 h-4"></i> Browse Storage
+                </button>
+            ` : ''}
+        </div>
+    `;
+    if (window.feather) feather.replace();
 };
 
 PCLinkWebUI.prototype.loadPhoneFiles = async function(path) {
@@ -31,9 +92,13 @@ PCLinkWebUI.prototype.loadPhoneFiles = async function(path) {
     const breadcrumbsContainer = document.getElementById('phoneBreadcrumbs');
     if (!container) return;
 
+    if (!this.currentPhoneDeviceId) {
+        this.renderPhoneConnectPrompt();
+        return;
+    }
+
     const cleanPath = path.startsWith('/') ? path : '/' + path;
 
-    // Render Breadcrumbs
     if (breadcrumbsContainer) {
         const parts = cleanPath.split('/').filter(p => p);
         let html = `<button class="btn btn-xs btn-ghost gap-1 px-1 opacity-50 hover:opacity-100" onclick="window.navigatePhone('/')"><i data-feather="home" class="w-3"></i></button>`;
@@ -62,7 +127,19 @@ PCLinkWebUI.prototype.loadPhoneFiles = async function(path) {
             this.updatePhoneUIPermissions();
             this.displayPhoneFiles();
         } else {
-            container.innerHTML = `<div class="alert alert-warning m-4 text-xs font-bold uppercase">WebDAV connection failed on phone</div>`;
+            const targetDev = this.devices.find(d => d.id === this.currentPhoneDeviceId);
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full py-16 px-6 text-center">
+                    <div class="p-4 rounded-2xl bg-warning/10 text-warning mb-3">
+                        <i data-feather="alert-triangle" class="w-8 h-8"></i>
+                    </div>
+                    <h4 class="font-bold text-sm mb-1">WebDAV Service Unreachable</h4>
+                    <p class="text-xs opacity-60 max-w-sm mb-4">Could not establish connection to WebDAV server on <strong>${targetDev ? targetDev.name : 'Phone'}</strong>. Ensure WebDAV server is active in the companion app.</p>
+                    <button class="btn btn-sm btn-ghost border-base-300 font-bold" onclick="window.refreshPhoneFiles()">
+                        <i data-feather="refresh-cw" class="w-3.5 h-3.5"></i> Retry Connection
+                    </button>
+                </div>`;
+            if (window.feather) feather.replace();
         }
     } catch (e) {
         container.innerHTML = `<div class="alert alert-error m-4 text-xs">Error: ${e.message}</div>`;
@@ -153,6 +230,7 @@ PCLinkWebUI.prototype.displayPhoneFiles = function() {
     if (filtered.length === 0) {
         listContainer.innerHTML = '<div class="py-16 text-center opacity-40 font-bold uppercase tracking-widest text-xs">No matching files found</div>';
         if (window.feather) feather.replace();
+        this.restorePhoneScroll();
         return;
     }
     listContainer.innerHTML = filtered.map(item => {
@@ -171,6 +249,8 @@ PCLinkWebUI.prototype.displayPhoneFiles = function() {
             </div>`;
     }).join('');
     if (window.feather) feather.replace();
+
+    this.restorePhoneScroll();
 };
 
 PCLinkWebUI.prototype.updatePhoneUIPermissions = function() {
@@ -217,6 +297,7 @@ PCLinkWebUI.prototype.updateBatchActionBar = function() {
 // Global Phone Helpers
 window.navigatePhone = (p) => {
     if (window.pclinkUI) {
+        window.pclinkUI.saveCurrentPhoneScroll();
         if (p !== window.pclinkUI.currentPhonePath) {
             window.pclinkUI.phoneNavHistory = window.pclinkUI.phoneNavHistory.slice(0, window.pclinkUI.phoneHistoryIndex + 1);
             window.pclinkUI.phoneNavHistory.push(p);
@@ -228,8 +309,8 @@ window.navigatePhone = (p) => {
     }
 };
 window.refreshPhoneFiles = () => { if (window.pclinkUI) window.pclinkUI.loadPhoneFiles(window.pclinkUI.currentPhonePath); };
-window.goBackPhoneFiles = () => { if (window.pclinkUI && window.pclinkUI.phoneHistoryIndex > 0) { window.pclinkUI.phoneHistoryIndex--; window.navigatePhone(window.pclinkUI.phoneNavHistory[window.pclinkUI.phoneHistoryIndex]); } };
-window.goForwardPhoneFiles = () => { if (window.pclinkUI && window.pclinkUI.phoneHistoryIndex < window.pclinkUI.phoneNavHistory.length - 1) { window.pclinkUI.phoneHistoryIndex++; window.navigatePhone(window.pclinkUI.phoneNavHistory[window.pclinkUI.phoneHistoryIndex]); } };
+window.goBackPhoneFiles = () => { if (window.pclinkUI && window.pclinkUI.phoneHistoryIndex > 0) { window.pclinkUI.saveCurrentPhoneScroll(); window.pclinkUI.phoneHistoryIndex--; window.navigatePhone(window.pclinkUI.phoneNavHistory[window.pclinkUI.phoneHistoryIndex]); } };
+window.goForwardPhoneFiles = () => { if (window.pclinkUI && window.pclinkUI.phoneHistoryIndex < window.pclinkUI.phoneNavHistory.length - 1) { window.pclinkUI.saveCurrentPhoneScroll(); window.pclinkUI.phoneHistoryIndex++; window.navigatePhone(window.pclinkUI.phoneNavHistory[window.pclinkUI.phoneHistoryIndex]); } };
 window.toggleItemSelection = (p) => { if (window.pclinkUI) { window.pclinkUI.phoneSelectedItems.has(p) ? window.pclinkUI.phoneSelectedItems.delete(p) : window.pclinkUI.phoneSelectedItems.add(p); window.pclinkUI.updateBatchActionBar(); window.pclinkUI.displayPhoneFiles(); } };
 window.clearSelection = () => { if (window.pclinkUI) { window.pclinkUI.phoneSelectedItems.clear(); window.pclinkUI.updateBatchActionBar(); window.pclinkUI.displayPhoneFiles(); } };
 window.handleFileItemClick = (e, path, isDir) => {
@@ -266,7 +347,6 @@ window.handlePhoneDragOver = (e) => {
 
 window.handlePhoneDragLeave = (e) => {
     e.preventDefault();
-    // Only hide if we actually leave the drop zone container
     if (e.relatedTarget && document.getElementById('phoneFileDropZone').contains(e.relatedTarget)) return;
     const overlay = document.getElementById('phoneDropOverlay');
     if (overlay) {

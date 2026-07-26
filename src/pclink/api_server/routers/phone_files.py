@@ -1,3 +1,7 @@
+# src/pclink/api_server/routers/phone_files.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import asyncio
 import logging
 import xml.etree.ElementTree as ET
@@ -18,21 +22,34 @@ router = APIRouter()
 def get_active_phone_details(
     target_device_id: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Finds the IP, ID, and API Key of the target device or first approved device."""
+    """
+    Finds the IP, ID, and API Key of the target device or the first active ONLINE approved device.
+    """
     try:
+        from ..ws_manager import mobile_manager
+
         devices = device_manager.get_all_devices()
-        for d in devices:
-            # attribute access
+        approved = [d for d in devices if d.is_approved and d.current_ip]
+
+        # 1. Target device explicitly requested
+        if target_device_id:
+            for d in approved:
+                dev_id = getattr(d, "device_id", None) or getattr(d, "id", None)
+                if dev_id == target_device_id:
+                    return d.current_ip, dev_id, getattr(d, "api_key", None)
+
+        # 2. Prioritize devices currently connected online via WebSocket
+        for d in approved:
             dev_id = getattr(d, "device_id", None) or getattr(d, "id", None)
+            if dev_id and dev_id in mobile_manager.device_connections:
+                return d.current_ip, dev_id, getattr(d, "api_key", None)
 
-            # Filter by target ID if provided
-            if target_device_id and dev_id != target_device_id:
-                continue
+        # 3. Fallback to first approved device if none are active
+        if approved:
+            d = approved[0]
+            dev_id = getattr(d, "device_id", None) or getattr(d, "id", None)
+            return d.current_ip, dev_id, getattr(d, "api_key", None)
 
-            if d.is_approved and d.current_ip:
-                api_key = getattr(d, "api_key", None)
-                if dev_id:
-                    return d.current_ip, dev_id, api_key
         return None, None, None
     except Exception as e:
         log.error(f"Error getting phone details: {e}")
@@ -62,14 +79,13 @@ async def proxy_webdav(request: Request, path: str):
         log.warning("Proxy failed: No active phone connected")
         raise HTTPException(status_code=404, detail="No active phone connected")
 
-    # Handle the .browse magic path for JSON listing compatibility
     is_browse = False
     actual_path = path
     method = request.method
 
     if path.startswith(".browse"):
         is_browse = True
-        actual_path = path[7:]  # Remove ".browse" prefix
+        actual_path = path[7:]
         if not actual_path.startswith("/"):
             actual_path = "/" + actual_path
         method = "PROPFIND"
@@ -77,10 +93,8 @@ async def proxy_webdav(request: Request, path: str):
     url = f"http://{phone_ip}:38081/{actual_path.lstrip('/')}"
     log.info(f"Proxying WebDAV: {method} {url} (DeviceID={device_id})")
 
-    # Proper WebDAV Auth: Basic Auth using (pclink / device_id)
     auth = ("pclink", device_id)
 
-    # Clean up headers to avoid conflicts
     excluded_request_headers = {"host", "content-length", "authorization", "connection"}
     headers = {
         k: v
@@ -94,14 +108,12 @@ async def proxy_webdav(request: Request, path: str):
     if api_key:
         headers["x-pclink-token"] = api_key
 
-    # Get body if exists
     body = await request.body()
 
     try:
         max_retries = 3
         current_timeout = 60.0 if method == "PUT" else 20.0
 
-        # Function to be run in a threadpool to avoid blocking the event loop
         def make_request():
             return requests.request(
                 method=method,
@@ -119,13 +131,12 @@ async def proxy_webdav(request: Request, path: str):
         resp = None
         for attempt in range(max_retries):
             try:
-                # Run the synchronous request in a worker thread
                 resp = await anyio.to_thread.run_sync(make_request)
                 break
             except (requests.ConnectionError, requests.Timeout) as e:
                 log.warning(f"WebDAV proxy attempt {attempt + 1} failed ({e})")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(1.0)  # Non-blocking sleep
+                    await asyncio.sleep(1.0)
                     continue
                 raise
 
@@ -134,11 +145,9 @@ async def proxy_webdav(request: Request, path: str):
                 status_code=502, detail="No response received from phone"
             )
 
-        # Handle JSON translation for browsing
         if is_browse and resp.status_code == 207:
             try:
                 items = []
-                # Simple XML parsing for WebDAV response
                 root = ET.fromstring(resp.content)
                 ns = {"D": "DAV:"}
 
@@ -171,7 +180,6 @@ async def proxy_webdav(request: Request, path: str):
                     modified_el = prop.find("D:getlastmodified", ns)
                     modified = modified_el.text if modified_el is not None else ""
 
-                    # Store clean path
                     clean_path = unquote(href)
 
                     items.append(
@@ -184,8 +192,6 @@ async def proxy_webdav(request: Request, path: str):
                         }
                     )
 
-                # Filter out the parent directory itself from results and sort
-                # In WebDAV Depth:1 returns the resource itself too
                 normalized_actual = actual_path.rstrip("/")
                 if not normalized_actual:
                     normalized_actual = "/"
@@ -199,9 +205,7 @@ async def proxy_webdav(request: Request, path: str):
                 return {"items": final_items, "path": actual_path}
             except Exception as e:
                 log.error(f"Failed to parse WebDAV XML: {e}")
-                # Don't fail the whole request if parsing fails, just fallback to raw response
 
-        # Exclude hop-by-hop headers from response
         excluded_response_headers = {
             "content-encoding",
             "content-length",
@@ -214,13 +218,11 @@ async def proxy_webdav(request: Request, path: str):
             if k.lower() not in excluded_response_headers
         }
 
-        # Log non-success status for debugging
         if resp.status_code >= 400:
             log.warning(
                 f"Phone responded with error {resp.status_code}: {resp.text[:200]}"
             )
 
-        # StreamingResponse ONLY for GET (file downloads) to maintain efficiency
         if method == "GET" and resp.status_code < 400:
 
             def generate():
@@ -234,7 +236,6 @@ async def proxy_webdav(request: Request, path: str):
                 generate(), status_code=resp.status_code, headers=resp_headers
             )
 
-        # For other methods, return full content directly
         try:
             return Response(
                 content=resp.content, status_code=resp.status_code, headers=resp_headers
@@ -247,7 +248,7 @@ async def proxy_webdav(request: Request, path: str):
     except requests.RequestException as e:
         log.error(f"Failed to proxy WebDAV request to {url}: {e}")
         raise HTTPException(
-            status_code=502, detail=f"Failed to communicate with phone. Error: {str(e)}"
+            status_code=502, detail=f"Failed to communicate with phone: {str(e)}"
         )
     except Exception as e:
         log.error(f"Unexpected error in proxy_webdav: {e}", exc_info=True)
