@@ -5,24 +5,30 @@
 
 const repairModule = {
     init: function () {
-        // Initial diagnostic run if we switch to this tab for the first time
         this.hasRun = false;
 
-        document.querySelector('a[onclick*="repairTab"]').addEventListener('click', () => {
-            if (!this.hasRun) {
-                this.runDiagnostics();
-                this.hasRun = true;
-            }
-        });
+        const repairBtn = document.querySelector('[data-tab="repairTab"]') || document.querySelector('[data-tab="repair"]');
+        if (repairBtn) {
+            repairBtn.addEventListener('click', () => {
+                if (!this.hasRun) {
+                    this.runDiagnostics();
+                    this.hasRun = true;
+                }
+            });
+        }
     },
 
     runDiagnostics: async function () {
         const container = document.getElementById('repairContent');
         const loader = document.getElementById('repairLoading');
 
+        if (!container) return;
+
         container.innerHTML = '';
-        loader.classList.remove('hidden');
-        loader.classList.add('flex');
+        if (loader) {
+            loader.classList.remove('hidden');
+            loader.classList.add('flex');
+        }
 
         try {
             const res = await fetch('/ui/repair/diagnose');
@@ -31,15 +37,18 @@ const repairModule = {
 
             this.renderDiagnostics(data);
         } catch (e) {
-            container.innerHTML = `<div class="alert alert-error">Failed to run diagnostics: ${e.message}</div>`;
+            if (container) container.innerHTML = `<div class="alert alert-error">Failed to run diagnostics: ${e.message}</div>`;
         } finally {
-            loader.classList.add('hidden');
-            loader.classList.remove('flex');
+            if (loader) {
+                loader.classList.add('hidden');
+                loader.classList.remove('flex');
+            }
         }
     },
 
     renderDiagnostics: function (data) {
         const container = document.getElementById('repairContent');
+        if (!container) return;
         container.innerHTML = '';
 
         const components = [
@@ -80,16 +89,14 @@ const repairModule = {
             `;
         });
 
-        // Re-init feather icons for new elements
         if (window.feather) feather.replace();
     },
 
     promptFix: function (issueId) {
         if (issueId === 'port') {
-            document.getElementById('portConflictModal').showModal();
+            const modal = document.getElementById('portConflictModal');
+            if (modal) modal.showModal();
         } else if (issueId === 'firewall' && navigator.userAgent.toLowerCase().includes('linux')) {
-            // Check if we want to prompt for linux sudo,
-            // but the backend tries passwordless first, so let's try direct first.
             this.executeFix(issueId);
         } else {
             this.executeFix(issueId);
@@ -97,14 +104,17 @@ const repairModule = {
     },
 
     submitPortFix: function(action) {
-        document.getElementById('portConflictModal').close();
+        const modal = document.getElementById('portConflictModal');
+        if (modal) modal.close();
         this.executeFix('port', { action: action });
     },
 
     submitFirewallFix: function(e) {
         e.preventDefault();
-        const pwd = document.getElementById('linuxSudoPassword').value;
-        document.getElementById('linuxFirewallModal').close();
+        const pwdInput = document.getElementById('linuxSudoPassword');
+        const pwd = pwdInput ? pwdInput.value : '';
+        const modal = document.getElementById('linuxFirewallModal');
+        if (modal) modal.close();
         this.executeFix('firewall', { password: pwd });
     },
 
@@ -119,9 +129,9 @@ const repairModule = {
             });
             const data = await res.json();
 
-            // If firewall fix on Linux failed due to password missing
             if (issueId === 'firewall' && data.status === 'warning' && data.message.includes('sudo') && !payload.password) {
-                document.getElementById('linuxFirewallModal').showModal();
+                const modal = document.getElementById('linuxFirewallModal');
+                if (modal) modal.showModal();
                 return;
             }
 
@@ -131,7 +141,6 @@ const repairModule = {
                 if (typeof showToast === 'function') showToast(data.message, 'error');
             }
 
-            // Refresh diagnostics
             this.runDiagnostics();
 
         } catch (e) {
@@ -151,7 +160,6 @@ const repairModule = {
 
             if (data.status === 'ok') {
                 if (typeof showToast === 'function') showToast(data.message, 'success');
-                // Force a reload after a short delay since config/db are wiped
                 setTimeout(() => window.location.reload(), 1500);
             } else {
                 if (typeof showToast === 'function') showToast(`Force repair failed: ${data.message}`, 'error');
@@ -162,7 +170,6 @@ const repairModule = {
     }
 };
 
-// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     repairModule.init();
 });

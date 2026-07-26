@@ -99,28 +99,25 @@ PCLinkWebUI.prototype.loadLogs = async function () {
     if (!container || !content) return;
     try {
         const isAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
-        const res = await this.webUICall('/logs');
+        const level = document.getElementById('logLevelSelect')?.value || '';
+        const search = document.getElementById('logFilter')?.value || '';
+
+        let url = '/logs?limit=300';
+        if (level) url += `&level=${encodeURIComponent(level)}`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+
+        const res = await this.webUICall(url);
         if (res.ok) {
             const data = await res.json();
             this.lastLogs = data.logs || '--- clear ---';
-            this.applyLogFilter();
+            content.textContent = this.lastLogs;
             if (isAtBottom) container.scrollTop = container.scrollHeight;
         }
     } catch (e) { }
 };
 
 PCLinkWebUI.prototype.applyLogFilter = function () {
-    const content = document.getElementById('logContent');
-    const filter = document.getElementById('logFilter')?.value.toLowerCase();
-    if (!content || !this.lastLogs) return;
-
-    if (!filter) {
-        content.textContent = this.lastLogs;
-    } else {
-        const lines = this.lastLogs.split('\n');
-        const filtered = lines.filter(line => line.toLowerCase().includes(filter)).join('\n');
-        content.textContent = filtered || 'No matching logs found.';
-    }
+    if (window.pclinkUI) window.pclinkUI.loadLogs();
 };
 
 PCLinkWebUI.prototype.loadSettings = async function () {
@@ -278,7 +275,6 @@ window.downloadLogs = () => {
     URL.revokeObjectURL(url);
 };
 
-// clear system logs functon
 window.clearLogs = async () => {
     if (!await window.confirmDialog('Are you sure you want to clear system logs?', { title: 'Clear Logs', danger: true })) return;
     try {
@@ -426,7 +422,7 @@ window.handleFactoryReset = async function (event) {
             if (window.feather) feather.replace();
             if (window.toggleResetModal) window.toggleResetModal(false);
         } else {
-            const data = await response.json();
+            const data = await res.json();
             alert("Reset failed: " + (data.detail || "Unknown error"));
             btn.disabled = false;
             btn.innerText = originalText;

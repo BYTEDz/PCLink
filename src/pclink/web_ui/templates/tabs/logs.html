@@ -5,7 +5,13 @@
       <h3 class="font-bold flex items-center gap-2"><i data-feather="file-text" class="text-primary w-5"></i> System
         Logs</h3>
       <div class="flex items-center gap-2 flex-1 justify-end">
-        <input type="text" id="logFilter" class="input input-sm input-bordered w-full max-w-xs" placeholder="Filter logs..." oninput="filterLogs()">
+        <select id="logLevelSelect" class="select select-sm select-bordered font-bold text-xs" onchange="refreshLogs()">
+          <option value="">All Levels</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <input type="text" id="logFilter" class="input input-sm input-bordered w-full max-w-xs text-xs" placeholder="Search logs..." oninput="filterLogs()">
         <div class="flex items-center gap-2">
           <button class="btn btn-sm btn-ghost border-base-300" onclick="refreshLogs()" title="Refresh"><i data-feather="refresh-cw"
               class="w-4"></i></button>

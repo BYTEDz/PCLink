@@ -1,4 +1,7 @@
 # src/pclink/api_server/routers/server.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import asyncio
 import logging
 import socket
@@ -8,11 +11,12 @@ from typing import Optional
 
 import psutil
 import requests
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from ...core import constants
 from ...core.config import config_manager
+from ...core.logging import memory_log_handler
 from ...core.utils import get_cert_fingerprint
 from ...core.version import __version__
 from ...services.discovery_service import DiscoveryService
@@ -77,7 +81,6 @@ async def get_qr_payload(request: Request):
     """Generate the payload for the connection QR code."""
     fingerprint = get_cert_fingerprint(constants.CERT_FILE)
 
-    # Attempt to find the best local IP
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("8.8.8.8", 80))
@@ -203,7 +206,6 @@ async def save_server_settings(request: Request):
         if "allow_extensions" in data:
             extensions_enabled = data["allow_extensions"]
             config_manager.set("allow_extensions", extensions_enabled)
-            # Notify extension manager if available
             from ...services.extension_service import extension_service
 
             if extensions_enabled:
@@ -235,31 +237,81 @@ async def save_server_settings(request: Request):
 
 
 @mgmt_router.get("/logs", dependencies=[WEB_AUTH])
-async def get_server_logs():
-    """Retrieve the last 100 lines of the application log."""
+async def get_server_logs(
+    level: Optional[str] = Query(
+        None, description="Exact severity level (INFO, WARNING, ERROR, DEBUG)"
+    ),
+    min_level: Optional[str] = Query(
+        None, description="Minimum severity level threshold"
+    ),
+    search: Optional[str] = Query(None, description="Search keyword filter"),
+    limit: int = Query(200, ge=1, le=1000, description="Max entries to return"),
+):
+    """Retrieve filtered, structured logs from the in-memory ring buffer with file fallback."""
     try:
+        entries = memory_log_handler.get_logs(
+            level=level, min_level=min_level, search=search, limit=limit
+        )
+
+        if entries:
+            formatted_text = "\n".join([e["message"] for e in entries])
+            return {
+                "logs": formatted_text,
+                "lines": len(entries),
+                "structured": entries,
+            }
+
+        if memory_log_handler.buffer:
+            filter_desc = level or min_level or "ALL"
+            msg = f"--- No log records matching level '{filter_desc}'"
+            if search:
+                msg += f" and search '{search}'"
+            msg += " ---"
+            return {"logs": msg, "lines": 0, "structured": []}
+
         log_file = constants.APP_DATA_PATH / "pclink.log"
         if log_file.exists():
             with open(log_file, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-                recent_lines = lines[-100:] if len(lines) > 100 else lines
-                return {"logs": "".join(recent_lines), "lines": len(recent_lines)}
-        return {"logs": "No log file found", "lines": 0}
+
+            filtered = []
+            target_lvl = (level or min_level or "").upper()
+            search_str = (search or "").lower()
+
+            for line in lines:
+                if target_lvl and f" - {target_lvl} " not in line.upper():
+                    continue
+                if search_str and search_str not in line.lower():
+                    continue
+                filtered.append(line)
+
+            recent = filtered[-limit:] if len(filtered) > limit else filtered
+            if recent:
+                return {"logs": "".join(recent), "lines": len(recent), "structured": []}
+
+        filter_desc = level or min_level or "ALL"
+        return {
+            "logs": f"--- No log records found for filter '{filter_desc}' ---",
+            "lines": 0,
+            "structured": [],
+        }
     except Exception as e:
-        return {"logs": f"Error reading logs: {str(e)}", "lines": 0}
+        return {"logs": f"Error reading logs: {str(e)}", "lines": 0, "structured": []}
 
 
 @mgmt_router.post("/logs/clear", dependencies=[WEB_AUTH])
 async def clear_server_logs():
-    """Truncate the application log file."""
+    """Truncate in-memory log cache and application log file."""
     try:
+        memory_log_handler.buffer.clear()
+
         log_file = constants.APP_DATA_PATH / "pclink.log"
         if log_file.exists():
-            with open(log_file, "w") as f:
+            with open(log_file, "w", encoding="utf-8") as f:
                 f.write("")
             log.info("Server logs cleared via web UI")
             return {"status": "success", "message": "Logs cleared"}
-        return {"status": "error", "message": "No log file found"}
+        return {"status": "success", "message": "In-memory logs cleared"}
     except Exception as e:
         return {"status": "error", "message": f"Error clearing logs: {str(e)}"}
 
@@ -469,10 +521,9 @@ async def announce_device(request: Request, payload: AnnouncePayload):
 
 @mgmt_router.post("/open-data-dir")
 async def open_data_dir(request: Request):
-    """pop the native file explorer on the host machine to show the config path."""
+    """Pop the native file explorer on the host machine to show the config path."""
     client_ip = request.client.host if request.client else None
     if client_ip not in ("127.0.0.1", "::1", "localhost"):
-        # prevent remote clients from popping windows on the pc unexpectedly.
         log.warning(f"BLOCKED: Remote attempt to open data directory from {client_ip}")
         raise HTTPException(
             status_code=403, detail="Local access only via host machine."
