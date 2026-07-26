@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import gettext
 import logging
 import sqlite3
 import threading
@@ -11,8 +12,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from . import constants
+from .exceptions import ValidationError
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 
 class Device:
@@ -82,7 +85,7 @@ class Device:
             platform=data.get("platform", ""),
             client_version=data.get("client_version", ""),
             current_ip=data.get("current_ip", ""),
-            is_approved=data.get("is_approved", False),
+            is_approved=bool(data.get("is_approved", False)),
             created_at=created_at,
             last_seen=last_seen,
             hardware_id=data.get("hardware_id", ""),
@@ -111,18 +114,26 @@ class IPChangeLog:
 
 
 class DeviceManager:
-    """Manages device registration, authentication, and permission tracking."""
+    """Manages device registration, authentication, and permission tracking with WAL-optimized SQLite backend."""
 
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or (constants.APP_DATA_PATH / "devices.db")
         self._lock = threading.RLock()
         self._init_database()
 
+    def _get_connection(self) -> sqlite3.Connection:
+        """Helper to create SQLite connections with WAL mode and row factory configured."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        return conn
+
     def _init_database(self):
         """Init sqlite and apply column migrations."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS devices (
@@ -191,10 +202,10 @@ class DeviceManager:
                 log.warning(
                     f"Registration attempt from banned hardware ID: {hardware_id}"
                 )
-                from .exceptions import ValidationError
-
                 raise ValidationError(
-                    f"This device ({hardware_id}) has been permanently banned from this server."
+                    _(
+                        "This device ({hardware_id}) has been permanently banned from this server."
+                    ).format(hardware_id=hardware_id)
                 )
 
             existing = self.get_device_by_id(device_id)
@@ -244,17 +255,17 @@ class DeviceManager:
             return True
 
     def revoke_device(self, device_id: str) -> bool:
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    "DELETE FROM devices WHERE device_id = ?", (device_id,)
-                )
-                deleted = cursor.rowcount > 0
-                conn.commit()
-            if deleted:
-                log.info(f"Revoked device: {device_id}")
-                self._trigger_update()
-            return deleted
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM devices WHERE device_id = ?", (device_id,)
+            )
+            deleted = cursor.rowcount > 0
+            conn.commit()
+
+        if deleted:
+            log.info(f"Revoked device: {device_id}")
+            self._trigger_update()
+        return deleted
 
     def ban_hardware(self, hardware_id: str, reason: str = "Manual ban") -> bool:
         """Add a hardware ID to the blacklist and revoke any associated devices."""
@@ -262,7 +273,7 @@ class DeviceManager:
             return False
         with self._lock:
             # 1. Add to blacklist
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_connection() as conn:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO blacklist (hardware_id, reason, banned_at)
@@ -282,35 +293,32 @@ class DeviceManager:
 
     def unban_hardware(self, hardware_id: str) -> bool:
         """Remove a hardware ID from the blacklist."""
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    "DELETE FROM blacklist WHERE hardware_id = ?", (hardware_id,)
-                )
-                deleted = cursor.rowcount > 0
-                conn.commit()
-            if deleted:
-                log.info(f"Unbanned hardware ID: {hardware_id}")
-            return deleted
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM blacklist WHERE hardware_id = ?", (hardware_id,)
+            )
+            deleted = cursor.rowcount > 0
+            conn.commit()
+
+        if deleted:
+            log.info(f"Unbanned hardware ID: {hardware_id}")
+        return deleted
 
     def is_hardware_banned(self, hardware_id: str) -> bool:
         """Check if a hardware ID is in the blacklist."""
         if not hardware_id:
             return False
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    "SELECT 1 FROM blacklist WHERE hardware_id = ?", (hardware_id,)
-                )
-                return cursor.fetchone() is not None
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT 1 FROM blacklist WHERE hardware_id = ?", (hardware_id,)
+            )
+            return cursor.fetchone() is not None
 
     def get_blacklist(self) -> List[Dict]:
         """Get all banned hardware IDs."""
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute("SELECT * FROM blacklist ORDER BY banned_at DESC")
-                return [dict(row) for row in cursor.fetchall()]
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM blacklist ORDER BY banned_at DESC")
+            return [dict(row) for row in cursor.fetchall()]
 
     def _trigger_update(self):
         try:
@@ -330,24 +338,18 @@ class DeviceManager:
             return True
 
     def get_device_by_id(self, device_id: str) -> Optional[Device]:
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    "SELECT * FROM devices WHERE device_id = ?", (device_id,)
-                )
-                row = cursor.fetchone()
-                return Device.from_dict(dict(row)) if row else None
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM devices WHERE device_id = ?", (device_id,)
+            )
+            row = cursor.fetchone()
+            return Device.from_dict(dict(row)) if row else None
 
     def get_device_by_api_key(self, api_key: str) -> Optional[Device]:
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    "SELECT * FROM devices WHERE api_key = ?", (api_key,)
-                )
-                row = cursor.fetchone()
-                return Device.from_dict(dict(row)) if row else None
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM devices WHERE api_key = ?", (api_key,))
+            row = cursor.fetchone()
+            return Device.from_dict(dict(row)) if row else None
 
     def update_device_ip(self, device_id: str, new_ip: str) -> bool:
         with self._lock:
@@ -363,58 +365,52 @@ class DeviceManager:
             return True
 
     def get_all_devices(self) -> List[Device]:
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute("SELECT * FROM devices ORDER BY last_seen DESC")
-                return [Device.from_dict(dict(row)) for row in cursor.fetchall()]
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute("SELECT * FROM devices ORDER BY last_seen DESC")
+            return [Device.from_dict(dict(row)) for row in cursor.fetchall()]
 
     def get_approved_devices(self) -> List[Device]:
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    "SELECT * FROM devices WHERE is_approved = 1 ORDER BY last_seen DESC"
-                )
-                return [Device.from_dict(dict(row)) for row in cursor.fetchall()]
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM devices WHERE is_approved = 1 ORDER BY last_seen DESC"
+            )
+            return [Device.from_dict(dict(row)) for row in cursor.fetchall()]
 
     def get_ip_change_history(
         self, device_id: str, limit: int = 50
     ) -> List[IPChangeLog]:
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    "SELECT * FROM ip_change_log WHERE device_id = ? ORDER BY timestamp DESC LIMIT ?",
-                    (device_id, limit),
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM ip_change_log WHERE device_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (device_id, limit),
+            )
+            return [
+                IPChangeLog(
+                    row["device_id"],
+                    row["old_ip"],
+                    row["new_ip"],
+                    datetime.fromisoformat(row["timestamp"]),
                 )
-                return [
-                    IPChangeLog(
-                        row["device_id"],
-                        row["old_ip"],
-                        row["new_ip"],
-                        datetime.fromisoformat(row["timestamp"]),
-                    )
-                    for row in cursor.fetchall()
-                ]
+                for row in cursor.fetchall()
+            ]
 
     def cleanup_old_devices(self, days: int = 30) -> int:
         cutoff = datetime.now(timezone.utc).timestamp() - (days * 24 * 60 * 60)
         cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat()
-        with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    "DELETE FROM devices WHERE last_seen < ?", (cutoff_iso,)
-                )
-                deleted = cursor.rowcount
-                conn.commit()
-                if deleted > 0:
-                    log.info(f"Cleaned up {deleted} old device records")
-                return deleted
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM devices WHERE last_seen < ?", (cutoff_iso,)
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+
+        if deleted > 0:
+            log.info(f"Cleaned up {deleted} old device records")
+        return deleted
 
     def _save_device(self, device: Device):
         data = device.to_dict()
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO devices
@@ -441,7 +437,7 @@ class DeviceManager:
             conn.commit()
 
     def _log_ip_change(self, device_id: str, old_ip: str, new_ip: str):
-        with sqlite3.connect(self.db_path) as conn:
+        with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO ip_change_log (device_id, old_ip, new_ip, timestamp)

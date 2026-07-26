@@ -27,3 +27,7 @@ class FileOperationError(PCLinkError):
 
 class NetworkError(PCLinkError):
     """Network-related errors"""
+
+
+class ValidationError(PCLinkError, ValueError):
+    """Validation-related errors"""
