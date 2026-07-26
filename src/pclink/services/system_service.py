@@ -3,6 +3,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import gettext
 import logging
 import os
 import platform
@@ -12,11 +13,14 @@ import subprocess
 import sys
 import time
 from collections import deque
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 import psutil
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
+
+T = TypeVar("T")
 
 # Cache for MAC address to avoid repeated slow probes
 _mac_address_cache = {"mac": None, "timestamp": 0}
@@ -25,6 +29,18 @@ _MAC_CACHE_TTL = 3600  # 1 hour cache
 SUBPROCESS_FLAGS = 0
 if sys.platform == "win32":
     SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
+
+
+def safe_probe(
+    probe_func: Callable[[], T], default: Any = None, name: str = "telemetry"
+) -> Any:
+    """Generic wrapper to execute telemetry probes safely, returning standard defaults on error."""
+    try:
+        res = probe_func()
+        return res if res is not None else (default if default is not None else {})
+    except Exception as e:
+        log.debug(f"Telemetry probe '{name}' failed: {e}")
+        return default if default is not None else {}
 
 
 class NetworkMonitor:
@@ -49,7 +65,7 @@ class NetworkMonitor:
             return self.last_speed
 
         delta = now - self.last_update
-        if delta < 0.2:  # Increased threshold for stability
+        if delta < 0.2:  # Threshold for stability
             return self.last_speed
 
         up_mbps = (
@@ -87,22 +103,18 @@ class SystemService:
 
     def __init__(self):
         self._network_monitor = NetworkMonitor()
-        # Response cache for frequently polled endpoints
         self._system_info_cache = None
         self._system_info_cache_time = 0
         self._SYSTEM_INFO_TTL = 0.5  # 500ms cache
 
-        # Thermal data cache (Windows PowerShell calls are expensive)
         self._thermals_cache: Dict[str, float] = {}
         self._thermals_cache_time = 0
-        self._THERMALS_TTL = 30  # 30 seconds - temperature doesn't change fast
+        self._THERMALS_TTL = 30  # 30 seconds
 
-        # Telemetry History (for smooth graphs on connection)
         self._telemetry_history = deque(maxlen=20)
         self._last_light_snapshot = None
         self._background_task = None
 
-        # Initialize psutil markers to avoid zero values on first call
         try:
             psutil.cpu_percent(interval=None)
             psutil.cpu_stats()
@@ -123,18 +135,16 @@ class SystemService:
 
         while True:
             try:
-                # 1. Collect ONLY light stats (extremely cheap)
                 snapshot = await asyncio.to_thread(self._get_light_snapshot)
                 self._last_light_snapshot = snapshot
                 self._telemetry_history.append(
                     {"timestamp": time.time(), "data": snapshot}
                 )
 
-                # 2. Adaptive sleeping: poll faster if someone is watching
                 if mobile_manager.active_connections:
                     await asyncio.sleep(1.0)
                 else:
-                    await asyncio.sleep(3.0)  # Very low impact when idle
+                    await asyncio.sleep(3.0)
             except Exception as e:
                 log.debug(f"Telemetry collection error: {e}")
                 await asyncio.sleep(5)
@@ -175,12 +185,16 @@ class SystemService:
                 except ProcessLookupError:
                     pass
                 log.warning(f"Command timed out after {timeout}s: {cmd[0]}")
-                raise RuntimeError(f"Command timed out: {cmd[0]}")
+                raise RuntimeError(_("Command timed out: {cmd}").format(cmd=cmd[0]))
 
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
                 log.debug(f"Command execution failed: {cmd} -> {error_msg}")
-                raise RuntimeError(f"Command failed: {cmd[0]} - {error_msg}")
+                raise RuntimeError(
+                    _("Command failed: {cmd} - {error}").format(
+                        cmd=cmd[0], error=error_msg
+                    )
+                )
 
             return stdout.decode()
         except Exception as e:
@@ -221,7 +235,7 @@ class SystemService:
         return {"disks": disks_info}
 
     async def get_system_info(self) -> Dict[str, Any]:
-        """Aggregates all system-level telemetry with 500ms caching."""
+        """Aggregates system telemetry with 500ms caching."""
         now = time.time()
         if (
             self._system_info_cache
@@ -237,7 +251,8 @@ class SystemService:
     def _safe_get_battery(self) -> Dict[str, Any]:
         if not hasattr(psutil, "sensors_battery"):
             return {}
-        try:
+
+        def _probe():
             battery = psutil.sensors_battery()
             if battery:
                 return {
@@ -249,12 +264,12 @@ class SystemService:
                         else None
                     ),
                 }
-        except Exception as e:
-            log.debug(f"Failed to read battery sensors: {e}")
-        return {}
+            return {}
+
+        return safe_probe(_probe, default={}, name="battery")
 
     def _safe_get_cpu_metrics(self, freq) -> Dict[str, Any]:
-        try:
+        def _probe():
             return {
                 "percent": psutil.cpu_percent(interval=0.1),
                 "per_cpu_percent": psutil.cpu_percent(interval=None, percpu=True),
@@ -263,36 +278,33 @@ class SystemService:
                 "current_freq_mhz": freq.current if freq else None,
                 "max_freq_mhz": freq.max if freq else None,
             }
-        except Exception as e:
-            log.debug(f"Failed to read CPU metrics: {e}")
-            return {}
+
+        return safe_probe(_probe, default={}, name="cpu_metrics")
 
     def _safe_get_ram_metrics(self, mem) -> Dict[str, Any]:
-        try:
+        def _probe():
             return {
                 "percent": mem.percent,
                 "total_gb": round(mem.total / (1024**3), 2),
                 "used_gb": round(mem.used / (1024**3), 2),
                 "available_gb": round(mem.available / (1024**3), 2),
             }
-        except Exception as e:
-            log.debug(f"Failed to read RAM metrics: {e}")
-            return {}
+
+        return safe_probe(_probe, default={}, name="ram_metrics")
 
     def _safe_get_swap_metrics(self, swap) -> Dict[str, Any]:
-        try:
+        def _probe():
             return {
                 "percent": swap.percent,
                 "total_gb": round(swap.total / (1024**3), 2),
                 "used_gb": round(swap.used / (1024**3), 2),
                 "free_gb": round(swap.free / (1024**3), 2),
             }
-        except Exception as e:
-            log.debug(f"Failed to read SWAP metrics: {e}")
-            return {}
+
+        return safe_probe(_probe, default={}, name="swap_metrics")
 
     def _safe_get_disk_io_metrics(self) -> Optional[Dict[str, Any]]:
-        try:
+        def _probe():
             io_counters = psutil.disk_io_counters(perdisk=False)
             if io_counters:
                 return {
@@ -301,43 +313,51 @@ class SystemService:
                     "read_count": io_counters.read_count,
                     "write_count": io_counters.write_count,
                 }
-        except Exception as e:
-            log.debug(f"Failed to read Disk I/O metrics: {e}")
-        return None
+            return None
+
+        return safe_probe(_probe, default=None, name="disk_io")
 
     def _safe_get_network_metrics(self, speed) -> Dict[str, Any]:
-        net_info = {}
-        try:
-            addrs = psutil.net_if_addrs()
-            stats = psutil.net_if_stats()
-            for nic, nic_addrs in addrs.items():
-                ipv4 = None
-                for a in nic_addrs:
-                    if a.family == socket.AF_INET:
-                        ipv4 = a.address
-                        break
-                if ipv4:
-                    net_info[nic] = {
-                        "ip": ipv4,
-                        "is_up": stats[nic].isup if nic in stats else False,
-                        "speed_mbps": stats[nic].speed if nic in stats else 0,
-                    }
-        except Exception as e:
-            log.debug(f"Failed to read network interfaces: {e}")
+        def _probe():
+            net_info = {}
+            try:
+                addrs = psutil.net_if_addrs()
+                stats = psutil.net_if_stats()
+                for nic, nic_addrs in addrs.items():
+                    ipv4 = None
+                    for a in nic_addrs:
+                        if a.family == socket.AF_INET:
+                            ipv4 = a.address
+                            break
+                    if ipv4:
+                        net_info[nic] = {
+                            "ip": ipv4,
+                            "is_up": stats[nic].isup if nic in stats else False,
+                            "speed_mbps": stats[nic].speed if nic in stats else 0,
+                        }
+            except Exception as e:
+                log.debug(f"Failed to read network interfaces: {e}")
 
-        try:
+            try:
+                io_total = psutil.net_io_counters()._asdict()
+            except Exception:
+                io_total = {}
+
             return {
                 "speed": speed,
-                "io_total": psutil.net_io_counters()._asdict(),
+                "io_total": io_total,
                 "interfaces": net_info,
             }
-        except Exception as e:
-            log.debug(f"Failed to read network I/O counters: {e}")
-            return {"speed": speed, "io_total": {}, "interfaces": net_info}
+
+        return safe_probe(
+            _probe,
+            default={"speed": speed, "io_total": {}, "interfaces": {}},
+            name="network",
+        )
 
     def _safe_get_active_users(self) -> List[Dict[str, Any]]:
-        active_users = []
-        try:
+        def _probe():
+            active_users = []
             for u in psutil.users():
                 active_users.append(
                     {
@@ -347,45 +367,41 @@ class SystemService:
                         "started": int(u.started),
                     }
                 )
-        except Exception as e:
-            log.debug(f"Failed to read active users: {e}")
-        return active_users
+            return active_users
+
+        return safe_probe(_probe, default=[], name="active_users")
 
     def _safe_get_load_avg(self) -> List[float]:
-        try:
-            if hasattr(os, "getloadavg"):
-                return list(os.getloadavg())
-        except Exception as e:
-            log.debug(f"Failed to read load average: {e}")
-        return []
+        if not hasattr(os, "getloadavg"):
+            return []
+        return safe_probe(lambda: list(os.getloadavg()), default=[], name="load_avg")
 
     def _safe_get_fans(self) -> Dict[str, Any]:
-        fans = {}
-        if hasattr(psutil, "sensors_fans"):
-            try:
-                raw_fans = psutil.sensors_fans()
-                for label, entries in raw_fans.items():
-                    fans[label] = [
-                        {"label": f.label, "current": f.current} for f in entries
-                    ]
-            except Exception as e:
-                log.debug(f"Failed to read fan sensors: {e}")
-        return fans
+        if not hasattr(psutil, "sensors_fans"):
+            return {}
+
+        def _probe():
+            raw_fans = psutil.sensors_fans()
+            return {
+                label: [{"label": f.label, "current": f.current} for f in entries]
+                for label, entries in raw_fans.items()
+            }
+
+        return safe_probe(_probe, default={}, name="fans")
 
     def _safe_get_unix_thermals(self) -> Dict[str, float]:
-        temps = {}
-        if hasattr(psutil, "sensors_temperatures"):
-            try:
-                raw_temps = psutil.sensors_temperatures()
-                if raw_temps:
-                    # Look for common CPU temperature sensor labels
-                    for label in ["coretemp", "k10temp", "package_id_0", "cpu_thermal"]:
-                        if label in raw_temps and raw_temps[label]:
-                            temps["cpu_temp_celsius"] = raw_temps[label][0].current
-                            break
-            except Exception as e:
-                log.debug(f"Failed to read Unix thermal sensors: {e}")
-        return temps
+        if not hasattr(psutil, "sensors_temperatures"):
+            return {}
+
+        def _probe():
+            raw_temps = psutil.sensors_temperatures()
+            if raw_temps:
+                for label in ["coretemp", "k10temp", "package_id_0", "cpu_thermal"]:
+                    if label in raw_temps and raw_temps[label]:
+                        return {"cpu_temp_celsius": raw_temps[label][0].current}
+            return {}
+
+        return safe_probe(_probe, default={}, name="unix_thermals")
 
     def _get_sync_system_info(self) -> Dict[str, Any]:
         """Synchronous CPU/RAM/Disk/Network telemetry."""
@@ -396,13 +412,12 @@ class SystemService:
         uptime = time.time() - boot
         speed = self._network_monitor.get_speed()
 
-        # Thermal Detection
-        if sys.platform == "win32":
-            temps = self._get_windows_thermals()
-        else:
-            temps = self._safe_get_unix_thermals()
+        temps = (
+            self._get_windows_thermals()
+            if sys.platform == "win32"
+            else self._safe_get_unix_thermals()
+        )
 
-        # OS Details
         os_family = platform.system()
         os_release = platform.release()
         os_name = f"{os_family} {os_release}"
@@ -471,7 +486,7 @@ class SystemService:
         }
 
     def _get_windows_thermals(self) -> Dict[str, float]:
-        """Provides CPU temperature using native WMI (avoids expensive PowerShell spawning)."""
+        """Provides CPU temperature using native WMI."""
         now = time.time()
         if (
             self._thermals_cache
@@ -486,14 +501,12 @@ class SystemService:
 
             pythoncom.CoInitialize()
             try:
-                # 1. Try ACPI Thermal Zone (Standard Windows)
                 try:
                     wmi_service = win32com.client.GetObject("winmgmts:\\\\.\\root\\WMI")
                     results = wmi_service.ExecQuery(
                         "SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature"
                     )
                     for item in results:
-                        # Value is in tenths of Kelvin
                         temp_c = (item.CurrentTemperature - 2732) / 10.0
                         if 0 < temp_c < 125:
                             thermals["cpu_temp_celsius"] = round(temp_c, 1)
@@ -501,7 +514,6 @@ class SystemService:
                 except Exception:
                     pass
 
-                # 2. Try LibreHardwareMonitor or OpenHardwareMonitor as robust fallbacks
                 if "cpu_temp_celsius" not in thermals:
                     for ns in [
                         "root\\LibreHardwareMonitor",
@@ -558,7 +570,6 @@ class SystemService:
             CoInitialize()
             from pycaw.pycaw import IAudioEndpointVolume
 
-            # Try to get enumerator interface/CLSID from pycaw, fallback to raw GUIDs
             try:
                 from pycaw.constants import CLSID_MMDeviceEnumerator
                 from pycaw.pycaw import IMMDeviceEnumerator
@@ -575,7 +586,6 @@ class SystemService:
                 IMMDeviceEnumerator,
                 comtypes.CLSCTX_INPROC_SERVER,
             )
-            # 0: eRender, 0: eConsole
             device = enumerator.GetDefaultAudioEndpoint(0, 0)
             interface = device.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
             volume = interface.QueryInterface(IAudioEndpointVolume)
@@ -614,12 +624,12 @@ class SystemService:
                         }
             except Exception:
                 continue
-        raise RuntimeError("Volume control unavailable")
+        raise RuntimeError(_("Volume control unavailable"))
 
     async def set_volume(self, level: int):
         """Sets master volume (0-100)."""
         if not 0 <= level <= 100:
-            raise ValueError("Volume must be 0-100")
+            raise ValueError(_("Volume must be 0-100"))
         if sys.platform == "win32":
             await asyncio.to_thread(self._set_volume_win32, level)
         elif sys.platform == "darwin":
@@ -717,17 +727,18 @@ class SystemService:
         }
         cmd = cmd_map.get(sys.platform, {}).get(command)
         if not cmd:
-            raise ValueError(f"Unsupported command: {command}")
+            raise ValueError(
+                _("Unsupported command: {command}").format(command=command)
+            )
 
         if sys.platform == "linux":
             success = await self._try_power_command_linux(command, cmd)
             if not success:
-                raise RuntimeError("Power command failed")
+                raise RuntimeError(_("Power command failed"))
         else:
             await asyncio.to_thread(subprocess.run, cmd, creationflags=SUBPROCESS_FLAGS)
 
     async def _try_power_command_linux(self, command: str, primary: List[str]) -> bool:
-        # Use -n to prevent hanging on password prompts
         fallbacks = {
             "shutdown": [["sudo", "-n", "systemctl", "poweroff"], ["poweroff"]],
             "reboot": [["sudo", "-n", "systemctl", "reboot"], ["reboot"]],
