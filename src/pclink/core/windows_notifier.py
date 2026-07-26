@@ -48,34 +48,27 @@ class WindowsNotifier:
         return WINSDK_AVAILABLE
 
     def show(self, title: str, message: str) -> bool:
-        """
-        Shows a native Windows toast notification with the app icon.
+        """Show basic toast with no action."""
+        return self._send_toast(title, message, launch_url=None)
 
-        Args:
-            title: The notification title.
-            message: The notification message.
+    def show_actionable(self, title: str, message: str, url: str) -> bool:
+        """Show clickable toast — clicking opens `url` in default browser."""
+        return self._send_toast(title, message, launch_url=url)
 
-        Returns:
-            True if the notification was sent successfully, False otherwise.
-        """
+    def _send_toast(self, title: str, message: str, launch_url: str | None) -> bool:
         if not WINSDK_AVAILABLE or not notifier:
             return False
 
         try:
-            # --- MODIFIED XML TEMPLATE ---
-            # Use a more advanced template that includes an app logo override.
-            # Paths must be absolute and correctly formatted.
-            icon_uri = ""
-            if self.default_icon_path:
-                # The path must be URI-encoded (file:///)
-                icon_uri = self.default_icon_path.as_uri()
-
-            # Sanitize input to prevent XML errors
+            icon_uri = self.default_icon_path.as_uri() if self.default_icon_path else ""
             safe_title = html.escape(title)
             safe_message = html.escape(message)
 
+            # launch attr → Windows opens this URL when user clicks the toast body
+            launch_attr = f' launch="{html.escape(launch_url)}"' if launch_url else ""
+
             toast_xml = f"""
-            <toast>
+            <toast{launch_attr} activationType="protocol">
                 <visual>
                     <binding template="ToastGeneric">
                         <text>{safe_title}</text>
@@ -85,17 +78,14 @@ class WindowsNotifier:
                 </visual>
             </toast>
             """
-            # --- END MODIFIED XML TEMPLATE ---
 
             xml_doc = XmlDocument()
             xml_doc.load_xml(toast_xml)
+            notifier.show(ToastNotification(xml_doc))
 
-            toast = ToastNotification(xml_doc)
-            notifier.show(toast)
-
-            log.debug(f"Windows toast notification sent: {title}")
+            log.debug(f"Windows toast sent: {title} (url={launch_url})")
             return True
 
         except Exception as e:
-            log.error(f"Failed to send Windows toast notification: {e}", exc_info=True)
+            log.error(f"Failed to send Windows toast: {e}", exc_info=True)
             return False

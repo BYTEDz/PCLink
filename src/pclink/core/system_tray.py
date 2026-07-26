@@ -317,6 +317,35 @@ class SystemTrayManager:
         # 3. Last fallback: Log it
         log.info(f"NOTIFICATION: {title} - {message}")
 
+    def show_pairing_notification(self, device_name: str, web_ui_url: str):
+        """Fire a pairing-request notification that opens the web UI on click.
+
+        Windows → clickable toast (launch=url activationType=protocol).
+        Linux   → critical notification with 'Open Web UI' action via libnotify,
+                   or urgency=critical via notify-send as fallback.
+        """
+        title = "PCLink — Pairing Request"
+        message = f"{device_name} wants to pair. Click to open Web UI and approve."
+
+        # prefer show_actionable if notifier supports it
+        if self.notifier and self.notifier.is_available():
+            if hasattr(self.notifier, "show_actionable"):
+                if self.notifier.show_actionable(title, message, web_ui_url):
+                    return
+            elif self.notifier.show(title, message):
+                return
+
+        # pystray plain fallback (no click-to-open on most backends)
+        if (
+            self.icon
+            and self.running
+            and getattr(pystray.Icon, "HAS_NOTIFICATION", False)
+        ):
+            self.icon.notify(message, title)
+            return
+
+        log.info(f"PAIRING_NOTIFICATION: {title} — {message}")
+
     def is_server_running(self, item=None):
         return self.controller and self.controller.mobile_api_enabled
 

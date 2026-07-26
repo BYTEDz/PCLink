@@ -102,6 +102,24 @@ async def pairing_request(request: Request, payload: PairingRequestPayload):
         }
     )
 
+    # 3. If no browser tab is open, fire a tray notification so the user
+    #    knows to open the web UI and approve the request.
+    if not ui_manager.active_connections:
+        try:
+            controller = getattr(request.app.state, "controller", None)
+            tray = getattr(request.app.state, "tray_manager", None)
+            if tray is not None and controller is not None:
+                web_ui_url = controller.get_web_ui_url()
+                # run in executor — notifier calls may block briefly
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    tray.show_pairing_notification,
+                    payload.device_name,
+                    web_ui_url,
+                )
+        except Exception as _e:
+            log.debug(f"Pairing notification skipped: {_e}")
+
     # 3. Wait for UI Response (30s timeout)
     try:
         await asyncio.wait_for(events[pairing_id].wait(), timeout=30.0)
