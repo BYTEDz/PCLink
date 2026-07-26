@@ -23,7 +23,7 @@ AUTH_CHECK_INTERVAL = 30.0  # seconds
 
 
 async def handle_mouse_command(data: Dict[str, Any], permissions: List[str]):
-    if "mouse" not in permissions or not input_service.is_available():
+    if "input" not in permissions or not input_service.is_available():
         return
 
     action = data.get("action")
@@ -51,7 +51,7 @@ async def handle_mouse_command(data: Dict[str, Any], permissions: List[str]):
 
 
 async def handle_keyboard_command(data: Dict[str, Any], permissions: List[str]):
-    if "keyboard" not in permissions or not input_service.is_available():
+    if "input" not in permissions or not input_service.is_available():
         log.warning(
             f"Keyboard command rejected: permissions={permissions}, available={input_service.is_available()}"
         )
@@ -113,10 +113,10 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         )
 
     type_service_map = {
-        "mouse_control": "mouse",
-        "keyboard_control": "keyboard",
+        "mouse_control": "input",
+        "keyboard_control": "input",
         "media_control": "media",
-        "file_operation": "files_browse",
+        "file_operation": "files_read",
         "macros": "macros",
         "apps": "apps",
     }

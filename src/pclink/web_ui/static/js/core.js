@@ -1,25 +1,18 @@
 // static/js/core.js
 const PERMISSION_MAP = {
-    files_browse: { title: "File Browser", desc: "Browse system files and view thumbnails" },
-    files_download: { title: "File Download", desc: "Download files to the connected device" },
-    files_upload: { title: "File Upload", desc: "Upload files from the connected device" },
-    files_delete: { title: "File Deletion", desc: "Delete files and folders on the system" },
-    processes: { title: "Processes Management", desc: "View and manage running system processes" },
-    power: { title: "Power Control", desc: "Shutdown, restart, or lock the system" },
-    info: { title: "System Status", desc: "Monitor battery and hardware status" },
-    mouse: { title: "Remote Mouse", desc: "Control system cursor and clicks" },
-    keyboard: { title: "Remote Type", desc: "Send keyboard inputs and shortcuts" },
-    media: { title: "Media Control", desc: "Control playback and see media info" },
-    volume: { title: "System Volume", desc: "Adjust master volume and mute status" },
-    terminal: { title: "Terminal Access", desc: "Full shell access (High Risk)" },
-    macros: { title: "Automation Macros", desc: "Execute automated task scripts" },
-    extensions: { title: "Extensions", desc: "Manage and run server extensions" },
+    files_read: { title: "File Access (Read)", desc: "Browse system files and download contents" },
+    files_write: { title: "File Access (Write)", desc: "Upload, rename, move, and delete files" },
+    input: { title: "Remote Input & Clipboard", desc: "Control mouse cursor, keyboard input, and sync clipboard" },
+    media: { title: "Media & Volume Control", desc: "Control playback and adjust master system volume" },
     apps: { title: "Applications", desc: "View and launch installed applications" },
-    clipboard: { title: "Clipboard Sync", desc: "Read and write system clipboard" },
-    screenshot: { title: "Screen Capture", desc: "Capture system screen snapshots" },
-    command: { title: "Shell Command", desc: "Run detached shell commands" },
-    wol: { title: "Wake-on-LAN", desc: "Check WOL status and MAC address" },
-    desktop_streaming: { title: "Desktop Streaming", desc: "Stream device screen to connected device" }
+    processes: { title: "Process Manager", desc: "View and terminate running system processes" },
+    power: { title: "Power Management", desc: "Shutdown, restart, sleep, or lock system" },
+    info: { title: "System Status & Telemetry", desc: "Monitor hardware usage, battery, and network status" },
+    screenshot: { title: "Screen Capture", desc: "Capture primary monitor screen snapshot" },
+    macros: { title: "Automation Macros", desc: "Execute multi-step automated task scripts" },
+    extensions: { title: "Server Extensions", desc: "Manage and run custom server extensions" },
+    desktop_streaming: { title: "Desktop Streaming", desc: "Stream live desktop video & audio feed" },
+    terminal: { title: "Shell & Terminal Access", desc: "Execute shell commands and interactive terminal (High Risk)" }
 };
 
 class PCLinkWebUI {

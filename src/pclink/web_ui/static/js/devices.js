@@ -316,10 +316,10 @@ window.openPermissions = async function (deviceId) {
 
 window.applyPermissionTemplate = function (tplName, containerId) {
     const defaultTemplates = {
-        'Admin': ['files_browse', 'files_download', 'files_upload', 'files_delete', 'processes', 'power', 'info', 'mouse', 'keyboard', 'media', 'volume', 'terminal', 'macros', 'extensions', 'apps', 'clipboard', 'screenshot', 'command', 'wol','desktop_streaming'],
-        'Viewer': ['files_browse', 'info', 'apps'],
-        'Media': ['media', 'volume', 'info', 'apps'],
-        'Remote': ['mouse', 'keyboard', 'screenshot', 'info', 'volume'],
+        'Admin': ['files_read', 'files_write', 'processes', 'power', 'info', 'input', 'media', 'terminal', 'macros', 'extensions', 'apps', 'screenshot', 'desktop_streaming'],
+        'Viewer': ['files_read', 'info', 'apps'],
+        'Media': ['media', 'info', 'apps'],
+        'Remote': ['input', 'screenshot', 'info', 'media'],
         'None': []
     };
     const customTemplates = JSON.parse(localStorage.getItem('pclink_custom_templates') || '{}');

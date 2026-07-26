@@ -18,30 +18,35 @@ log = logging.getLogger(__name__)
 
 # --- Configuration for Permissions ---
 SERVICE_PERMISSION_MAP = {
-    "/files/browse": "files_browse",
-    "/files/thumbnail": "files_browse",
-    "/files/download": "files_download",
-    "/files/upload": "files_upload",
-    "/files/delete": "files_delete",
-    "/files": "files_browse",
-    "/phone/files": "files_browse",
+    "/files/upload": "files_write",
+    "/files/delete": "files_write",
+    "/files/compress": "files_write",
+    "/files/extract": "files_write",
+    "/files/create-folder": "files_write",
+    "/files/rename": "files_write",
+    "/files/batch-rename": "files_write",
+    "/files/paste": "files_write",
+    "/files/browse": "files_read",
+    "/files/thumbnail": "files_read",
+    "/files/download": "files_read",
+    "/files/media-info": "files_read",
+    "/files/stream": "files_read",
+    "/files": "files_read",
+    "/phone/files": "files_read",
     "/system/processes": "processes",
     "/system/power": "power",
-    "/system/volume": "volume",
-    "/system/wake-on-lan": "wol",
+    "/system/volume": "media",
     "/system": "power",
     "/info": "info",
-    "/input/mouse": "mouse",
-    "/input/keyboard": "keyboard",
-    "/input": "mouse",
+    "/input": "input",
     "/media": "media",
     "/terminal": "terminal",
     "/macro": "macros",
     "/applications": "apps",
-    "/utils/clipboard": "clipboard",
+    "/utils/clipboard": "input",
     "/utils/screenshot": "screenshot",
-    "/utils/command": "command",
-    "/utils": "utils",
+    "/utils/command": "terminal",
+    "/utils": "input",
     "/api/extensions": "extensions",
     "/extensions": "extensions",
     "/desktop-streaming": "desktop_streaming",
@@ -59,16 +64,17 @@ async def upload_optimization_middleware(request: Request, call_next):
 async def service_enforcement_middleware(request: Request, call_next):
     path = request.url.path
 
-    # 1. Whitelist Core Endpoints (Always Allowed)
+    # 1. Whitelist Core Endpoints (Always Allowed - includes Wake-on-LAN)
     whitelist = [
         "/heartbeat",
         "/auth/check",
         "/auth/login",
         "/status",
         "/qr-payload",
+        "/system/wake-on-lan",
     ]
     if (
-        any(path == p for p in whitelist)
+        any(path.startswith(p) for p in whitelist)
         or (path.startswith("/ui") and not path.startswith("/ui/services"))
         or path.startswith("/static")
     ):
@@ -178,7 +184,6 @@ def create_extension_middleware(extension_manager: Any):
                                 f"Failed to hot-load extension {extension_id} on request: {e}"
                             )
 
-                    # Silence warning logs for optional static assets like extension icons
                     if not path.endswith("/icon"):
                         log.warning(
                             f"Blocking request to disabled or unknown extension: {extension_id} (Path: {path})"

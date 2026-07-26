@@ -23,27 +23,31 @@ async def get_services():
     """Returns the list of all services and their current status."""
     services = config_manager.get("services", {})
 
-    # Enrich with descriptions and icons for the UI
     service_info = {
-        "files_browse": {
-            "title": "File Browser",
+        "files_read": {
+            "title": "File Access (Read)",
             "icon": "folder",
-            "description": "Browse system files and view thumbnails.",
+            "description": "Browse system files and download contents.",
         },
-        "files_download": {
-            "title": "File Download",
-            "icon": "download",
-            "description": "Download files to the connected device.",
+        "files_write": {
+            "title": "File Access (Write)",
+            "icon": "edit-3",
+            "description": "Upload, rename, move, and delete files.",
         },
-        "files_upload": {
-            "title": "File Upload",
-            "icon": "upload",
-            "description": "Upload files from the connected device.",
+        "input": {
+            "title": "Remote Input & Clipboard",
+            "icon": "mouse-pointer",
+            "description": "Control cursor, keyboard typing, and sync clipboard.",
         },
-        "files_delete": {
-            "title": "File Deletion",
-            "icon": "trash-2",
-            "description": "Delete files and folders on the system.",
+        "media": {
+            "title": "Media & Volume Control",
+            "icon": "play-circle",
+            "description": "Control media playback and system master volume.",
+        },
+        "apps": {
+            "title": "Applications",
+            "icon": "grid",
+            "description": "View and launch installed applications.",
         },
         "processes": {
             "title": "Processes",
@@ -53,37 +57,17 @@ async def get_services():
         "power": {
             "title": "Power Control",
             "icon": "power",
-            "description": "Shutdown, restart, or lock the system.",
+            "description": "Shutdown, restart, sleep, or lock the system.",
         },
         "info": {
             "title": "System Status",
             "icon": "info",
             "description": "Monitor battery and hardware status.",
         },
-        "mouse": {
-            "title": "Remote Mouse",
-            "icon": "mouse-pointer",
-            "description": "Control system cursor and clicks.",
-        },
-        "keyboard": {
-            "title": "Remote Type",
-            "icon": "type",
-            "description": "Send keyboard inputs and shortcuts.",
-        },
-        "media": {
-            "title": "Media Control",
-            "icon": "play-circle",
-            "description": "Control playback and see media info.",
-        },
-        "volume": {
-            "title": "System Volume",
-            "icon": "volume-2",
-            "description": "Adjust master volume and mute status.",
-        },
-        "terminal": {
-            "title": "Terminal",
-            "icon": "terminal",
-            "description": "Direct shell access (High Risk).",
+        "screenshot": {
+            "title": "Screen Capture",
+            "icon": "camera",
+            "description": "Capture system screen snapshots.",
         },
         "macros": {
             "title": "Macros",
@@ -95,35 +79,15 @@ async def get_services():
             "icon": "package",
             "description": "Manage and run server extensions.",
         },
-        "apps": {
-            "title": "Applications",
-            "icon": "grid",
-            "description": "View and launch installed applications.",
-        },
-        "clipboard": {
-            "title": "Clipboard",
-            "icon": "clipboard",
-            "description": "Read and write system clipboard.",
-        },
-        "screenshot": {
-            "title": "Screen Capture",
-            "icon": "camera",
-            "description": "Capture system screen snapshots.",
-        },
-        "command": {
-            "title": "Shell Command",
-            "icon": "hash",
-            "description": "Run detached shell commands.",
-        },
-        "wol": {
-            "title": "Wake-on-LAN",
-            "icon": "wifi",
-            "description": "Check WOL status and MAC address.",
-        },
         "desktop_streaming": {
             "title": "Desktop Streaming",
             "icon": "monitor",
             "description": "Stream device screen to connected device.",
+        },
+        "terminal": {
+            "title": "Terminal & Shell",
+            "icon": "terminal",
+            "description": "Direct shell and terminal access (High Risk).",
         },
     }
 
@@ -161,7 +125,6 @@ async def toggle_service(payload: ServiceToggle, request: Request):
         f"Service '{payload.name}' has been {'enabled' if payload.enabled else 'disabled'} via Web UI."
     )
 
-    # Special handling for extensions
     if payload.name == "extensions":
         ext_manager = ExtensionManager()
         if payload.enabled:
@@ -175,7 +138,6 @@ async def toggle_service(payload: ServiceToggle, request: Request):
             )
             ext_manager.unload_all_extensions()
 
-    # Broadcast to all mobile devices
     if hasattr(request.app.state, "mobile_manager"):
         from ..services.discovery_service import DiscoveryService
 
