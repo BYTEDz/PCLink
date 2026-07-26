@@ -1,4 +1,7 @@
 # src/pclink/api_server/middleware.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import logging
 from typing import Any
 
@@ -7,8 +10,8 @@ from fastapi.responses import JSONResponse
 
 from ..core.config import config_manager
 from ..core.device_manager import device_manager
-from ..core.validators import ValidationError
 from ..core.share_manager import share_manager
+from ..core.validators import ValidationError
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +81,6 @@ async def service_enforcement_middleware(request: Request, call_next):
             break
 
     if target_service:
-        # --- GLOBAL SERVICE CHECK ---
         global_services = config_manager.get("services", {})
         if not global_services.get(target_service, True):
             log.warning(
@@ -93,15 +95,12 @@ async def service_enforcement_middleware(request: Request, call_next):
                 },
             )
 
-        # --- IDENTITY EXTRACTION ---
-        # 1. Check for device token (headers, query, or cookie)
         token = (
             request.headers.get("X-API-Key")
             or request.query_params.get("token")
             or request.cookies.get("pclink_device_token")
         )
 
-        # 2. Check for web admin session
         session_token = request.cookies.get("pclink_session") or request.headers.get(
             "X-Session-Token"
         )
@@ -113,9 +112,7 @@ async def service_enforcement_middleware(request: Request, call_next):
             if web_auth_manager.validate_session(session_token, client_ip):
                 is_admin = True
 
-        # --- PERMISSION ENFORCEMENT ---
         if is_admin:
-            # Admin session bypasses device-specific permission checks
             return await call_next(request)
 
         if token:
@@ -138,13 +135,10 @@ async def service_enforcement_middleware(request: Request, call_next):
                                 "required": target_service,
                             },
                         )
-                    # Permission granted
                     return await call_next(request)
             except ValidationError:
                 pass
 
-        # If we reached here, it's a service request with no valid identity (neither admin nor device)
-        # We block it since these services REQUIRE a valid identity.
         return JSONResponse(
             status_code=403,
             content={"detail": "AUTHENTICATION_REQUIRED", "service": target_service},
@@ -160,7 +154,11 @@ def create_extension_middleware(extension_manager: Any):
             parts = path.split("/")
             if len(parts) > 2:
                 extension_id = parts[2]
-                if not extension_manager.get_extension(extension_id):
+                is_active = (
+                    extension_manager.get_extension(extension_id) is not None
+                    or extension_id in extension_manager.isolated_processes
+                )
+                if not is_active:
                     manifest_path = (
                         extension_manager.extensions_path
                         / extension_id
@@ -173,9 +171,6 @@ def create_extension_middleware(extension_manager: Any):
                             with open(manifest_path, "r", encoding="utf-8") as f:
                                 config = yaml.safe_load(f)
                             if config.get("enabled", True):
-                                log.info(
-                                    f"Hot-loading requested extension on-demand: {extension_id}"
-                                )
                                 extension_manager.failed_extensions.pop(
                                     extension_id, None
                                 )
@@ -186,9 +181,11 @@ def create_extension_middleware(extension_manager: Any):
                                 f"Failed to hot-load extension {extension_id} on request: {e}"
                             )
 
-                    log.warning(
-                        f"Blocking request to disabled or unknown extension: {extension_id} (Path: {path})"
-                    )
+                    # Silence warning logs for optional static assets like extension icons
+                    if not path.endswith("/icon"):
+                        log.warning(
+                            f"Blocking request to disabled or unknown extension: {extension_id} (Path: {path})"
+                        )
                     return JSONResponse(
                         status_code=404,
                         content={"detail": f"Extension '{extension_id}' Not Found"},

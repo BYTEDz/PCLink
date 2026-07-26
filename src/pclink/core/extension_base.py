@@ -1,3 +1,4 @@
+# src/pclink/core/extension_base.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -13,10 +14,10 @@ from pydantic import BaseModel
 class ExtensionWidgetModel(BaseModel):
     id: str
     display_name: str
-    ui_entry: str  # Path to the widget HTML file
-    width: int = 1  # 1: normal, 2: wide
-    height: int = 1  # 1: normal, 2: tall
-    refresh_ms: int = 0  # 0 means handled by widget JS
+    ui_entry: str
+    width: int = 1
+    height: int = 1
+    refresh_ms: int = 0
 
 
 class UICapabilities(BaseModel):
@@ -26,7 +27,7 @@ class UICapabilities(BaseModel):
     allow_mouse: bool = False
     allow_rotate: bool = False
     prevent_sleep: bool = False
-    orientation: Optional[str] = "auto"  # auto, follow_system, landscape, portrait
+    orientation: Optional[str] = "auto"
 
 
 class ExtensionMetadata(BaseModel):
@@ -42,19 +43,18 @@ class ExtensionMetadata(BaseModel):
     enabled: bool = True
     supported_platforms: List[str] = ["windows", "linux", "darwin"]
     supported_architectures: List[str] = ["x86_64", "amd64", "arm64", "aarch64"]
-    supported_distros: List[str] = []  # Optional: e.g. ["arch", "ubuntu"]
+    supported_distros: List[str] = []
     icon: Optional[str] = None
     theme_aware_icon: bool = False
     category: str = "Utility"
     min_server_version: str = "1.0.0"
     ui_capabilities: UICapabilities = UICapabilities()
     dashboard_widgets: List[ExtensionWidgetModel] = []
-    # Venv support: path to requirements.txt relative to extension root
     requirements_file: Optional[str] = None
+    isolated_process: bool = True  # Full process isolation enabled by default
 
 
 class ExtensionBase(ABC):
-    # Class-level flag to detect async implementations
     _is_async: bool = False
 
     def __init__(
@@ -70,10 +70,8 @@ class ExtensionBase(ABC):
         self.context = context
         self.router = APIRouter(dependencies=[Depends(self._verify_active)])
         self.logger = logging.getLogger(f"pclink.extensions.{metadata.name}")
-        # Store venv path once created
         self._venv_path: Optional[Path] = None
 
-        # Detect async implementation
         self._check_async()
 
     def _check_async(self):
@@ -93,7 +91,10 @@ class ExtensionBase(ABC):
         from pclink.core.extension_manager import ExtensionManager
 
         manager = ExtensionManager()
-        if self.metadata.name not in manager.extensions:
+        if (
+            self.metadata.name not in manager.extensions
+            and self.metadata.name not in manager.isolated_processes
+        ):
             raise HTTPException(
                 status_code=410,
                 detail=f"Extension '{self.metadata.name}' has been unloaded.",
@@ -136,5 +137,4 @@ class ExtensionBase(ABC):
         return self._venv_path is not None and self._venv_path.exists()
 
 
-# Type hint for coroutine (forward reference to avoid import issues)
 CoroutineType = "Coroutine"

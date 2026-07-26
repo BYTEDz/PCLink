@@ -1,4 +1,4 @@
-# src/pclink/api_server/extension_router.py
+# src/pclink/api_server/routers/extensions.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -7,14 +7,24 @@ import shutil
 import tempfile
 import urllib.request
 from pathlib import Path
+from typing import Optional, Tuple
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 
 from ...services.extension_service import extension_service
 
 mgmt_router = APIRouter(tags=["extension-management"])
 runtime_router = APIRouter(tags=["extension-runtime"])
+
+
+def _resolve_extension_path_and_manifest(
+    extension_id: str,
+) -> Tuple[Path, Optional[dict]]:
+    """Helper to resolve extension filesystem path and manifest dict reliably."""
+    ext_dir = (extension_service.manager.extensions_path / extension_id).resolve()
+    manifest = extension_service.manager.get_manifest(extension_id)
+    return ext_dir, manifest
 
 
 @mgmt_router.get("/")
@@ -51,9 +61,6 @@ async def install_extension_from_url(url: str = Query(...)):
     task_id = f"url-{abs(hash(url))}"
     manager = extension_service.manager
 
-    # TODO(Legacy): Seeding state before the thread starts prevents UI polling race conditions.
-    # This was added as a hotfix for async installs and should be refactored into a proper
-    # task management system in future server updates.
     manager.install_states[task_id] = {
         "status": "downloading",
         "progress": 0,
@@ -159,12 +166,18 @@ async def clear_logs(extension_id: str):
 
 @runtime_router.get("/{extension_id}/ui")
 async def get_ui(extension_id: str, token: str = Query(None)):
-    ext = extension_service.manager.get_extension(extension_id)
-    if not ext:
-        raise HTTPException(404, "Not found")
-    ui_p = ext.extension_path / ext.metadata.ui_entry
-    if not ui_p.exists():
-        raise HTTPException(404, "UI missing")
+    ext_dir, manifest = _resolve_extension_path_and_manifest(extension_id)
+    if not manifest:
+        raise HTTPException(404, "Extension manifest not found")
+
+    ui_entry = manifest.get("ui_entry")
+    if not ui_entry:
+        raise HTTPException(404, "UI entry point not specified")
+
+    ui_p = (ext_dir / ui_entry).resolve()
+    if not str(ui_p).startswith(str(ext_dir.resolve())) or not ui_p.exists():
+        raise HTTPException(404, "UI entry file missing")
+
     res = FileResponse(ui_p, media_type="text/html")
     res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     res.headers["Pragma"] = "no-cache"
@@ -182,22 +195,21 @@ async def get_ui(extension_id: str, token: str = Query(None)):
 
 @runtime_router.get("/{extension_id}/widget/{widget_id}")
 async def get_widget_ui(extension_id: str, widget_id: str, token: str = Query(None)):
-    ext = extension_service.manager.get_extension(extension_id)
-    if not ext:
+    ext_dir, manifest = _resolve_extension_path_and_manifest(extension_id)
+    if not manifest:
         raise HTTPException(404, "Extension not found")
 
-    # Find the widget in metadata
-    widget = next(
-        (w for w in ext.metadata.dashboard_widgets if w.id == widget_id), None
-    )
+    widgets = manifest.get("dashboard_widgets", [])
+    widget = next((w for w in widgets if w.get("id") == widget_id), None)
     if not widget:
         raise HTTPException(404, "Widget not found")
 
-    ui_p = (ext.extension_path / widget.ui_entry).resolve()
-    # Security: Ensure it's inside the extension path
-    if not str(ui_p).startswith(str(ext.extension_path.resolve())):
-        raise HTTPException(403)
-    if not ui_p.exists():
+    ui_entry = widget.get("ui_entry")
+    if not ui_entry:
+        raise HTTPException(404, "Widget UI entry missing")
+
+    ui_p = (ext_dir / ui_entry).resolve()
+    if not str(ui_p).startswith(str(ext_dir.resolve())) or not ui_p.exists():
         raise HTTPException(404, "Widget UI missing")
 
     res = FileResponse(ui_p, media_type="text/html")
@@ -215,43 +227,69 @@ async def get_widget_ui(extension_id: str, widget_id: str, token: str = Query(No
     return res
 
 
+@mgmt_router.get("/{extension_id}/icon")
 @runtime_router.get("/{extension_id}/icon")
 async def get_icon(extension_id: str):
-    ext = extension_service.manager.get_extension(extension_id)
-    if not ext or not ext.metadata.icon:
-        raise HTTPException(404, "No icon")
-    icon_p = (ext.extension_path / ext.metadata.icon).resolve()
-    if not str(icon_p).startswith(str(ext.extension_path.resolve())):
-        raise HTTPException(403)
+    ext_dir, manifest = _resolve_extension_path_and_manifest(extension_id)
+    icon_rel = manifest.get("icon") if manifest else None
+    if not icon_rel:
+        raise HTTPException(404, "No icon specified in extension manifest")
+
+    icon_p = (ext_dir / icon_rel).resolve()
+    if not str(icon_p).startswith(str(ext_dir.resolve())) or not icon_p.exists():
+        raise HTTPException(404, "Icon file not found")
+
     return FileResponse(icon_p)
 
 
 @runtime_router.get("/{extension_id}/static/{file_path:path}")
 async def get_static(extension_id: str, file_path: str):
-    ext = extension_service.manager.get_extension(extension_id)
-    if not ext:
-        raise HTTPException(404)
-    base = ext.get_static_path().resolve()
+    ext_dir, _ = _resolve_extension_path_and_manifest(extension_id)
+    base = (ext_dir / "static").resolve()
     target = (base / file_path).resolve()
     if not str(target).startswith(str(base)) or not target.is_file():
         raise HTTPException(403 if target.exists() else 404)
     return FileResponse(target)
 
 
-def mount_extension_routes(app, dependencies=None):
-    for eid, ext in extension_service.manager.extensions.items():
-        if eid not in extension_service.manager._mounted_extensions:
-            try:
-                app.include_router(
-                    ext.get_routes(),
-                    prefix=f"/extensions/{eid}",
-                    tags=[f"ext-{eid}"],
-                    dependencies=dependencies,
-                )
-                extension_service.manager._mounted_extensions.add(eid)
-            except Exception as e:
-                import logging
+# Dynamic IPC HTTP Gateway Handler for Process-Isolated Extension Endpoints
+@runtime_router.api_route(
+    "/{extension_id}/{subpath:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+)
+async def proxy_isolated_extension_http(
+    extension_id: str, subpath: str, request: Request
+):
+    """
+    Transparently forwards HTTP requests to the isolated extension process via IPC Pipe.
+    """
+    manager = extension_service.manager
+    if extension_id not in manager.isolated_processes:
+        raise HTTPException(
+            status_code=404, detail=f"Extension '{extension_id}' not active"
+        )
 
-                logging.getLogger(__name__).error(
-                    f"Error mounting {eid} on startup: {e}"
-                )
+    body = None
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    subpath_clean = "/" + subpath.lstrip("/")
+
+    res = manager.dispatch_ipc_http_request(
+        extension_id=extension_id,
+        method=request.method,
+        subpath=subpath_clean,
+        body=body,
+    )
+
+    if not res:
+        raise HTTPException(
+            status_code=502, detail="Isolated extension process did not respond"
+        )
+
+    status_code = res.get("status_code", 200)
+    content = res.get("content") or {"error": res.get("error")}
+
+    return JSONResponse(content=content, status_code=status_code)

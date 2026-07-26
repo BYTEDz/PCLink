@@ -1,3 +1,4 @@
+# src/pclink/core/extension_manager.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -5,6 +6,7 @@ import asyncio
 import importlib.util
 import inspect
 import logging
+import multiprocessing
 import os
 import platform as py_platform
 import re
@@ -14,14 +16,16 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 import zipfile
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Type
+from typing import Any, Dict, List, Optional, Set, Type
 
 import yaml
 
 from pclink.core.extension_base import ExtensionBase, ExtensionMetadata
 from pclink.core.extension_context import ExtensionContext
+from pclink.core.extension_runner import run_extension_process
 from pclink.core.version import __version__ as PCLINK_VERSION
 
 log = logging.getLogger(__name__)
@@ -56,6 +60,8 @@ class ExtensionManager:
             self.extensions_path = constants.APP_DATA_PATH / "extensions"
             self.extensions_path.mkdir(parents=True, exist_ok=True)
             self.extensions: Dict[str, ExtensionBase] = {}
+            self.isolated_processes: Dict[str, Dict[str, Any]] = {}
+            self._pending_http_requests: Dict[str, Any] = {}
             self._app = None  # Reference to FastAPI app for dynamic routing
             self._mounted_extensions: Set[str] = set()
             self.logs: Dict[str, List[str]] = {}
@@ -65,10 +71,8 @@ class ExtensionManager:
             # Cache hardware and OS info once per lifecycle
             self._init_system_info()
 
-            # Registry of extensions that failed to load to avoid infinite retry loops
-            self.failed_extensions: Dict[
-                str, float
-            ] = {}  # extension_id -> last_fail_timestamp
+            # Registry of extensions that failed to load
+            self.failed_extensions: Dict[str, float] = {}
             self.LOAD_RETRY_COOLDOWN = 60.0  # seconds
 
             # Safe Mode crash tracking
@@ -81,18 +85,18 @@ class ExtensionManager:
             # Runtime failure tracking: eid -> count
             self._runtime_failures: Dict[str, int] = {}
 
-            # Ensure 'pclink.extensions' exists as a dummy package for dynamic imports
+            # Ensure 'pclink.extensions' exists as a dummy package
             if "pclink.extensions" not in sys.modules:
                 from types import ModuleType
 
                 m = ModuleType("pclink.extensions")
-                m.__path__ = []  # Mark as package
+                m.__path__ = []
                 sys.modules["pclink.extensions"] = m
 
             # Venv base path - each extension gets its own venv
             self._venvs_base = constants.APP_DATA_PATH / "venvs"
             self._venvs_base.mkdir(parents=True, exist_ok=True)
-            self.install_states: Dict[str, Dict[str, any]] = {}
+            self.install_states: Dict[str, Dict[str, Any]] = {}
 
     @property
     def app(self):
@@ -101,7 +105,6 @@ class ExtensionManager:
     @app.setter
     def app(self, value):
         self._app = value
-        # FORCE re-mounting for all loaded extensions when app changes
         if hasattr(self, "_mounted_extensions"):
             self._mounted_extensions.clear()
         if value:
@@ -125,7 +128,6 @@ class ExtensionManager:
             log.warning("⚠️ To exit safe mode, manually delete: %s", self._crash_file)
             self.safe_mode = True
         else:
-            # Increment crash counter (will be cleared on successful startup)
             self._crash_file.write_text(str(crash_count + 1))
 
     def _init_system_info(self):
@@ -197,16 +199,11 @@ class ExtensionManager:
     def _create_venv(
         self, extension_id: str, requirements_path: Path, task_id: Optional[str] = None
     ) -> Optional[Path]:
-        """
-        Creates a dedicated virtual environment for an extension.
-        Returns the path to the venv's site-packages or None on failure.
-        """
+        """Creates a dedicated virtual environment for an extension."""
         venv_path = self._venvs_base / extension_id
         self._update_install_state(extension_id, "preparing", 10, task_id=task_id)
 
-        # Check if venv already exists and is valid
         if venv_path.exists():
-            # Check for marker file to confirm it's a valid venv
             if (venv_path / "pyvenv.cfg").exists():
                 log.debug(f"Venv already exists for {extension_id}, skipping creation")
                 self._update_install_state(
@@ -218,7 +215,6 @@ class ExtensionManager:
         self._update_install_state(extension_id, "creating_venv", 25, task_id=task_id)
 
         try:
-            # Create venv
             result = subprocess.run(
                 [sys.executable, "-m", "venv", str(venv_path)],
                 capture_output=True,
@@ -237,7 +233,6 @@ class ExtensionManager:
                 )
                 return None
 
-            # Determine pip path based on platform
             if sys.platform == "win32":
                 pip_path = venv_path / "Scripts" / "pip.exe"
                 python_path = venv_path / "Scripts" / "python.exe"
@@ -245,7 +240,6 @@ class ExtensionManager:
                 pip_path = venv_path / "bin" / "pip"
                 python_path = venv_path / "bin" / "python"
 
-            # Install requirements
             if not pip_path.exists():
                 log.error(f"Pip not found at {pip_path}")
                 self._update_install_state(
@@ -261,7 +255,6 @@ class ExtensionManager:
                 extension_id, "upgrading_pip", 45, task_id=task_id
             )
 
-            # Upgrade pip first
             result = subprocess.run(
                 [str(python_path), "-m", "pip", "install", "--upgrade", "pip"],
                 capture_output=True,
@@ -278,7 +271,6 @@ class ExtensionManager:
                 extension_id, "installing_requirements", 60, task_id=task_id
             )
 
-            # Install requirements line by line
             proc = subprocess.Popen(
                 [str(pip_path), "install", "-r", str(requirements_path)],
                 stdout=subprocess.PIPE,
@@ -340,7 +332,6 @@ class ExtensionManager:
         if sys.platform == "win32":
             return venv_path / "Lib" / "site-packages"
         else:
-            # Try to find site-packages in the venv
             result = subprocess.run(
                 [
                     str(venv_path / "bin" / "python"),
@@ -370,15 +361,13 @@ class ExtensionManager:
             return False
 
     def _run_coro(self, coro):
-        """Helper to run async functon in sync context."""
+        """Helper to run async function in sync context."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(coro)
 
         if loop.is_running():
-            import threading
-
             res, err = None, None
 
             def target():
@@ -468,31 +457,224 @@ class ExtensionManager:
                 discovered.append(entry.name)
         return discovered
 
+    def dispatch_ipc_http_request(
+        self,
+        extension_id: str,
+        method: str,
+        subpath: str,
+        body: Optional[Any] = None,
+        timeout: float = 10.0,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Forwards an HTTP request across IPC Pipe to the isolated extension worker process
+        and waits for the HTTP response.
+        """
+        info = self.isolated_processes.get(extension_id)
+        if not info:
+            return None
+
+        pipe = info.get("pipe")
+        if not pipe:
+            return None
+
+        req_id = f"req-{uuid.uuid4().hex[:8]}"
+
+        try:
+            pipe.send(
+                {
+                    "type": "HTTP_REQUEST",
+                    "req_id": req_id,
+                    "method": method,
+                    "subpath": subpath,
+                    "body": body,
+                }
+            )
+
+            start = time.time()
+            while time.time() - start < timeout:
+                if req_id in self._pending_http_requests:
+                    return self._pending_http_requests.pop(req_id)
+                time.sleep(0.01)
+
+            log.error(f"IPC HTTP Request timed out for extension '{extension_id}'")
+            return {"status_code": 504, "error": "Extension IPC timeout"}
+
+        except Exception as e:
+            log.error(f"IPC HTTP request dispatch failed for {extension_id}: {e}")
+            return {"status_code": 500, "error": str(e)}
+
+    def _handle_ipc_requests(
+        self, extension_id: str, host_pipe, metadata: ExtensionMetadata
+    ):
+        """
+        Listens on IPC pipe from child process and handles host context calls and HTTP responses.
+        """
+        temp_context = ExtensionContext(metadata)
+
+        while extension_id in self.isolated_processes:
+            try:
+                if not host_pipe.poll(0.5):
+                    continue
+
+                msg = host_pipe.recv()
+                msg_type = msg.get("type")
+
+                if msg_type == "HTTP_RESPONSE":
+                    req_id = msg.get("req_id")
+                    if req_id:
+                        self._pending_http_requests[req_id] = msg
+
+                elif msg_type == "CONTEXT_CALL":
+                    api_name = msg.get("api")
+                    method_name = msg.get("method")
+                    kwargs = msg.get("kwargs", {})
+
+                    try:
+                        api_obj = getattr(temp_context, api_name, None)
+                        if not api_obj:
+                            raise AttributeError(f"API '{api_name}' not found")
+
+                        method_func = getattr(api_obj, method_name, None)
+                        if not method_func:
+                            raise AttributeError(
+                                f"Method '{method_name}' not found on {api_name}"
+                            )
+
+                        res = method_func(**kwargs)
+                        host_pipe.send({"status": "success", "result": res})
+                    except Exception as e:
+                        log.error(
+                            f"Error executing IPC context call for {extension_id}: {e}"
+                        )
+                        host_pipe.send({"status": "error", "error": str(e)})
+
+            except (EOFError, BrokenPipeError, OSError):
+                log.info(f"IPC pipe closed for extension: {extension_id}")
+                break
+            except Exception as e:
+                log.error(f"IPC listener error for {extension_id}: {e}")
+                break
+
+    def _spawn_isolated_extension(
+        self,
+        extension_id: str,
+        metadata: ExtensionMetadata,
+        extension_dir: Path,
+        manifest: Dict[str, Any],
+        task_id: Optional[str] = None,
+    ) -> bool:
+        """Spawns extension inside an isolated, supervised worker process."""
+        log.info(f"Spawning process-isolated extension: {extension_id}")
+        host_pipe, child_pipe = multiprocessing.Pipe()
+
+        proc = multiprocessing.Process(
+            target=run_extension_process,
+            args=(
+                extension_id,
+                str(extension_dir),
+                metadata.model_dump()
+                if hasattr(metadata, "model_dump")
+                else metadata.dict(),
+                manifest,
+                child_pipe,
+            ),
+            name=f"pclink-ext-{extension_id}",
+            daemon=True,
+        )
+
+        proc.start()
+
+        ready_received = False
+        start_time = time.time()
+
+        while time.time() - start_time < 15.0:
+            if host_pipe.poll(0.2):
+                msg = host_pipe.recv()
+                if msg.get("status") == "ready":
+                    ready_received = True
+                    break
+                elif msg.get("status") in ("error", "crash"):
+                    err = msg.get("error", "Process initialization crash")
+                    log.error(f"Isolated extension '{extension_id}' failed: {err}")
+                    proc.terminate()
+                    proc.join(timeout=1.0)
+                    self._update_install_state(
+                        extension_id, "failed", 0, err, task_id=task_id
+                    )
+                    self.failed_extensions[extension_id] = time.time()
+                    return False
+
+            if not proc.is_alive():
+                log.error(
+                    f"Isolated extension process '{extension_id}' terminated unexpectedly (exitcode={proc.exitcode})."
+                )
+                self._update_install_state(
+                    extension_id,
+                    "failed",
+                    0,
+                    f"Process crashed with exitcode {proc.exitcode}",
+                    task_id=task_id,
+                )
+                self.failed_extensions[extension_id] = time.time()
+                return False
+
+        if not ready_received:
+            log.error(
+                f"Isolated extension '{extension_id}' timed out during initialization."
+            )
+            proc.terminate()
+            proc.join(timeout=1.0)
+            self._update_install_state(
+                extension_id, "failed", 0, "Initialization timeout", task_id=task_id
+            )
+            self.failed_extensions[extension_id] = time.time()
+            return False
+
+        self.isolated_processes[extension_id] = {
+            "process": proc,
+            "pipe": host_pipe,
+            "pid": proc.pid,
+            "started_at": time.time(),
+            "metadata": metadata,
+        }
+
+        listener_thread = threading.Thread(
+            target=self._handle_ipc_requests,
+            args=(extension_id, host_pipe, metadata),
+            name=f"ipc-listener-{extension_id}",
+            daemon=True,
+        )
+        listener_thread.start()
+
+        self._update_install_state(extension_id, "completed", 100, task_id=task_id)
+        self.failed_extensions.pop(extension_id, None)
+        log.info(
+            f"Successfully spawned isolated extension: {metadata.display_name} (PID={proc.pid})"
+        )
+        return True
+
     def load_extension(
         self, extension_id: str, background: bool = False, task_id: Optional[str] = None
     ) -> bool:
         """Loads a specific extension by its directory name (extension_id)."""
         from ..core.config import config_manager
 
-        # Check if already loaded
-        if extension_id in self.extensions:
-            # If loaded but NOT mounted yet, mount it now
+        if extension_id in self.extensions or extension_id in self.isolated_processes:
             if self.app and extension_id not in self._mounted_extensions:
-                log.info(
-                    f"Dynamically mounting routes for already-loaded extension: {extension_id}"
-                )
-                try:
-                    self.app.include_router(
-                        self.extensions[extension_id].get_routes(),
-                        prefix=f"/extensions/{extension_id}",
-                        tags=[f"extension-{extension_id}"],
-                    )
-                    self._mounted_extensions.add(extension_id)
-                except Exception as e:
-                    log.error(f"Failed to mount router for {extension_id}: {e}")
+                log.info(f"Dynamically mounting routes for extension: {extension_id}")
+                ext = self.extensions.get(extension_id)
+                if ext:
+                    try:
+                        self.app.include_router(
+                            ext.get_routes(),
+                            prefix=f"/extensions/{extension_id}",
+                            tags=[f"extension-{extension_id}"],
+                        )
+                        self._mounted_extensions.add(extension_id)
+                    except Exception as e:
+                        log.error(f"Failed to mount router for {extension_id}: {e}")
             return True
 
-        # Check for cooldown if it failed recently
         last_fail = self.failed_extensions.get(extension_id, 0)
         if time.time() - last_fail < self.LOAD_RETRY_COOLDOWN:
             log.debug(
@@ -500,7 +682,6 @@ class ExtensionManager:
             )
             return False
 
-        # Check if extensions are globally enabled
         if not config_manager.get("allow_extensions", False):
             log.warning(
                 f"Attempted to load extension '{extension_id}' while extensions are globally disabled."
@@ -538,7 +719,7 @@ class ExtensionManager:
 
             if not self._is_compatible(metadata):
                 log.warning(
-                    f"Extension '{extension_id}' is incompatible with this system. skipping."
+                    f"Extension '{extension_id}' is incompatible with this system. Skipping."
                 )
                 self.failed_extensions[extension_id] = time.time()
                 return False
@@ -554,7 +735,13 @@ class ExtensionManager:
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
-            # --- Venv creation for requirements.txt ---
+            # --- Isolated Process Mode Execution ---
+            if metadata.isolated_process:
+                return self._spawn_isolated_extension(
+                    extension_id, metadata, extension_dir, manifest, task_id=task_id
+                )
+
+            # --- In-Process Mode Fallback ---
             venv_path: Optional[Path] = None
             added_venv_to_path = False
             site_packages = None
@@ -566,7 +753,6 @@ class ExtensionManager:
                         extension_id, requirements_path, task_id=task_id
                     )
                     if venv_path:
-                        # Add venv site-packages to sys.path for imports
                         site_packages = self._get_venv_site_packages(venv_path)
                         if (
                             site_packages
@@ -575,19 +761,7 @@ class ExtensionManager:
                         ):
                             sys.path.insert(0, str(site_packages))
                             added_venv_to_path = True
-                            log.info(
-                                f"Added venv site-packages to path: {site_packages}"
-                            )
-                    else:
-                        log.warning(
-                            f"Failed to create venv for {extension_id}, falling back to server libs"
-                        )
-                else:
-                    log.warning(
-                        f"Requirements file specified but not found: {requirements_path}"
-                    )
 
-            # Import with potential venv site-packages in path
             module = self._import_module_safely(
                 extension_id, entry_point_path, lib_path
             )
@@ -608,7 +782,6 @@ class ExtensionManager:
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
-            # Look for a class named 'Extension'
             extension_class: Optional[Type[ExtensionBase]] = getattr(
                 module, "Extension", None
             )
@@ -629,79 +802,34 @@ class ExtensionManager:
                 self.failed_extensions[extension_id] = time.time()
                 return False
 
-            # Instantiate extension with Context if supported
-            params = inspect.signature(extension_class.__init__).parameters
-            supports_context = "context" in params or any(
-                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            context = ExtensionContext(metadata)
+            extension_instance = extension_class(
+                metadata=metadata,
+                extension_path=extension_dir,
+                config=manifest,
+                context=context,
             )
 
-            context = ExtensionContext(metadata)
-            if supports_context:
-                extension_instance = extension_class(
-                    metadata=metadata,
-                    extension_path=extension_dir,
-                    config=manifest,
-                    context=context,
-                )
-            else:
-                extension_instance = extension_class(
-                    metadata=metadata, extension_path=extension_dir, config=manifest
-                )
-                extension_instance.context = context
-
-            if not hasattr(extension_instance, "logger"):
-                logger = logging.getLogger(f"pclink.extensions.{extension_id}")
-
-                class ExtensionLogHandler(logging.Handler):
-                    def __init__(self, manager, eid):
-                        super().__init__()
-                        self.manager = manager
-                        self.eid = eid
-
-                    def emit(self, record):
-                        msg = self.format(record)
-                        if self.eid not in self.manager.logs:
-                            self.manager.logs[self.eid] = []
-                        self.manager.logs[self.eid].append(msg)
-                        if len(self.manager.logs[self.eid]) > 1000:
-                            self.manager.logs[self.eid].pop(0)
-
-                handler = ExtensionLogHandler(self, extension_id)
-                handler.setFormatter(
-                    logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-                )
-                logger.addHandler(handler)
-                extension_instance.logger = logger
-
-            # Store venv path on extension instance
             if venv_path:
                 extension_instance._venv_path = venv_path
-
-            # --- Async support: handle both sync and async initialize ---
-            import inspect as inspect_module
 
             init_result = extension_instance.initialize()
             init_success = False
 
-            if inspect_module.iscoroutinefunction(
+            if inspect.iscoroutinefunction(
                 extension_instance.initialize
             ) or inspect.iscoroutine(init_result):
-                # Async initialize - run in event loop safely
                 try:
                     init_success = self._run_coro(init_result)
                 except Exception as e:
                     log.error(f"Failed to run async initialize for {extension_id}: {e}")
                     init_success = False
             else:
-                # Sync initialize
                 init_success = init_result
 
             if init_success:
                 self.extensions[extension_id] = extension_instance
                 if self.app:
-                    log.info(
-                        f"Dynamically mounting routes for extension: {extension_id}"
-                    )
                     try:
                         self.app.include_router(
                             extension_instance.get_routes(),
@@ -759,14 +887,12 @@ class ExtensionManager:
         """Loads all discovered extensions that ARE enabled."""
         from ..core.config import config_manager
 
-        # Check if extensions are globally enabled
         if not config_manager.get("allow_extensions", False):
             log.info(
                 "Extensions are disabled. Enable them via Web UI Settings to use extensions."
             )
             return
 
-        # Safe Mode: Abort extension loading after repeated crashes.
         if self.safe_mode:
             log.warning("SAFE MODE ACTIVE: Skipping all extension loading.")
             log.warning(
@@ -787,37 +913,56 @@ class ExtensionManager:
 
     def unload_all_extensions(self):
         """Unloads all currently loaded extensions."""
-        extension_ids = list(self.extensions.keys())
+        extension_ids = list(self.extensions.keys()) + list(
+            self.isolated_processes.keys()
+        )
         for extension_id in extension_ids:
             self.unload_extension(extension_id)
         log.info("All extensions have been unloaded.")
 
     def unload_extension(self, extension_id: str):
-        """Unloads an extension and cleans up."""
+        """Unloads an extension and terminates its process if isolated."""
         if not self._is_safe_name(extension_id):
             return
 
+        # 1. Handle Isolated Process Extension
+        if extension_id in self.isolated_processes:
+            info = self.isolated_processes.pop(extension_id)
+            proc = info["process"]
+            pipe = info["pipe"]
+
+            try:
+                pipe.send({"type": "CLEANUP"})
+                time.sleep(0.1)
+                proc.terminate()
+                proc.join(timeout=2.0)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join(timeout=1.0)
+                pipe.close()
+                log.info(f"Terminated isolated process for extension: {extension_id}")
+            except Exception as e:
+                log.error(f"Error terminating process for {extension_id}: {e}")
+
+            self._cleanup_venv(extension_id)
+            return
+
+        # 2. Handle In-Process Extension
         if extension_id in self.extensions:
             extension = self.extensions[extension_id]
             try:
-                # --- Async support: handle both sync and async cleanup ---
-                import inspect as inspect_module
-
                 cleanup_result = extension.cleanup()
 
-                if inspect_module.iscoroutinefunction(
+                if inspect.iscoroutinefunction(
                     extension.cleanup
                 ) or inspect.iscoroutine(cleanup_result):
-                    # Async cleanup - run in event loop safely
                     try:
                         self._run_coro(cleanup_result)
                     except Exception as e:
                         log.error(
                             f"Failed to run async cleanup for {extension_id}: {e}"
                         )
-                # Sync cleanup returns None, no handling needed
 
-                # Remove venv site-packages from sys.path
                 if extension.venv_path:
                     site_packages = self._get_venv_site_packages(extension.venv_path)
                     if site_packages:
@@ -828,8 +973,6 @@ class ExtensionManager:
 
                 del self.extensions[extension_id]
 
-                # Full module purge: remove root and ALL sub-modules from sys.modules
-                # to prevent memory leaks and 'stale reference' bug during reloads.
                 module_prefix = f"pclink.extensions.{extension_id.replace('-', '_')}"
                 to_remove = [
                     m
@@ -839,7 +982,6 @@ class ExtensionManager:
                 for m in to_remove:
                     del sys.modules[m]
 
-                # Cleanup venv for this extension
                 self._cleanup_venv(extension_id)
 
                 log.info(
@@ -848,8 +990,13 @@ class ExtensionManager:
             except Exception as e:
                 log.error(f"Error cleaning up extension {extension_id}: {e}")
 
-    def get_extension(self, extension_id: str) -> Optional[ExtensionBase]:
-        return self.extensions.get(extension_id)
+    def get_extension(self, extension_id: str) -> Optional[Any]:
+        """Returns the in-process extension instance or isolated process status dict."""
+        if extension_id in self.extensions:
+            return self.extensions[extension_id]
+        if extension_id in self.isolated_processes:
+            return self.isolated_processes[extension_id]
+        return None
 
     def get_extension_logs(self, extension_id: str) -> List[str]:
         """Retrieve logs for a specific extension."""
@@ -860,14 +1007,11 @@ class ExtensionManager:
         if extension_id in self.logs:
             self.logs[extension_id] = []
 
-    def get_all_extensions(self) -> List[ExtensionBase]:
-        return list(self.extensions.values())
+    def get_all_extensions(self) -> List[Any]:
+        return list(self.extensions.values()) + list(self.isolated_processes.values())
 
     def verify_extension_bundle(self, bundle_path: Path) -> Optional[ExtensionMetadata]:
-        """
-        Verifies an extension bundle (zip) without installing it.
-        Returns metadata if valid, None otherwise.
-        """
+        """Verifies an extension bundle (zip) without installing it."""
         if not zipfile.is_zipfile(bundle_path):
             log.error(f"File {bundle_path} is not a valid zip file")
             return None
@@ -876,7 +1020,6 @@ class ExtensionManager:
             temp_path = Path(temp_dir)
             try:
                 with zipfile.ZipFile(bundle_path, "r") as zip_ref:
-                    # Look for extension.yaml at root
                     if "extension.yaml" not in zip_ref.namelist():
                         log.error("Bundle missing 'extension.yaml'")
                         return None
@@ -888,11 +1031,7 @@ class ExtensionManager:
 
                 metadata = ExtensionMetadata(**config)
 
-                # Check compatibility (Simplified for now)
-                # In production, use packaging.version
                 if metadata.pclink_version:
-                    # Basic check: if version starts with '>', assume developer knows what they are doing
-                    # Or just log it for now as a warning
                     log.info(
                         f"Extension {metadata.name} requires PCLink {metadata.pclink_version} (Current: {PCLINK_VERSION})"
                     )
@@ -905,9 +1044,7 @@ class ExtensionManager:
     def install_extension(
         self, bundle_path: Path, task_id: Optional[str] = None
     ) -> bool:
-        """
-        Installs an extension from a zip bundle.
-        """
+        """Installs an extension from a zip bundle."""
         from ..core.config import config_manager
 
         if not config_manager.get("allow_extensions", False):
@@ -922,12 +1059,10 @@ class ExtensionManager:
 
         target_dir = self.extensions_path / metadata.name
 
-        # If already exists, unload first
-        if metadata.name in self.extensions:
+        if metadata.name in self.extensions or metadata.name in self.isolated_processes:
             self.unload_extension(metadata.name)
 
         try:
-            # Atomic-ish replacement
             if target_dir.exists():
                 shutil.rmtree(target_dir)
 
@@ -944,7 +1079,6 @@ class ExtensionManager:
                         return False
                 zip_ref.extractall(target_dir)
 
-            # --- Security: Check for dangerous permissions ---
             has_dangerous = any(
                 p in DANGEROUS_PERMISSIONS for p in metadata.permissions
             )
@@ -956,7 +1090,6 @@ class ExtensionManager:
                     f"Disabling extension {metadata.name} by default until user approval."
                 )
 
-                # Update manifest to disable it
                 manifest_path = target_dir / "extension.yaml"
                 try:
                     with open(manifest_path, "r", encoding="utf-8") as f:
@@ -981,11 +1114,7 @@ class ExtensionManager:
                 return True
             else:
                 log.info(f"Installed extension {metadata.name} to {target_dir}")
-                # TODO(Legacy): Clearing failed_extensions here prevents a previous background load
-                # failure from blocking fresh installs. This is a workaround for legacy state management
-                # and should be removed once the extension state machine is properly overhauled.
                 self.failed_extensions.pop(metadata.name, None)
-                # Auto-load if safe (background=True to avoid blocking the API)
                 return self.load_extension(
                     metadata.name, background=True, task_id=task_id
                 )
@@ -998,9 +1127,7 @@ class ExtensionManager:
             return False
 
     def delete_extension(self, extension_id: str) -> bool:
-        """
-        Unloads and permanently deletes an extension.
-        """
+        """Unloads and permanently deletes an extension."""
         from ..core.config import config_manager
 
         if not config_manager.get("allow_extensions", False):
@@ -1015,7 +1142,6 @@ class ExtensionManager:
         self.unload_extension(extension_id)
         target_dir = (self.extensions_path / extension_id).resolve()
 
-        # Security: Verify path resides within extensions root.
         if not target_dir.is_relative_to(self.extensions_path.resolve()):
             log.error(
                 f"Security violation: Attempted to delete outside extensions path: {target_dir}"
@@ -1032,9 +1158,7 @@ class ExtensionManager:
             return False
 
     def toggle_extension(self, extension_id: str, enabled: bool) -> bool:
-        """
-        Enables or disables an extension by updating its manifest.
-        """
+        """Enables or disables an extension by updating its manifest."""
         from ..core.config import config_manager
 
         if not config_manager.get("allow_extensions", False):
@@ -1045,13 +1169,12 @@ class ExtensionManager:
 
         extension = self.get_extension(extension_id)
         if not extension:
-            # Enable toggle for extensions existing in folder but not currently loaded.
             extension_dir = self.extensions_path / extension_id
             manifest_path = extension_dir / "extension.yaml"
             if not manifest_path.exists():
                 return False
         else:
-            manifest_path = extension.extension_path / "extension.yaml"
+            manifest_path = self.extensions_path / extension_id / "extension.yaml"
 
         try:
             with open(manifest_path, "r", encoding="utf-8") as f:
@@ -1065,10 +1188,7 @@ class ExtensionManager:
             log.info(f"Extension {extension_id} {'enabled' if enabled else 'disabled'}")
 
             if enabled:
-                # Clear any previous failure cooldown — user explicitly wants this ON
                 self.failed_extensions.pop(extension_id, None)
-                # Try to load in background, but return True anyway because the manifest was updated.
-                # If load fails, the user can see logs or status later.
                 self.load_extension(extension_id, background=True)
                 return True
             else:

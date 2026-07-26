@@ -3,11 +3,11 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
-from typing import Any, Dict, Optional
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 from ..core.config import config_manager
-from ..core.extension_manager import ExtensionManager, DANGEROUS_PERMISSIONS
+from ..core.extension_manager import DANGEROUS_PERMISSIONS, ExtensionManager
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +24,9 @@ class ExtensionService:
             raise PermissionError("Extension system is globally disabled.")
 
     def _serialize_metadata(self, metadata: Any) -> Dict[str, Any]:
-        """Safely serialize Pydantic models across v1/v2."""
+        """Safely serialize Pydantic models across v1/v2 or dicts."""
+        if isinstance(metadata, dict):
+            return metadata.copy()
         if hasattr(metadata, "model_dump"):
             return metadata.model_dump()
         return metadata.dict()
@@ -44,20 +46,27 @@ class ExtensionService:
                 if not meta:
                     continue
 
-                is_loaded = eid in self.manager.extensions
+                is_loaded = (eid in self.manager.extensions) or (
+                    eid in self.manager.isolated_processes
+                )
                 ext = self.manager.get_extension(eid)
 
-                # Use runtime metadata if loaded, fallback to manifest dictionary
-                response_meta = self._serialize_metadata(ext.metadata) if ext else meta
+                # Determine runtime metadata based on extension mode
+                if ext and hasattr(ext, "metadata"):
+                    response_meta = self._serialize_metadata(ext.metadata)
+                elif ext and isinstance(ext, dict) and "metadata" in ext:
+                    response_meta = self._serialize_metadata(ext["metadata"])
+                else:
+                    response_meta = meta.copy()
 
                 # Inject runtime state
                 response_meta["id"] = eid
                 response_meta["is_loaded"] = is_loaded
 
                 # Venv info
-                if ext and ext.has_venv:
+                if ext and getattr(ext, "has_venv", False):
                     response_meta["has_venv"] = True
-                    response_meta["venv_path"] = str(ext.venv_path)
+                    response_meta["venv_path"] = str(getattr(ext, "venv_path", ""))
                 else:
                     response_meta["has_venv"] = False
                     response_meta["venv_path"] = None
@@ -71,7 +80,6 @@ class ExtensionService:
                     "security_consent_needed", False
                 )
 
-                # Fallback: ensure dashboard_widgets is always present
                 if "dashboard_widgets" not in response_meta:
                     response_meta["dashboard_widgets"] = []
 
