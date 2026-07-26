@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import gettext
 import logging
 import urllib.parse
 from pathlib import Path
@@ -21,7 +22,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ValidationError
 from starlette.requests import ClientDisconnect
 
-from ...core.device_manager import device_manager
+from ...core.device_manager import Device
 from ...services.file_service import file_service
 from ...services.transfer_service import (
     DOWNLOAD_CHUNK_SIZE,
@@ -29,8 +30,10 @@ from ...services.transfer_service import (
     UPLOAD_CHUNK_SIZE,
     transfer_service,
 )
+from .dependencies import get_authenticated_device
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 upload_router = APIRouter()
 download_router = APIRouter()
@@ -40,26 +43,11 @@ MAX_CHUNK_TOLERANCE = UPLOAD_CHUNK_SIZE * 2  # Hard limit for memory protection
 
 
 # --- Auth Helper ---
-def get_client_id(
-    x_api_key: str = Header(None), token: str = Query(None), request: Request = None
+async def get_client_id(
+    device: Device = Depends(get_authenticated_device),
 ) -> str:
-    key = x_api_key or token
-    if not key and request:
-        key = request.cookies.get("pclink_device_token")
-
-    if not key:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing API Key")
-
-    dev = device_manager.get_device_by_api_key(key)
-    if dev:
-        return dev.device_id
-
-    # TODO: Explicitly check against a Master/Admin key securely here
-    # Do NOT blindly return the key, otherwise it allows Auth Bypass.
-    if key == getattr(device_manager, "master_key", None):
-        return "master_admin"
-
-    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid API Key")
+    """Consolidated helper dependency returning client device ID."""
+    return device.device_id
 
 
 # --- Dependencies ---
@@ -72,7 +60,9 @@ async def get_download_session(
     if not info:
         info = await transfer_service.read_metadata(download_id, "download")
         if not info or not transfer_service.verify_ownership(info, client_id):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Transfer session not found")
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, _("Transfer session not found")
+            )
 
         if client_id not in transfer_service.active_downloads:
             transfer_service.active_downloads[client_id] = {}
@@ -154,14 +144,14 @@ async def initiate_upload(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     except Exception as e:
         log.error(f"Init upload failed: {e}", exc_info=True)
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Internal error")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, _("Internal error"))
 
 
 @upload_router.get("/status/{upload_id}")
 async def get_upload_status(upload_id: str, client_id: str = Depends(get_client_id)):
     meta = await transfer_service.read_metadata(upload_id, "upload")
     if not meta or not transfer_service.verify_ownership(meta, client_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _("Upload not found"))
 
     received = await transfer_service.get_received_bytes(upload_id)
     return {
@@ -181,7 +171,7 @@ async def upload_chunk(
 ):
     meta = await transfer_service.read_metadata(upload_id, "upload")
     if not meta or not transfer_service.verify_ownership(meta, client_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _("Upload not found"))
 
     data = bytearray()
     try:
@@ -189,7 +179,8 @@ async def upload_chunk(
             data.extend(chunk)
             if len(data) > MAX_CHUNK_TOLERANCE:
                 raise HTTPException(
-                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Chunk payload too large"
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    _("Chunk payload too large"),
                 )
     except ClientDisconnect:
         log.warning(f"Client disconnected during chunk upload for {upload_id}")
@@ -198,7 +189,7 @@ async def upload_chunk(
         raise
     except Exception as e:
         log.error(f"Stream error for {upload_id}: {e}")
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Stream read failed")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, _("Stream read failed"))
 
     try:
         return await transfer_service.write_chunk(upload_id, offset, bytes(data))
@@ -207,16 +198,15 @@ async def upload_chunk(
     except Exception as e:
         log.error(f"Chunk write failed for {upload_id}: {e}", exc_info=True)
         raise HTTPException(
-            status.HTTP_500_INTERNAL_SERVER_ERROR, "Chunk processing failed"
+            status.HTTP_500_INTERNAL_SERVER_ERROR, _("Chunk processing failed")
         )
 
 
 @upload_router.post("/complete/{upload_id}")
 async def complete_upload(upload_id: str, client_id: str = Depends(get_client_id)):
-    # Added auth verification to complete
     meta = await transfer_service.read_metadata(upload_id, "upload")
     if not meta or not transfer_service.verify_ownership(meta, client_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _("Upload not found"))
 
     try:
         path = await transfer_service.complete_upload(upload_id)
@@ -225,7 +215,9 @@ async def complete_upload(upload_id: str, client_id: str = Depends(get_client_id
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     except Exception as e:
         log.error(f"Upload completion failed: {e}", exc_info=True)
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Completion failed")
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, _("Completion failed")
+        )
 
 
 @upload_router.delete("/cancel/{upload_id}")
@@ -234,7 +226,7 @@ async def cancel_upload(
 ):
     meta = await transfer_service.read_metadata(upload_id, "upload")
     if not meta or not transfer_service.verify_ownership(meta, client_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Upload not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _("Upload not found"))
 
     cid = meta.get("client_id")
     if cid and cid in transfer_service.active_uploads:
@@ -262,10 +254,10 @@ async def initiate_download(
         res = await transfer_service.initiate_download(client_id, payload.file_path)
         return DownloadInitiateResponse(**res)
     except FileNotFoundError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _("File not found"))
     except Exception as e:
         log.error(f"Init download failed: {e}", exc_info=True)
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Internal error")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, _("Internal error"))
 
 
 @download_router.get("/status/{download_id}", response_model=DownloadStatusResponse)
@@ -308,11 +300,11 @@ async def download_chunk(
             end = max(start, min(end, fsize - 1))
         except ValueError:
             raise HTTPException(
-                status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE, "Invalid Range format"
+                status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+                _("Invalid Range format"),
             )
 
     chunk_len = (end - start) + 1
-    # Note: State updating like this isn't persistent until synced to disk
     info["bytes_downloaded"] = max(info.get("bytes_downloaded", 0), end + 1)
 
     return StreamingResponse(

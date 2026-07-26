@@ -2,6 +2,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import gettext
 import hashlib
 import json
 import logging
@@ -11,16 +12,17 @@ import subprocess
 import sys
 from typing import List, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from ...core.share_manager import share_manager
 from ...core.validators import validate_filename
 from ...services.file_service import HOME_DIR, file_service
-from .dependencies import verify_api_key
-from ...core.share_manager import share_manager
+from .dependencies import extract_token, verify_api_key, verify_web_session
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 # NOTE: Enforce authentication for all file operations
 router = APIRouter()
@@ -101,18 +103,18 @@ def _map_error(e: Exception):
     if isinstance(e, HTTPException):
         raise e
     if isinstance(e, FileNotFoundError):
-        raise HTTPException(status_code=404, detail="File or directory not found")
+        raise HTTPException(status_code=404, detail=_("File or directory not found"))
     if isinstance(e, PermissionError):
-        raise HTTPException(status_code=403, detail="Permission denied")
+        raise HTTPException(status_code=403, detail=_("Permission denied"))
     if isinstance(e, ValueError):
         raise HTTPException(status_code=400, detail=str(e))
     if isinstance(e, shutil.SameFileError):
         raise HTTPException(status_code=409, detail="SOURCE_IS_DEST")
     if isinstance(e, NotADirectoryError):
-        raise HTTPException(status_code=400, detail="Target is not a directory")
+        raise HTTPException(status_code=400, detail=_("Target is not a directory"))
 
     log.error(f"Internal file error: {e}", exc_info=True)
-    raise HTTPException(status_code=500, detail="Internal server error")
+    raise HTTPException(status_code=500, detail=_("Internal server error"))
 
 
 async def get_file_hash(path: str) -> str:
@@ -150,12 +152,7 @@ async def verify_download_access(
     try:
         from ...core.device_manager import device_manager
 
-        key = token
-        if not key and request:
-            key = request.headers.get("X-API-Key") or request.cookies.get(
-                "pclink_device_token"
-            )
-
+        key = extract_token(request, token=token)
         if key:
             device = device_manager.get_device_by_api_key(key)
             if device and device.is_approved:
@@ -168,7 +165,7 @@ async def verify_download_access(
         if share_manager.validate_share_token(token, path):
             return True
 
-    raise HTTPException(status_code=403, detail="Invalid or missing access token")
+    raise HTTPException(status_code=403, detail=_("Invalid or missing access token"))
 
 
 @router.get(
@@ -236,7 +233,7 @@ async def get_thumbnail(path: str = Query(...)):
         p = file_service.validate_path(path)
         data = await file_service.get_thumbnail(p)
         if not data:
-            raise HTTPException(404, "Thumbnail not available")
+            raise HTTPException(404, _("Thumbnail not available"))
         # Optimization: Enforce smart client-side HTTP cache headers to speed up repeated UI visits
         return Response(
             content=data,
@@ -255,7 +252,7 @@ async def get_media_info(path: str = Query(...)):
         p = file_service.validate_path(path)
         info = await file_service.get_media_info(p)
         if not info:
-            raise HTTPException(404, "Media info not available")
+            raise HTTPException(404, _("Media info not available"))
         return info
     except Exception as e:
         _map_error(e)
@@ -298,7 +295,7 @@ async def create_folder(payload: CreateFolderPayload):
     try:
         parent = file_service.validate_path(payload.parent_path)
         if not parent.is_dir():
-            raise HTTPException(400, "Parent path is not a directory")
+            raise HTTPException(400, _("Parent path is not a directory"))
 
         name = validate_filename(payload.folder_name)
         new_p = parent / name
@@ -307,7 +304,7 @@ async def create_folder(payload: CreateFolderPayload):
         new_p = file_service.validate_path(str(new_p), check_existence=False)
 
         if new_p.exists():
-            raise HTTPException(409, "Target already exists")
+            raise HTTPException(409, _("Target already exists"))
 
         await asyncio.to_thread(new_p.mkdir)
         return {"status": "success"}
@@ -334,7 +331,7 @@ async def rename(payload: RenamePayload):
             return {"status": "success"}
 
         if dest.exists():
-            raise HTTPException(409, "Target already exists")
+            raise HTTPException(409, _("Target already exists"))
 
         if not dest.parent.exists():
             await asyncio.to_thread(os.makedirs, str(dest.parent), exist_ok=True)
@@ -478,7 +475,7 @@ async def paste(payload: PastePayload):
     try:
         dest = file_service.validate_path(payload.destination_path)
         if not dest.is_dir():
-            raise HTTPException(400, "Destination path must be a directory")
+            raise HTTPException(400, _("Destination path must be a directory"))
 
         res = await file_service.move_copy(
             payload.source_paths, dest, payload.action, payload.conflict_resolution
@@ -499,8 +496,6 @@ async def list_shares(request: Request):
 
     is_web = False
     try:
-        from .dependencies import verify_web_session
-
         if await verify_web_session(request):
             is_web = True
     except Exception:
@@ -508,12 +503,7 @@ async def list_shares(request: Request):
 
     device_id = None
     if not is_web:
-        key = request.headers.get("X-API-Key") or request.cookies.get(
-            "pclink_device_token"
-        )
-        if not key:
-            key = request.query_params.get("token")
-
+        key = extract_token(request)
         device_id = "unknown_device"
         if key:
             device = device_manager.get_device_by_api_key(key)
@@ -541,20 +531,13 @@ async def revoke_share(share_token: str, request: Request):
 
     is_web = False
     try:
-        from .dependencies import verify_web_session
-
         if await verify_web_session(request):
             is_web = True
     except Exception:
         pass
 
     if not is_web:
-        key = request.headers.get("X-API-Key") or request.cookies.get(
-            "pclink_device_token"
-        )
-        if not key:
-            key = request.query_params.get("token")
-
+        key = extract_token(request)
         device_id = "unknown_device"
         if key:
             device = device_manager.get_device_by_api_key(key)
@@ -576,7 +559,7 @@ async def revoke_share(share_token: str, request: Request):
                     ).fetchone()
                     if not row or row[0] != device_id:
                         raise HTTPException(
-                            status_code=404, detail="Share token not found"
+                            status_code=404, detail=_("Share token not found")
                         )
 
     share_manager.revoke_share_link(share_token)
@@ -592,11 +575,7 @@ async def share_file(payload: SharePayload, request: Request):
         file_service.validate_path(payload.path)
 
         # Extract API key to find the device_id
-        key = request.headers.get("X-API-Key") or request.cookies.get(
-            "pclink_device_token"
-        )
-        if not key:
-            key = request.query_params.get("token")
+        key = extract_token(request)
 
         device_id = "unknown_device"
         if key:
@@ -626,7 +605,7 @@ async def download(path: str = Query(...)):
     try:
         p = file_service.validate_path(path)
         if not p.is_file():
-            raise HTTPException(400, "Requested path is not a file")
+            raise HTTPException(400, _("Requested path is not a file"))
 
         # FastAPI Native FileResponse handles chunking, async I/O, range headers, and mime-types securely
         return FileResponse(

@@ -8,7 +8,7 @@ from fastapi import (
 )
 import asyncio
 from ...services.desktop_streaming_service import desktop_streaming_service
-from .dependencies import verify_api_key, verify_web_session
+from .dependencies import extract_token, verify_api_key, verify_web_session
 
 router = APIRouter(prefix="/desktop-streaming", tags=["desktop_streaming"])
 
@@ -144,13 +144,9 @@ async def reset_portal():
 async def desktop_streaming_websocket(websocket: WebSocket):
     try:
         # Validate the connection using the active web session state.
-        # This serves as the primary authentication path for browser-based clients.
         await verify_web_session(websocket)
     except HTTPException:
-        # Fallback to query-string token authentication for native clients (e.g., mobile apps).
-        # Since standard WebSocket handshakes on native clients do not consistently support custom headers,
-        # tokens are accepted as query parameters and validated against the device registry.
-        token = websocket.query_params.get("token")
+        token = extract_token(websocket)
         if token:
             from ...core.device_manager import device_manager
 
@@ -164,16 +160,10 @@ async def desktop_streaming_websocket(websocket: WebSocket):
 
     async def send_to_ws(msg):
         try:
-            # Use a timeout to prevent slow clients from blocking the server's IPC listener
-            # if the TCP buffer is full (e.g. app in background).
             await asyncio.wait_for(websocket.send_json(msg), timeout=1.0)
         except (asyncio.TimeoutError, Exception):
-            # If we can't send, the client is likely unresponsive; the WebSocket
-            # disconnect handler will eventually clean up the subscription.
             pass
 
-    # Bind the connection lifecycle to the mirror service's pub-sub dispatcher
-    # to receive real-time engine telemetry, local SDP generation events, and ICE candidates.
     desktop_streaming_service.subscribe(send_to_ws)
 
     try:
@@ -185,6 +175,4 @@ async def desktop_streaming_websocket(websocket: WebSocket):
     finally:
         remaining = desktop_streaming_service.unsubscribe(send_to_ws)
         if remaining == 0:
-            # Stop the engine if no clients are left to prevent it from blocking the server
-            # especially on Windows where zombie engines can cause IPC locks.
             await desktop_streaming_service.stop_engine()

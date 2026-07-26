@@ -1,4 +1,8 @@
 # src/pclink/api_server/routers/terminal.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
+import gettext
 import logging
 import platform
 from typing import Any
@@ -17,10 +21,10 @@ from fastapi import (
 from ...core.config import config_manager
 from ...core.device_manager import device_manager
 from ...services.terminal_service import terminal_service
-from .dependencies import verify_mobile_api_enabled
+from .dependencies import extract_token, verify_mobile_api_enabled
 
 log = logging.getLogger(__name__)
-
+_ = gettext.gettext
 
 # --- Dependencies ---
 
@@ -30,16 +34,12 @@ async def get_authenticated_terminal_device(
 ) -> Any:
     """Consolidated dependency to authenticate and authorize terminal access."""
     conn = request or websocket
-    tk = (
-        token
-        or conn.headers.get("X-API-Key")
-        or conn.cookies.get("pclink_device_token")
-    )
+    tk = extract_token(conn, token=token)
 
     if not tk:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication token",
+            detail=_("Missing authentication token"),
         )
 
     try:
@@ -47,7 +47,7 @@ async def get_authenticated_terminal_device(
         if not device or not device.is_approved:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or revoked token",
+                detail=_("Invalid or revoked token"),
             )
 
         # 1. Global Kill Switch Check
@@ -55,14 +55,14 @@ async def get_authenticated_terminal_device(
         if not services.get("terminal", True):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Terminal service globally disabled",
+                detail=_("Terminal service globally disabled"),
             )
 
         # 2. Per-Device Permission Check
         if "terminal" not in device.permissions:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Terminal permission denied for device",
+                detail=_("Terminal permission denied for device"),
             )
 
         device_manager.update_device_last_seen(device.device_id)
@@ -74,7 +74,7 @@ async def get_authenticated_terminal_device(
         log.error(f"Terminal auth error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
+            detail=_("Internal server error"),
         )
 
 
@@ -92,8 +92,6 @@ def create_terminal_router() -> APIRouter:
     async def terminal_websocket(websocket: WebSocket, token: str = Query(None)):
         # 1. Authenticate BEFORE accepting the connection
         try:
-            # We call the dependency manually here because WebSocket dependencies
-            # can be tricky to handle cleanly without throwing raw HTTPExceptions over WS.
             device = await get_authenticated_terminal_device(
                 websocket=websocket, token=token
             )
@@ -101,7 +99,6 @@ def create_terminal_router() -> APIRouter:
             log.warning(
                 f"Terminal connection rejected from {websocket.client}: {e.detail}"
             )
-            # Rejecting the upgrade request natively
             await websocket.close(code=1008, reason=e.detail)
             return
 
@@ -117,14 +114,15 @@ def create_terminal_router() -> APIRouter:
             requested_shell = websocket.query_params.get("shell", default_shell).lower()
 
             # Security: Validation of shell choice
-            # Note: We allow "cmd" as a generic alias for the default shell to support Windows-biased clients
             if (
                 requested_shell != "cmd"
                 and requested_shell not in shells_info["shells"]
             ):
                 log.warning(f"Rejecting unsupported shell: {requested_shell}")
                 await websocket.send_text(
-                    f"\r\n[PCLink] Error: Unsupported shell '{requested_shell}'.\r\n"
+                    _("\r\n[PCLink] Error: Unsupported shell '{shell}'.\r\n").format(
+                        shell=requested_shell
+                    )
                 )
                 await websocket.close(code=4003)
                 return
@@ -139,7 +137,9 @@ def create_terminal_router() -> APIRouter:
         except Exception as e:
             log.error(f"Terminal error for '{device.device_name}': {e}", exc_info=True)
             try:
-                await websocket.send_text(f"\r\n[PCLink Error] {e}\r\n")
+                await websocket.send_text(
+                    _("\r\n[PCLink Error] {error}\r\n").format(error=e)
+                )
             except Exception:
                 pass
         finally:

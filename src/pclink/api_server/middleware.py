@@ -12,6 +12,7 @@ from ..core.config import config_manager
 from ..core.device_manager import device_manager
 from ..core.share_manager import share_manager
 from ..core.validators import ValidationError
+from .routers.dependencies import extract_token
 
 log = logging.getLogger(__name__)
 
@@ -95,11 +96,7 @@ async def service_enforcement_middleware(request: Request, call_next):
                 },
             )
 
-        token = (
-            request.headers.get("X-API-Key")
-            or request.query_params.get("token")
-            or request.cookies.get("pclink_device_token")
-        )
+        token = extract_token(request)
 
         session_token = request.cookies.get("pclink_session") or request.headers.get(
             "X-Session-Token"
