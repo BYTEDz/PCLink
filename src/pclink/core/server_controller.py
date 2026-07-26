@@ -1,7 +1,7 @@
-# src/pclink/core/server_controller.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import gettext
 import logging
 import socket
 import sys
@@ -10,9 +10,9 @@ import time
 import webbrowser
 
 import uvicorn
+from fastapi import APIRouter, FastAPI
 
 from ..api_server.api import create_api_app
-from ..api_server.control_api import create_control_api
 from ..services.discovery_service import DiscoveryService
 from . import constants
 from .config import config_manager
@@ -22,6 +22,42 @@ from .utils import DummyTty
 from .web_auth import web_auth_manager
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
+
+
+def create_control_api(controller, shutdown_callback):
+    """Creates the FastAPI application for the internal control API."""
+    control_app = FastAPI()
+    router = APIRouter()
+
+    @router.get("/status")
+    def get_status():
+        return controller.get_status()
+
+    @router.post("/stop")
+    def stop_server():
+        controller.shutdown()
+        return {"message": _("PCLink is shutting down.")}
+
+    @router.post("/restart")
+    def restart_server():
+        controller.restart()
+        return {"message": _("PCLink is restarting.")}
+
+    @router.get("/web-url")
+    def get_web_url():
+        return {"url": controller.get_web_ui_url()}
+
+    @router.get("/qr-data")
+    def get_qr_data():
+        """Get QR code data for pairing."""
+        qr_data = controller.get_qr_data()
+        if qr_data:
+            return {"qr_data": qr_data}
+        return {"error": _("QR data not available")}
+
+    control_app.include_router(router)
+    return control_app
 
 
 class ServerController:
@@ -38,16 +74,13 @@ class ServerController:
         self.status = "stopped"
         self.start_time = time.time()
 
-        # Initialize Startup Manager
         self.startup_manager = StartupManager()
-        # Sync config file with actual OS state
         self._sync_startup_config()
 
     def _sync_startup_config(self):
         """Ensure config.json matches OS startup state."""
         try:
             is_enabled_os = self.startup_manager.is_enabled()
-            # Update config without triggering write if not needed
             if config_manager.get("auto_start") != is_enabled_os:
                 log.info(f"Syncing auto_start config with OS state: {is_enabled_os}")
                 config_manager.set("auto_start", is_enabled_os)
@@ -66,7 +99,7 @@ class ServerController:
             config_manager.set("auto_start", enable)
             return True
         else:
-            raise Exception("Failed to change startup settings in Operating System")
+            raise Exception(_("Failed to change startup settings in Operating System"))
 
     def get_status(self):
         return {
@@ -90,7 +123,6 @@ class ServerController:
 
             fingerprint = get_cert_fingerprint(constants.CERT_FILE)
 
-            # Get local IP
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.connect(("8.8.8.8", 80))
@@ -159,29 +191,14 @@ class ServerController:
         if web_auth_manager.is_setup_completed():
             self.activate_secure_mode()
 
-    # --- Compatibility methods for API (api.py expects these names) ---
     def start_server(self):
-        """
-        Alias for start_mobile_api to be compatible with api.py expectation.
-        This enables the device connectivity (Mobile API & Discovery).
-        """
         self.start_mobile_api()
 
     def stop_server(self):
-        """
-        Alias for stop_mobile_api to be compatible with api.py expectation.
-        This disables device connectivity but keeps the Web UI running.
-        """
         self.stop_mobile_api()
 
     def stop_server_completely(self):
-        """
-        Alias for shutdown to be compatible with api.py expectation.
-        Stops the entire application.
-        """
         self.shutdown()
-
-    # ------------------------------------------------------------------
 
     def restart(self):
         log.info("Restarting PCLink server...")

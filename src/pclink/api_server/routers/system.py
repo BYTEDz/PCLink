@@ -6,14 +6,21 @@ import logging
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
-from ...services import media_service, system_service
+from ...services import media_service, process_service, system_service
+from ...services.process_service import ProcessInfo
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
 
 system_router = APIRouter()
 info_router = APIRouter()
+
+
+class KillPayload(BaseModel):
+    pid: int
+
 
 # --- System Info Endpoints ---
 
@@ -34,6 +41,38 @@ async def get_disk_info() -> Dict[str, List[Dict[str, Any]]]:
 async def get_media_info() -> Dict[str, Any]:
     """Provides information about the currently playing media."""
     return await media_service.get_media_info()
+
+
+# --- Process Management Endpoints ---
+
+
+@system_router.get("/processes", response_model=List[ProcessInfo])
+async def get_running_processes() -> List[ProcessInfo]:
+    """List active processes with system metrics."""
+    try:
+        return await process_service.get_processes()
+    except Exception as e:
+        log.error(f"Failed to fetch processes: {e}")
+        raise HTTPException(
+            status_code=500, detail=_("Failed to fetch processes: {}").format(e)
+        )
+
+
+@system_router.post("/processes/kill")
+async def kill_process(payload: KillPayload) -> Dict[str, str]:
+    """Kill process by PID."""
+    try:
+        msg = await process_service.kill_process(payload.pid)
+        return {"status": "success", "message": msg}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        log.error(f"Failed to kill process {payload.pid}: {e}")
+        raise HTTPException(
+            status_code=500, detail=_("Failed to kill process: {}").format(e)
+        )
 
 
 # --- Power, Volume, and WOL Endpoints ---

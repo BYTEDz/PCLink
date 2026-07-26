@@ -20,7 +20,6 @@ from .routers.input import router as input_router
 from .routers.macros import router as macro_router
 from .routers.media import router as media_router
 from .routers.phone_files import router as phone_file_router
-from .routers.processes import router as process_manager_router
 from .routers.services_management import router as services_router
 from .routers.system import info_router, system_router
 from .routers.terminal import create_terminal_router
@@ -203,12 +202,6 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     )
     app.include_router(
         system_router, prefix="/system", tags=["System"], dependencies=MOBILE_API
-    )
-    app.include_router(
-        process_manager_router,
-        prefix="/system",
-        tags=["Processes"],
-        dependencies=MOBILE_API,
     )
     app.include_router(
         info_router, prefix="/info", tags=["Info"], dependencies=MOBILE_API
