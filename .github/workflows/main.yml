@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        format: [portable, onefile, installer]
+        format: [portable, installer]
     steps:
       - name: Check out PCLink
         uses: actions/checkout@v6

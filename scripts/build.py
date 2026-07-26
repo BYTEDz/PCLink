@@ -593,7 +593,7 @@ def main():
     parser.add_argument(
         "--format",
         default="portable",
-        choices=["portable", "installer", "onefile", "nfpm", "wheel", "pkgbuild"],
+        choices=["portable", "installer", "nfpm", "wheel", "pkgbuild"],
         help="Output format.",
     )
     parser.add_argument(
@@ -669,11 +669,6 @@ def main():
                 build_name=internal_build_name,
                 package_name=f"{base_name}-portable",
                 onefile=False,
-            )
-        elif args.format == "onefile":
-            builder.build(onefile=True, name=internal_build_name)
-            builder.package(
-                build_name=internal_build_name, package_name=base_name, onefile=True
             )
         elif args.format == "installer":
             installer_source_name = APP_NAME

@@ -27,6 +27,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "addtopath"; Description: "Add PCLink executable directory to system PATH"; GroupDescription: "Environment Settings:"; Flags: checkedonce
 
 [Files]
 ; This will grab the entire contents of the one-dir build output.
@@ -39,3 +40,64 @@ Name: "{autodesktop}\PCLink"; Filename: "{app}\__EXECUTABLE_NAME__"; Tasks: desk
 
 [Run]
 Filename: "{app}\__EXECUTABLE_NAME__"; Description: "{cm:LaunchProgram,PCLink}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+const
+  EnvironmentKey = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
+
+procedure AddToPath();
+var
+  OldPath, NewPath: string;
+begin
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, EnvironmentKey, 'Path', OldPath) then
+  begin
+    if Pos(';' + ExpandConstant('{app}') + ';', ';' + OldPath + ';') = 0 then
+    begin
+      NewPath := OldPath + ';' + ExpandConstant('{app}');
+      RegWriteStringValue(HKEY_LOCAL_MACHINE, EnvironmentKey, 'Path', NewPath);
+    end;
+  end;
+end;
+
+procedure RemoveFromPath();
+var
+  OldPath, NewPath: string;
+  AppDir: string;
+  P: Integer;
+begin
+  AppDir := ExpandConstant('{app}');
+  if RegQueryStringValue(HKEY_LOCAL_MACHINE, EnvironmentKey, 'Path', OldPath) then
+  begin
+    P := Pos(';' + AppDir, OldPath);
+    if P > 0 then
+    begin
+      Delete(OldPath, P, Length(';' + AppDir));
+      RegWriteStringValue(HKEY_LOCAL_MACHINE, EnvironmentKey, 'Path', OldPath);
+    end
+    else
+    begin
+      P := Pos(AppDir + ';', OldPath);
+      if P > 0 then
+      begin
+        Delete(OldPath, P, Length(AppDir + ';'));
+        RegWriteStringValue(HKEY_LOCAL_MACHINE, EnvironmentKey, 'Path', OldPath);
+      end;
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('addtopath') then
+  begin
+    AddToPath();
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    RemoveFromPath();
+  end;
+end;
