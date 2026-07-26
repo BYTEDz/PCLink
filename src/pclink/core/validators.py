@@ -7,10 +7,41 @@ import re
 import socket
 from pathlib import Path
 
-from .exceptions import SecurityError, ValidationError
-
 log = logging.getLogger(__name__)
 _ = gettext.gettext
+
+# --- Custom Exception Classes ---
+
+
+class PCLinkError(Exception):
+    """Base exception for PCLink application"""
+
+
+class ServerError(PCLinkError):
+    """Server-related errors"""
+
+
+class ConfigurationError(PCLinkError):
+    """Configuration-related errors"""
+
+
+class SecurityError(PCLinkError):
+    """Security-related errors"""
+
+
+class FileOperationError(PCLinkError):
+    """File operation errors"""
+
+
+class NetworkError(PCLinkError):
+    """Network-related errors"""
+
+
+class ValidationError(PCLinkError, ValueError):
+    """Validation-related errors"""
+
+
+# --- Validators ---
 
 
 def validate_port(port: int) -> int:

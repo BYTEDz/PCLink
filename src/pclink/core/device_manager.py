@@ -1,4 +1,3 @@
-# src/pclink/core/device_manager.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -12,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from . import constants
-from .exceptions import ValidationError
+from .validators import ValidationError
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
@@ -251,7 +250,6 @@ class DeviceManager:
             device.is_approved = True
             self._save_device(device)
             log.info(f"Approved device: {device.device_name}")
-            self._trigger_update()
             return True
 
     def revoke_device(self, device_id: str) -> bool:
@@ -264,7 +262,6 @@ class DeviceManager:
 
         if deleted:
             log.info(f"Revoked device: {device_id}")
-            self._trigger_update()
         return deleted
 
     def ban_hardware(self, hardware_id: str, reason: str = "Manual ban") -> bool:
@@ -320,14 +317,6 @@ class DeviceManager:
             cursor = conn.execute("SELECT * FROM blacklist ORDER BY banned_at DESC")
             return [dict(row) for row in cursor.fetchall()]
 
-    def _trigger_update(self):
-        try:
-            from .state import emit_device_list_updated
-
-            emit_device_list_updated()
-        except Exception:
-            pass
-
     def update_device_last_seen(self, device_id: str) -> bool:
         with self._lock:
             device = self.get_device_by_id(device_id)
@@ -361,7 +350,6 @@ class DeviceManager:
                 device.current_ip = new_ip
                 device.last_seen = datetime.now(timezone.utc)
                 self._save_device(device)
-                self._trigger_update()
             return True
 
     def get_all_devices(self) -> List[Device]:

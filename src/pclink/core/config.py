@@ -9,7 +9,7 @@ from copy import deepcopy
 from typing import Any, Dict
 
 from . import constants
-from .exceptions import ConfigurationError
+from .validators import ConfigurationError
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
