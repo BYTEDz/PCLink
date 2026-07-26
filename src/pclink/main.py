@@ -9,24 +9,21 @@ import sys
 import threading
 
 from .core.config import config_manager
-from .core.linux_notifier import LinuxNotifier
 from .core.logging import setup_logging
+from .core.notifier import get_system_notifier
 from .core.server_controller import ServerController
 from .core.singleton import PCLinkSingleton
 from .core.system_tray import SystemTrayManager
 from .core.utils import run_preflight_checks
 from .core.version import __app_name__, __version__
-from .core.windows_notifier import WindowsNotifier
 from .services import macro_service
 
 
 def main() -> int:
-    # Fix for Windows 8.1 asyncio issues - use SelectorEventLoop instead of ProactorEventLoop
     if sys.platform == "win32":
         try:
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         except AttributeError:
-            # Fallback for older Python versions
             pass
 
     setup_logging()
@@ -68,19 +65,12 @@ def main() -> int:
             log.info("System tray is disabled by user configuration.")
             tray_manager = None
 
-        # Register notification handler for Macro Service
         def macro_notification_handler(title, message):
             if tray_manager:
                 tray_manager.show_notification(title, message)
             else:
-                # Use a standalone notifier if tray is disabled
-                fallback_notifier = None
-                if sys.platform == "win32":
-                    fallback_notifier = WindowsNotifier()
-                elif sys.platform.startswith("linux"):
-                    fallback_notifier = LinuxNotifier()
-
-                if fallback_notifier and fallback_notifier.is_available():
+                fallback_notifier = get_system_notifier()
+                if fallback_notifier.is_available():
                     fallback_notifier.show(title, message)
                 else:
                     log.info(f"NOTIFICATION (Headless): {title} - {message}")

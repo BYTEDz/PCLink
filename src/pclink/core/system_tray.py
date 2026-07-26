@@ -7,9 +7,8 @@ import os
 import sys
 import threading
 
-from .linux_notifier import LinuxNotifier
+from .notifier import get_system_notifier
 from .utils import resource_path
-from .windows_notifier import WindowsNotifier
 
 TRAY_AVAILABLE = False
 IMPORT_ERROR = ""
@@ -18,17 +17,14 @@ try:
 
     TRAY_AVAILABLE = True
 except (ImportError, Exception) as e:
-    # Catching Exception because pystray backends (like Xlib) can raise errors on import if no display is found
     IMPORT_ERROR = str(e)
 
 LINUX_NATIVE_TRAY_AVAILABLE = False
 LINUX_TRAY_ERROR = ""
-AppIndicator3 = None  # Will be set to whichever library is available
+AppIndicator3 = None
 
 try:
     if sys.platform.startswith("linux"):
-        # Only try to import Gtk/AppIndicator if we have a display
-        # This prevents crashes on headless systems
         has_display = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
         if has_display:
             import gi
@@ -36,7 +32,6 @@ try:
             gi.require_version("Gtk", "3.0")
             from gi.repository import GLib, Gtk
 
-            # Try AppIndicator3 first (Ubuntu, Linux Mint)
             try:
                 gi.require_version("AppIndicator3", "0.1")
                 from gi.repository import AppIndicator3 as _AppIndicator
@@ -44,7 +39,6 @@ try:
                 AppIndicator3 = _AppIndicator
                 LINUX_NATIVE_TRAY_AVAILABLE = True
             except (ImportError, ValueError):
-                # Fallback to AyatanaAppIndicator3 (Fedora, modern distros)
                 try:
                     gi.require_version("AyatanaAppIndicator3", "0.1")
                     from gi.repository import AyatanaAppIndicator3 as _AppIndicator
@@ -68,11 +62,7 @@ class SystemTrayManager:
         self.controller = controller
         self.icon = None
         self.indicator = None
-        self.notifier = None
-        if sys.platform == "win32":
-            self.notifier = WindowsNotifier()
-        elif sys.platform.startswith("linux"):
-            self.notifier = LinuxNotifier()
+        self.notifier = get_system_notifier()
         self.running = False
         self.use_linux_native = False
 
@@ -124,7 +114,6 @@ class SystemTrayManager:
                 import winreg
 
                 try:
-                    # This registry key only exists on Windows 10+
                     key = winreg.OpenKey(
                         winreg.HKEY_CURRENT_USER,
                         r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
@@ -133,7 +122,6 @@ class SystemTrayManager:
                     winreg.CloseKey(key)
                     return value == 0
                 except (FileNotFoundError, OSError):
-                    # Windows 8.1 and earlier don't have this key - default to light theme
                     return False
             elif sys.platform.startswith("linux"):
                 import subprocess
@@ -152,38 +140,26 @@ class SystemTrayManager:
                         pass
                     return None
 
-                # 1. Freedesktop Dark Style Preference (Standard)
-                # Some desktops expose this via different mechanisms, simplified here for gsettings
-
-                # 2. GNOME / Standard GTK
                 val = check_gsettings("org.gnome.desktop.interface", "color-scheme")
                 if val and "dark" in val:
                     return True
 
-                # 3. Cinnamon (Linux Mint)
                 val = check_gsettings("org.cinnamon.desktop.interface", "gtk-theme")
                 if val and ("dark" in val or "black" in val):
                     return True
 
-                # 4. MATE (Linux Mint MATE)
                 val = check_gsettings("org.mate.interface", "gtk-theme")
                 if val and ("dark" in val or "black" in val):
                     return True
 
-                # 5. Fallback GTK Theme check (GNOME/Other)
                 val = check_gsettings("org.gnome.desktop.interface", "gtk-theme")
                 if val and ("dark" in val or "black" in val):
                     return True
 
-                # 6. Check XFCE (xfconf-query) - TODO if requested
-
-                # Fallback to dark theme on Linux for compatibility with modern desktop panels.
                 return True
         except Exception:
             pass
 
-        # Bias toward dark theme on Linux to prevent visibility issues on dark panels.
-        # Fallback for old Windows or unexpected errors remains Light.
         if sys.platform.startswith("linux"):
             return True
         return False
@@ -225,19 +201,14 @@ class SystemTrayManager:
         """Creates the tray icon using the native AppIndicator3 library."""
         try:
             Gtk.init_check()
-            # ID, Icon Name (fallback), Category
             self.indicator = AppIndicator3.Indicator.new(
                 "pclink-server",
                 "network-server",
                 AppIndicator3.IndicatorCategory.APPLICATION_STATUS,
             )
             self.indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
-
-            # Fix: Set Title to avoid "launcher.py" tooltip
             self.indicator.set_title("PCLink")
-            # self.indicator.set_label("PCLink", "")  <-- Removed to prevent text next to icon
 
-            # Set Icon
             icon_path = str(self._get_tray_icon_path().absolute())
             self.indicator.set_icon_full(icon_path, "PCLink")
 
@@ -300,12 +271,10 @@ class SystemTrayManager:
             log.error(f"Error hiding tray icon: {e}")
 
     def show_notification(self, title, message):
-        # 1. Try Native Notifiers (Windows/Linux)
         if self.notifier and self.notifier.is_available():
             if self.notifier.show(title, message):
                 return
 
-        # 2. Try pystray (fallback for Windows, primary for others if available)
         if (
             self.icon
             and self.running
@@ -314,28 +283,16 @@ class SystemTrayManager:
             self.icon.notify(message, title)
             return
 
-        # 3. Last fallback: Log it
         log.info(f"NOTIFICATION: {title} - {message}")
 
     def show_pairing_notification(self, device_name: str, web_ui_url: str):
-        """Fire a pairing-request notification that opens the web UI on click.
-
-        Windows → clickable toast (launch=url activationType=protocol).
-        Linux   → critical notification with 'Open Web UI' action via libnotify,
-                   or urgency=critical via notify-send as fallback.
-        """
         title = "PCLink — Pairing Request"
         message = f"{device_name} wants to pair. Click to open Web UI and approve."
 
-        # prefer show_actionable if notifier supports it
         if self.notifier and self.notifier.is_available():
-            if hasattr(self.notifier, "show_actionable"):
-                if self.notifier.show_actionable(title, message, web_ui_url):
-                    return
-            elif self.notifier.show(title, message):
+            if self.notifier.show_actionable(title, message, web_ui_url):
                 return
 
-        # pystray plain fallback (no click-to-open on most backends)
         if (
             self.icon
             and self.running
