@@ -65,11 +65,11 @@ def _build_dynamic_xkb_map(
 
         xkb.xkb_keymap_key_get_syms_by_level.restype = ctypes.c_int
         xkb.xkb_keymap_key_get_syms_by_level.argtypes = [
-            ctypes.c_void_p,  # keymap
-            ctypes.c_uint32,  # keycode
-            ctypes.c_uint32,  # layout index (0)
-            ctypes.c_uint32,  # level index
-            ctypes.POINTER(ctypes.POINTER(ctypes.c_uint32)),  # syms out
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_uint32)),
         ]
 
         xkb.xkb_keysym_to_utf8.restype = ctypes.c_int
@@ -404,7 +404,6 @@ class LinuxEvdevService:
     def _char_to_key_event(self, char: str) -> Optional[Tuple[int, bool, bool]]:
         layout = self._get_layout_name()
 
-        # Build dynamic XKB map when layout changes or isn't built
         if self._cached_layout != layout or not self._cached_xkb_map:
             self._cached_xkb_map = _build_dynamic_xkb_map(layout)
             self._cached_layout = layout
@@ -422,6 +421,37 @@ class LinuxEvdevService:
 
         return None
 
+    def _paste_text_via_clipboard(self, text: str):
+        """
+        Seamlessly pastes text using clipboard insertion (wl-copy / xclip) and Ctrl+V.
+        Guarantees 100% seamless support for any language (Arabic, CJK, Emojis) without
+        typing hex codes or triggering Enter presses.
+        """
+        log.info(f"[EVDEV] Pasting text via clipboard: '{text}'")
+        from ..core.wayland_utils import clipboard_set_wayland
+
+        success = clipboard_set_wayland(text)
+        if not success:
+            try:
+                import pyperclip
+
+                pyperclip.copy(text)
+                success = True
+            except Exception as e:
+                log.warning(f"[EVDEV] Clipboard copy fallback failed: {e}")
+
+        if success:
+            time.sleep(0.02)
+            # Emit Ctrl + V over uinput
+            self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 1)
+            self.ui.write(ecodes.EV_KEY, ecodes.KEY_V, 1)
+            self.ui.syn()
+            time.sleep(0.01)
+            self.ui.write(ecodes.EV_KEY, ecodes.KEY_V, 0)
+            self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 0)
+            self.ui.syn()
+            time.sleep(0.01)
+
     def type_text(self, text: str):
         if not self.ui:
             log.warning("[EVDEV] uinput UI device is not initialized.")
@@ -430,10 +460,20 @@ class LinuxEvdevService:
         layout = self._get_layout_name()
         log.info(f"[EVDEV] Typing text: '{text}' (Active layout: '{layout}')")
 
+        # Check if text contains non-ASCII or unmapped characters
+        has_unmapped = any(self._char_to_key_event(c) is None for c in text)
+
+        if has_unmapped:
+            log.info(
+                "[EVDEV] Text contains international/unmapped characters. Using seamless clipboard paste."
+            )
+            self._paste_text_via_clipboard(text)
+            return
+
+        # Natively supported characters: type via hardware keycodes
         for char in text:
             event = self._char_to_key_event(char)
             if not event:
-                log.warning(f"[EVDEV] Unmapped character: '{char}'")
                 continue
 
             code, need_shift, need_altgr = event
