@@ -2,9 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import ctypes
+import ctypes.util
 import logging
+import os
+import re
 import time
-from typing import List
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 try:
     from evdev import UInput, ecodes
@@ -18,6 +23,131 @@ from ..core.config import config_manager
 log = logging.getLogger(__name__)
 
 
+def _build_dynamic_xkb_map(
+    layout_name: str, variant: str = ""
+) -> Dict[str, Tuple[int, bool, bool]]:
+    """
+    Dynamically queries libxkbcommon to build a map from unicode characters
+    to (evdev_keycode, need_shift, need_altgr) for ANY active Linux keyboard layout.
+    """
+    lib_path = ctypes.util.find_library("xkbcommon") or "libxkbcommon.so.0"
+    try:
+        xkb = ctypes.CDLL(lib_path)
+    except Exception as e:
+        log.warning(f"[EVDEV_XKB] Could not load libxkbcommon: {e}")
+        return {}
+
+    try:
+        xkb.xkb_context_new.restype = ctypes.c_void_p
+        xkb.xkb_context_new.argtypes = [ctypes.c_int]
+
+        xkb.xkb_context_unref.restype = None
+        xkb.xkb_context_unref.argtypes = [ctypes.c_void_p]
+
+        class XkbRuleNames(ctypes.Structure):
+            _fields_ = [
+                ("rules", ctypes.c_char_p),
+                ("model", ctypes.c_char_p),
+                ("layout", ctypes.c_char_p),
+                ("variant", ctypes.c_char_p),
+                ("options", ctypes.c_char_p),
+            ]
+
+        xkb.xkb_keymap_new_from_names.restype = ctypes.c_void_p
+        xkb.xkb_keymap_new_from_names.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(XkbRuleNames),
+            ctypes.c_int,
+        ]
+
+        xkb.xkb_keymap_unref.restype = None
+        xkb.xkb_keymap_unref.argtypes = [ctypes.c_void_p]
+
+        xkb.xkb_keymap_key_get_syms_by_level.restype = ctypes.c_int
+        xkb.xkb_keymap_key_get_syms_by_level.argtypes = [
+            ctypes.c_void_p,  # keymap
+            ctypes.c_uint32,  # keycode
+            ctypes.c_uint32,  # layout index (0)
+            ctypes.c_uint32,  # level index
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_uint32)),  # syms out
+        ]
+
+        xkb.xkb_keysym_to_utf8.restype = ctypes.c_int
+        xkb.xkb_keysym_to_utf8.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_char_p,
+            ctypes.c_size_t,
+        ]
+
+        ctx = xkb.xkb_context_new(0)
+        if not ctx:
+            return {}
+
+        clean_layout = layout_name.lower().strip()
+        if clean_layout == "azerty":
+            clean_layout = "fr"
+        elif clean_layout == "qwerty":
+            clean_layout = "us"
+
+        rules = XkbRuleNames(
+            rules=b"evdev",
+            model=b"pc105",
+            layout=clean_layout.encode("utf-8"),
+            variant=variant.encode("utf-8") if variant else None,
+            options=None,
+        )
+
+        keymap = xkb.xkb_keymap_new_from_names(ctx, ctypes.byref(rules), 0)
+        if not keymap and variant:
+            rules.variant = None
+            keymap = xkb.xkb_keymap_new_from_names(ctx, ctypes.byref(rules), 0)
+
+        if not keymap:
+            xkb.xkb_context_unref(ctx)
+            return {}
+
+        char_map: Dict[str, Tuple[int, bool, bool]] = {}
+        buf = ctypes.create_string_buffer(32)
+
+        # Scanner levels: (level_idx, need_shift, need_altgr)
+        levels = [
+            (0, False, False),  # Normal
+            (1, True, False),  # Shift
+            (2, False, True),  # AltGr
+            (3, True, True),  # Shift + AltGr
+        ]
+
+        syms_ptr = ctypes.POINTER(ctypes.c_uint32)()
+
+        # Scan XKB keycodes (8 to 255 -> evdev keycodes 0 to 247)
+        for evdev_code in range(1, 248):
+            xkb_code = evdev_code + 8
+            for level, shift, altgr in levels:
+                num_syms = xkb.xkb_keymap_key_get_syms_by_level(
+                    keymap, xkb_code, 0, level, ctypes.byref(syms_ptr)
+                )
+                if num_syms > 0 and syms_ptr:
+                    for i in range(num_syms):
+                        sym = syms_ptr[i]
+                        res_len = xkb.xkb_keysym_to_utf8(sym, buf, 32)
+                        if res_len > 1:
+                            char_val = buf.value.decode("utf-8", errors="ignore")
+                            if char_val and char_val not in char_map:
+                                char_map[char_val] = (evdev_code, shift, altgr)
+
+        xkb.xkb_keymap_unref(keymap)
+        xkb.xkb_context_unref(ctx)
+
+        log.info(
+            f"[EVDEV_XKB] Dynamically generated {len(char_map)} character mappings for layout '{clean_layout}'."
+        )
+        return char_map
+
+    except Exception as e:
+        log.error(f"[EVDEV_XKB] Error building dynamic XKB map: {e}")
+        return {}
+
+
 class LinuxEvdevService:
     """
     Low-level Linux input service using uinput/evdev.
@@ -26,15 +156,17 @@ class LinuxEvdevService:
 
     def __init__(self):
         self.ui = None
+        self._auto_layout = None
+        self._cached_layout = None
+        self._cached_xkb_map = {}
+
         if not EVDEV_AVAILABLE:
             log.warning("evdev not installed. Wayland input will not work.")
             return
 
         try:
-            # Define human interface devices (Keyboard + Mouse)
             capabilities = {
                 ecodes.EV_KEY: [
-                    # Keyboard keys
                     ecodes.KEY_ESC,
                     ecodes.KEY_1,
                     ecodes.KEY_2,
@@ -89,7 +221,7 @@ class LinuxEvdevService:
                     ecodes.KEY_DOT,
                     ecodes.KEY_SLASH,
                     ecodes.KEY_RIGHTSHIFT,
-                    ecodes.KEY_KPASTERISK,
+                    ecodes.KEY_RIGHTALT,
                     ecodes.KEY_LEFTALT,
                     ecodes.KEY_SPACE,
                     ecodes.KEY_CAPSLOCK,
@@ -118,7 +250,6 @@ class LinuxEvdevService:
                     ecodes.KEY_RIGHTMETA,
                     ecodes.KEY_COMPOSE,
                     ecodes.KEY_MENU,
-                    # Mouse buttons
                     ecodes.BTN_LEFT,
                     ecodes.BTN_RIGHT,
                     ecodes.BTN_MIDDLE,
@@ -134,64 +265,6 @@ class LinuxEvdevService:
             self.ui = UInput(capabilities, name="PCLink Virtual Input")
             log.info("Successfully created PCLink Virtual Input device via uinput.")
 
-            self.qwerty_key_map = {
-                "enter": ecodes.KEY_ENTER,
-                "esc": ecodes.KEY_ESC,
-                "shift": ecodes.KEY_LEFTSHIFT,
-                "ctrl": ecodes.KEY_LEFTCTRL,
-                "alt": ecodes.KEY_LEFTALT,
-                "cmd": ecodes.KEY_LEFTMETA,
-                "win": ecodes.KEY_LEFTMETA,
-                "meta": ecodes.KEY_LEFTMETA,
-                "super": ecodes.KEY_LEFTMETA,
-                "backspace": ecodes.KEY_BACKSPACE,
-                "delete": ecodes.KEY_DELETE,
-                "tab": ecodes.KEY_TAB,
-                "space": ecodes.KEY_SPACE,
-                "up": ecodes.KEY_UP,
-                "down": ecodes.KEY_DOWN,
-                "left": ecodes.KEY_LEFT,
-                "right": ecodes.KEY_RIGHT,
-                "q": ecodes.KEY_Q,
-                "w": ecodes.KEY_W,
-                "e": ecodes.KEY_E,
-                "r": ecodes.KEY_R,
-                "t": ecodes.KEY_T,
-                "y": ecodes.KEY_Y,
-                "u": ecodes.KEY_U,
-                "i": ecodes.KEY_I,
-                "o": ecodes.KEY_O,
-                "p": ecodes.KEY_P,
-                "a": ecodes.KEY_A,
-                "s": ecodes.KEY_S,
-                "d": ecodes.KEY_D,
-                "f": ecodes.KEY_F,
-                "g": ecodes.KEY_G,
-                "h": ecodes.KEY_H,
-                "j": ecodes.KEY_J,
-                "k": ecodes.KEY_K,
-                "l": ecodes.KEY_L,
-                "z": ecodes.KEY_Z,
-                "x": ecodes.KEY_X,
-                "c": ecodes.KEY_C,
-                "v": ecodes.KEY_V,
-                "b": ecodes.KEY_B,
-                "n": ecodes.KEY_N,
-                "m": ecodes.KEY_M,
-            }
-
-            self.azerty_key_map = self.qwerty_key_map.copy()
-            self.azerty_key_map.update(
-                {
-                    "a": ecodes.KEY_Q,
-                    "q": ecodes.KEY_A,
-                    "z": ecodes.KEY_W,
-                    "w": ecodes.KEY_Z,
-                    "m": ecodes.KEY_SEMICOLON,
-                    ",": ecodes.KEY_M,
-                }
-            )
-
             self.btn_map = {
                 "left": ecodes.BTN_LEFT,
                 "right": ecodes.BTN_RIGHT,
@@ -206,7 +279,6 @@ class LinuxEvdevService:
 
     def move_relative(self, dx: int, dy: int):
         if self.ui:
-            # Round floats to nearest int as uinput expects Absolute/Relative integers
             self.ui.write(ecodes.EV_REL, ecodes.REL_X, int(round(dx)))
             self.ui.write(ecodes.EV_REL, ecodes.REL_Y, int(round(dy)))
             self.ui.syn()
@@ -216,10 +288,10 @@ class LinuxEvdevService:
             return
         btn = self.btn_map.get(button.lower(), ecodes.BTN_LEFT)
         for _ in range(clicks):
-            self.ui.write(ecodes.EV_KEY, btn, 1)  # Press
+            self.ui.write(ecodes.EV_KEY, btn, 1)
             self.ui.syn()
             time.sleep(0.01)
-            self.ui.write(ecodes.EV_KEY, btn, 0)  # Release
+            self.ui.write(ecodes.EV_KEY, btn, 0)
             self.ui.syn()
             if clicks > 1:
                 time.sleep(0.05)
@@ -233,35 +305,232 @@ class LinuxEvdevService:
             self.ui.write(ecodes.EV_REL, ecodes.REL_HWHEEL, int(round(dx)))
         self.ui.syn()
 
+    def _detect_system_layout(self) -> str:
+        """Detect current system keyboard layout dynamically."""
+        # 1. GNOME gsettings (Fedora / Ubuntu Wayland)
+        try:
+            import subprocess
+
+            res = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.input-sources", "sources"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if res.returncode == 0 and res.stdout:
+                out = res.stdout.strip()
+                matches = re.findall(r"\('xkb',\s*'([^']+)'\)", out)
+                if matches:
+                    layout = matches[0].split("+")[0]
+                    log.info(f"[LAYOUT_DETECT] Detected GNOME input layout: '{layout}'")
+                    return layout
+        except Exception as e:
+            log.debug(f"[LAYOUT_DETECT] GNOME gsettings detection failed: {e}")
+
+        # 2. localectl status
+        try:
+            import subprocess
+
+            res = subprocess.run(
+                ["localectl", "status"], capture_output=True, text=True, timeout=2
+            )
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    line_lower = line.lower()
+                    if "x11 layout:" in line_lower or "vc keymap:" in line_lower:
+                        val = (
+                            line.split(":", 1)[1]
+                            .strip()
+                            .lower()
+                            .split(",")[0]
+                            .split("-")[0]
+                        )
+                        if val:
+                            log.info(
+                                f"[LAYOUT_DETECT] Detected localectl layout: '{val}'"
+                            )
+                            return val
+        except Exception as e:
+            log.debug(f"[LAYOUT_DETECT] localectl detection failed: {e}")
+
+        # 3. Environment variables & /etc/vconsole.conf
+        try:
+            xkb_layout = os.environ.get("XKB_DEFAULT_LAYOUT", "").lower()
+            if xkb_layout:
+                return xkb_layout.split(",")[0]
+
+            vconsole = Path("/etc/vconsole.conf")
+            if vconsole.exists():
+                content = vconsole.read_text().lower()
+                for line in content.splitlines():
+                    if line.startswith("keymap=") or line.startswith("xkblayout="):
+                        val = line.split("=", 1)[1].strip("\"'").split("-")[0]
+                        if val:
+                            return val
+        except Exception as e:
+            log.debug(f"[LAYOUT_DETECT] Environment check failed: {e}")
+
+        # 4. setxkbmap fallback
+        try:
+            import subprocess
+
+            res = subprocess.run(
+                ["setxkbmap", "-query"], capture_output=True, text=True, timeout=2
+            )
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    if "layout:" in line.lower():
+                        val = line.split(":", 1)[1].strip().lower().split(",")[0]
+                        log.info(f"[LAYOUT_DETECT] Detected setxkbmap layout: '{val}'")
+                        return val
+        except Exception as e:
+            log.debug(f"[LAYOUT_DETECT] setxkbmap detection failed: {e}")
+
+        log.info("[LAYOUT_DETECT] Fallback to default layout: 'us'")
+        return "us"
+
+    def _get_layout_name(self) -> str:
+        cfg_layout = config_manager.get("keyboard_layout", "auto")
+        if not cfg_layout:
+            cfg_layout = "auto"
+        layout = str(cfg_layout).lower()
+
+        if layout == "auto":
+            if not self._auto_layout:
+                self._auto_layout = self._detect_system_layout()
+            return self._auto_layout
+        return layout
+
+    def _char_to_key_event(self, char: str) -> Optional[Tuple[int, bool, bool]]:
+        layout = self._get_layout_name()
+
+        # Build dynamic XKB map when layout changes or isn't built
+        if self._cached_layout != layout or not self._cached_xkb_map:
+            self._cached_xkb_map = _build_dynamic_xkb_map(layout)
+            self._cached_layout = layout
+
+        if char in self._cached_xkb_map:
+            return self._cached_xkb_map[char]
+
+        # Space / Enter / Tab fallback
+        if char == " ":
+            return (ecodes.KEY_SPACE, False, False)
+        elif char in ("\n", "\r"):
+            return (ecodes.KEY_ENTER, False, False)
+        elif char == "\t":
+            return (ecodes.KEY_TAB, False, False)
+
+        return None
+
     def type_text(self, text: str):
-        # Simplistic mapping for common characters (mostly for quick commands)
-        # Full keyboard mapping is complex; usually we use scancodes or keysyms.
+        if not self.ui:
+            log.warning("[EVDEV] uinput UI device is not initialized.")
+            return
+
+        layout = self._get_layout_name()
+        log.info(f"[EVDEV] Typing text: '{text}' (Active layout: '{layout}')")
+
         for char in text:
-            code = self._char_to_ecode(char)
-            if code:
-                self.ui.write(ecodes.EV_KEY, code, 1)
-                self.ui.syn()
-                self.ui.write(ecodes.EV_KEY, code, 0)
+            event = self._char_to_key_event(char)
+            if not event:
+                log.warning(f"[EVDEV] Unmapped character: '{char}'")
+                continue
+
+            code, need_shift, need_altgr = event
+            key_name = code
+            try:
+                if hasattr(ecodes, "KEY") and isinstance(ecodes.KEY, dict):
+                    key_name = ecodes.KEY.get(code, code)
+            except Exception:
+                pass
+
+            log.info(
+                f"[EVDEV] Char: '{char}' -> KeyCode: {code} ({key_name}), "
+                f"Shift: {need_shift}, AltGr: {need_altgr}"
+            )
+
+            if need_altgr:
+                self.ui.write(ecodes.EV_KEY, ecodes.KEY_RIGHTALT, 1)
                 self.ui.syn()
 
-    def _get_active_map(self):
-        layout = config_manager.get("keyboard_layout", "qwerty").lower()
-        if layout == "azerty":
-            return self.azerty_key_map
-        return self.qwerty_key_map
+            if need_shift:
+                self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
+                self.ui.syn()
+
+            self.ui.write(ecodes.EV_KEY, code, 1)
+            self.ui.syn()
+            time.sleep(0.01)
+            self.ui.write(ecodes.EV_KEY, code, 0)
+            self.ui.syn()
+
+            if need_shift:
+                self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
+                self.ui.syn()
+
+            if need_altgr:
+                self.ui.write(ecodes.EV_KEY, ecodes.KEY_RIGHTALT, 0)
+                self.ui.syn()
+
+            time.sleep(0.01)
 
     def press_key(self, key_str: str, modifiers: List[str] = None):
         if not self.ui:
+            log.warning("[EVDEV] uinput UI device is not initialized.")
             return
         try:
-            active_map = self._get_active_map()
-            mods = [active_map.get(m.lower(), None) for m in (modifiers or [])]
+            layout = self._get_layout_name()
+            mod_map = {
+                "ctrl": ecodes.KEY_LEFTCTRL,
+                "shift": ecodes.KEY_LEFTSHIFT,
+                "alt": ecodes.KEY_LEFTALT,
+                "altgr": ecodes.KEY_RIGHTALT,
+                "win": ecodes.KEY_LEFTMETA,
+                "cmd": ecodes.KEY_LEFTMETA,
+                "meta": ecodes.KEY_LEFTMETA,
+                "super": ecodes.KEY_LEFTMETA,
+            }
+
+            named_keys = {
+                "enter": ecodes.KEY_ENTER,
+                "esc": ecodes.KEY_ESC,
+                "tab": ecodes.KEY_TAB,
+                "space": ecodes.KEY_SPACE,
+                "backspace": ecodes.KEY_BACKSPACE,
+                "delete": ecodes.KEY_DELETE,
+                "up": ecodes.KEY_UP,
+                "down": ecodes.KEY_DOWN,
+                "left": ecodes.KEY_LEFT,
+                "right": ecodes.KEY_RIGHT,
+                "home": ecodes.KEY_HOME,
+                "end": ecodes.KEY_END,
+                "pageup": ecodes.KEY_PAGEUP,
+                "pagedown": ecodes.KEY_PAGEDOWN,
+            }
+
+            mods = [mod_map.get(m.lower(), None) for m in (modifiers or [])]
             mods = [m for m in mods if m is not None]
 
-            main_key = active_map.get(key_str.lower(), None)
+            main_key = named_keys.get(key_str.lower(), None)
             if main_key is None:
-                # Fallback to single char mapping if it's a letter
-                main_key = self._char_to_ecode(key_str)
+                event = self._char_to_key_event(key_str)
+                if event:
+                    main_key, extra_shift, extra_altgr = event
+                    if extra_shift and ecodes.KEY_LEFTSHIFT not in mods:
+                        mods.append(ecodes.KEY_LEFTSHIFT)
+                    if extra_altgr and ecodes.KEY_RIGHTALT not in mods:
+                        mods.append(ecodes.KEY_RIGHTALT)
+
+            key_name = main_key
+            try:
+                if hasattr(ecodes, "KEY") and isinstance(ecodes.KEY, dict):
+                    key_name = ecodes.KEY.get(main_key, main_key)
+            except Exception:
+                pass
+
+            log.info(
+                f"[EVDEV] PressKey: '{key_str}' -> ResolvedKeyCode: {main_key} ({key_name}), "
+                f"Modifiers: {modifiers} -> ResolvedMods: {mods} (Layout: '{layout}')"
+            )
 
             if main_key:
                 for m in mods:
@@ -273,24 +542,7 @@ class LinuxEvdevService:
                 for m in reversed(mods):
                     self.ui.write(ecodes.EV_KEY, m, 0)
                 self.ui.syn()
+            else:
+                log.warning(f"[EVDEV] Unable to resolve keycode for '{key_str}'")
         except Exception as e:
             log.error(f"evdev press_key failed: {e}")
-
-    def _char_to_ecode(self, char: str):
-        # basic ASCII to ecode bridge
-        c = char.lower()
-        active_map = self._get_active_map()
-
-        # Check layout map first
-        if c in active_map:
-            return active_map[c]
-
-        mapping = {
-            "1": ecodes.KEY_1,
-            "2": ecodes.KEY_2,
-            ".": ecodes.KEY_DOT,
-            "/": ecodes.KEY_SLASH,
-            "-": ecodes.KEY_MINUS,
-            " ": ecodes.KEY_SPACE,
-        }
-        return mapping.get(c)

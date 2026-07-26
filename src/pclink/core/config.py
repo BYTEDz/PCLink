@@ -28,7 +28,7 @@ DEFAULT_SETTINGS = {
     "auto_start": False,
     "auto_open_webui": True,
     "transfer_cleanup_threshold": 7,
-    "keyboard_layout": "qwerty",
+    "keyboard_layout": "auto",
     # Default permissions assigned to a new device upon pairing
     "default_device_permissions": [
         "files_browse",

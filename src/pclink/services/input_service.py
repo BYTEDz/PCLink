@@ -90,12 +90,18 @@ class InputService:
             self.mouse.scroll(dx, dy)
 
     def keyboard_type(self, text: str):
+        log.info(
+            f"[INPUT_SERVICE] keyboard_type: text='{text}', use_evdev={self.use_evdev}"
+        )
         if self.use_evdev:
             self.evdev.type_text(text)
         elif self.keyboard:
             self.keyboard.type(text)
 
     def keyboard_press_key(self, key_str: str, modifiers: List[str] = None):
+        log.info(
+            f"[INPUT_SERVICE] keyboard_press_key: key='{key_str}', modifiers={modifiers}, use_evdev={self.use_evdev}"
+        )
         if self.use_evdev:
             self.evdev.press_key(key_str, modifiers)
         elif self.keyboard:

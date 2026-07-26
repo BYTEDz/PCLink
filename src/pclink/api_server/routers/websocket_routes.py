@@ -39,16 +39,21 @@ async def handle_mouse_command(data: Dict[str, Any], permissions: List[str]):
 
 async def handle_keyboard_command(data: Dict[str, Any], permissions: List[str]):
     if "keyboard" not in permissions or not input_service.is_available():
+        log.warning(
+            f"Keyboard command rejected: permissions={permissions}, available={input_service.is_available()}"
+        )
         return
 
     try:
+        log.info(f"[KEYBOARD WS RECEIVED] Payload: {data}")
         if text := data.get("text"):
             # Typing strings can block; offload to thread
             await asyncio.to_thread(input_service.keyboard_type, text)
         elif key := data.get("key"):
-            input_service.keyboard_press(key)
+            modifiers = data.get("modifiers", [])
+            await asyncio.to_thread(input_service.keyboard_press_key, key, modifiers)
     except Exception as e:
-        log.error(f"Keyboard command failed: {e}")
+        log.error(f"Keyboard command failed: {e}", exc_info=True)
 
 
 @router.websocket("/ws")
