@@ -1,4 +1,7 @@
 # src/pclink/services/repair_service.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import json
 import logging
 import shutil
@@ -158,7 +161,7 @@ class RepairService:
             backup_path = device_manager.db_path.with_suffix(".db.bak")
             shutil.copy2(device_manager.db_path, backup_path)
             device_manager.db_path.unlink()
-            device_manager._init_db()
+            device_manager._init_database()
             return {
                 "status": "ok",
                 "message": f"Database recreated. Backup saved to {backup_path}",
@@ -173,8 +176,7 @@ class RepairService:
             if constants.CONFIG_FILE.exists():
                 shutil.copy2(constants.CONFIG_FILE, backup_path)
                 constants.CONFIG_FILE.unlink()
-            config_manager.load_config()
-            config_manager.save_config()
+            config_manager.reset_to_defaults()
             return {"status": "ok", "message": "Config reset to defaults."}
         except Exception as e:
             return {"status": "error", "message": f"Failed to fix config: {e}"}
@@ -315,7 +317,7 @@ class RepairService:
                         capture_output=True,
                         text=True,
                     )
-                    lines = res.stdout.strip().split("\\n")
+                    lines = res.stdout.strip().split("\n")
                     if lines and lines[0]:
                         pid = lines[0].strip().split()[-1]
                         subprocess.run(f"taskkill /PID {pid} /F", shell=True)

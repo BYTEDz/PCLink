@@ -1,4 +1,7 @@
 # src/pclink/api_server/routers/websocket_routes.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+
 import asyncio
 import logging
 import platform
@@ -16,7 +19,7 @@ from .dependencies import verify_web_session
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["WebSocket"])
 
-AUTH_CHECK_INTERVAL = 30.0  # seconds — reduced DB hits per connection
+AUTH_CHECK_INTERVAL = 30.0  # seconds
 
 
 async def handle_mouse_command(data: Dict[str, Any], permissions: List[str]):
@@ -26,13 +29,23 @@ async def handle_mouse_command(data: Dict[str, Any], permissions: List[str]):
     action = data.get("action")
     try:
         if action == "move":
-            input_service.mouse_move(data.get("dx", 0), data.get("dy", 0))
+            await asyncio.to_thread(
+                input_service.mouse_move, data.get("dx", 0), data.get("dy", 0)
+            )
         elif action == "click":
-            input_service.mouse_click(data.get("button", "left"), data.get("clicks", 1))
+            await asyncio.to_thread(
+                input_service.mouse_click,
+                data.get("button", "left"),
+                data.get("clicks", 1),
+            )
         elif action == "double_click":
-            input_service.mouse_click(data.get("button", "left"), 2)
+            await asyncio.to_thread(
+                input_service.mouse_click, data.get("button", "left"), 2
+            )
         elif action == "scroll":
-            input_service.mouse_scroll(data.get("dx", 0), data.get("dy", 0))
+            await asyncio.to_thread(
+                input_service.mouse_scroll, data.get("dx", 0), data.get("dy", 0)
+            )
     except Exception as e:
         log.error(f"Mouse command '{action}' failed: {e}")
 
@@ -47,7 +60,6 @@ async def handle_keyboard_command(data: Dict[str, Any], permissions: List[str]):
     try:
         log.info(f"[KEYBOARD WS RECEIVED] Payload: {data}")
         if text := data.get("text"):
-            # Typing strings can block; offload to thread
             await asyncio.to_thread(input_service.keyboard_type, text)
         elif key := data.get("key"):
             modifiers = data.get("modifiers", [])
@@ -77,7 +89,6 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
     from ...services.discovery_service import DiscoveryService
     from ...services.media_service import media_service
 
-    # Local state caching to prevent DB/Config hits on every high-freq packet
     permissions = device.permissions
     services = config_manager.get("services", {})
     last_auth_check = time.time()
@@ -93,7 +104,6 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         }
     )
 
-    # Immediately burst telemetry history to "warm up" graphs on the client
     if services.get("info", True):
         await websocket.send_json(
             {
@@ -117,7 +127,6 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
             msg_type = data.get("type")
             now = time.time()
 
-            # 1. Periodic Real-time Permission Verification
             if now - last_auth_check > AUTH_CHECK_INTERVAL:
                 current_device = device_manager.get_device_by_id(device_id)
                 if not (current_device and current_device.is_approved):
@@ -129,12 +138,10 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
                 services = config_manager.get("services", {})
                 last_auth_check = now
 
-            # 2. Global Check
             required_service = type_service_map.get(msg_type)
             if required_service and not services.get(required_service, True):
                 continue
 
-            # 3. Safe Command Execution
             try:
                 if msg_type == "ping":
                     await websocket.send_json({"type": "pong"})
@@ -170,7 +177,6 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
     finally:
         mobile_manager.disconnect(websocket)
 
-        # Failsafe: Automatically kill the screen mirror engine if the device drops
         from ...services.desktop_streaming_service import desktop_streaming_service
 
         asyncio.create_task(desktop_streaming_service.stop_engine())
@@ -224,8 +230,6 @@ async def broadcast_updates_task(manager, state):
 
     while True:
         try:
-            # We always run the loop, but we skip heavy delivery if no one is connected.
-            # system_service now manages its own light background collection.
             if not manager.active_connections:
                 await asyncio.sleep(2)
                 continue
@@ -238,7 +242,6 @@ async def broadcast_updates_task(manager, state):
             }
 
             if services.get("info", True):
-                # Use the pre-calculated light snapshot + heavy on-demand if needed
                 update_data["system"] = await system_service.get_system_info()
             else:
                 version = (
