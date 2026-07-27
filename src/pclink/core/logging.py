@@ -50,6 +50,18 @@ class SensitiveDataFilter(logging.Filter):
             r"\1***REDACTED***",
         ),
         (
+            re.compile(
+                r"(srtp[_\-]?key[\"']?\s*[:=,\s]\s*[\"']?)[^\s\"'&,]+", re.IGNORECASE
+            ),
+            r"\1***REDACTED***",
+        ),
+        (
+            re.compile(
+                r"(key[\"']?\s*=\s*[\"']?)[a-fA-F0-9]{20,}[\"']?", re.IGNORECASE
+            ),
+            r"\1***REDACTED***",
+        ),
+        (
             re.compile(r"(X-API-Key\s*[:=]\s*)[^\s\"'&]+", re.IGNORECASE),
             r"\1***REDACTED***",
         ),

@@ -185,6 +185,9 @@ class ServerController:
 
     def _watchdog_loop(self):
         """Monitors network reachability, discovery beacon status, and performs self-healing."""
+        last_reported_status = "healthy"
+        last_pressure_log_time = 0
+
         while self._watchdog_running:
             try:
                 time.sleep(15)
@@ -196,7 +199,9 @@ class ServerController:
                         and self.discovery_service._thread.is_alive()
                     ):
                         log.warning(
-                            "Watchdog: Discovery beacon thread died. Restarting discovery service..."
+                            _(
+                                "Watchdog: Discovery beacon thread died. Restarting discovery service..."
+                            )
                         )
                         hostname = socket.gethostname()
                         self.discovery_service = DiscoveryService(
@@ -208,11 +213,47 @@ class ServerController:
                 from ..services.repair_service import repair_service
 
                 analysis = repair_service.detect_instability_causes()
-                if analysis.get("overall_status") in ("warning", "critical"):
-                    log.info(
-                        f"Watchdog: Detected server pressure ({analysis.get('overall_status')}). Triggering auto-heal..."
+                current_status = analysis.get("overall_status", "healthy")
+                now = time.time()
+
+                if current_status in ("warning", "critical"):
+                    causes = analysis.get("detected_causes", [])
+                    cause_details = (
+                        "; ".join(
+                            [
+                                f"{c.get('title', _('Unknown'))}: {c.get('description', '').rstrip('.')}"
+                                for c in causes
+                            ]
+                        )
+                        if causes
+                        else _("Unknown cause")
                     )
-                    repair_service.auto_heal()
+
+                    # Log whenever status changes or every 5 minutes if persistent
+                    if (
+                        current_status != last_reported_status
+                        or (now - last_pressure_log_time) > 300
+                    ):
+                        log.warning(
+                            _(
+                                "Watchdog: Server pressure detected [{status}]. Cause(s): {causes}. Initiating auto-heal..."
+                            ).format(
+                                status=current_status.upper(),
+                                causes=cause_details,
+                            )
+                        )
+                        last_pressure_log_time = now
+                        last_reported_status = current_status
+
+                        repair_service.auto_heal()
+                else:
+                    if last_reported_status in ("warning", "critical"):
+                        log.info(
+                            _(
+                                "Watchdog: Server pressure resolved. System status is back to normal."
+                            )
+                        )
+                    last_reported_status = "healthy"
 
             except Exception as e:
                 log.debug(f"Watchdog loop iteration exception: {e}")

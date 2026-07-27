@@ -185,7 +185,7 @@ class RepairService:
                         "title": _("High Memory Pressure"),
                         "severity": severity,
                         "description": _(
-                            "System memory usage is at {}% with PCLink consuming {} MB."
+                            "System memory usage is at {}% with PCLink consuming {} MB"
                         ).format(mem.percent, round(proc_mem_mb, 1)),
                         "recommendation": _(
                             "Trigger memory garbage collection or clear temporary cache."
@@ -206,7 +206,7 @@ class RepairService:
                         "title": _("High File Descriptor Usage"),
                         "severity": "warning",
                         "description": _(
-                            "PCLink currently has {} open file handles."
+                            "PCLink currently has {} open file handles"
                         ).format(num_fds),
                         "recommendation": _(
                             "Clean up stale transfer sessions and idle connections."
@@ -227,9 +227,9 @@ class RepairService:
                             "id": "db_wal_bloat",
                             "title": _("Database WAL File Bloat"),
                             "severity": "warning",
-                            "description": _(
-                                "SQLite WAL journal size is {} MB."
-                            ).format(round(wal_size_mb, 1)),
+                            "description": _("SQLite WAL journal size is {} MB").format(
+                                round(wal_size_mb, 1)
+                            ),
                             "recommendation": _(
                                 "Execute WAL checkpoint to flush database write log."
                             ),
@@ -274,15 +274,15 @@ class RepairService:
 
         # 1. Force Python Garbage Collection
         collected = gc.collect()
-        repaired_actions.append(
-            _("Garbage collection executed ({} objects freed).").format(collected)
-        )
+        act_gc = _("Garbage collection executed ({} objects freed)").format(collected)
+        repaired_actions.append(act_gc)
 
         # 2. SQLite WAL Checkpoint to shrink WAL journal bloat
         try:
             with sqlite3.connect(device_manager.db_path) as conn:
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-            repaired_actions.append(_("SQLite WAL log checkpointed successfully."))
+            act_wal = _("SQLite WAL log checkpointed successfully")
+            repaired_actions.append(act_wal)
         except Exception as e:
             log.debug(f"WAL checkpoint failed: {e}")
 
@@ -293,11 +293,17 @@ class RepairService:
 
             cleaned = asyncio.run(transfer_service.cleanup_stale_sessions(days=1))
             if cleaned > 0:
-                repaired_actions.append(
-                    _("Purged {} stale transfer files.").format(cleaned)
-                )
+                act_transfer = _("Purged {} stale transfer files").format(cleaned)
+                repaired_actions.append(act_transfer)
         except Exception as e:
             log.debug(f"Stale transfer cleanup during auto-heal failed: {e}")
+
+        actions_str = (
+            "; ".join(repaired_actions)
+            if repaired_actions
+            else _("No actions required")
+        )
+        log.info(_("Auto-heal completed. Action(s) taken: {}.").format(actions_str))
 
         return {
             "status": "ok",

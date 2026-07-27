@@ -1,16 +1,22 @@
-import asyncio
-import json
-import os
-import subprocess
-import logging
-from pathlib import Path
+# src/pclink/services/desktop_streaming_service.py
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import asyncio
+import gettext
+import json
+import logging
+import os
 import platform
+import re
+import subprocess
 import tempfile
+from pathlib import Path
 
 from ..core.utils import resource_path
 
 logger = logging.getLogger(__name__)
+_ = gettext.gettext
 
 OS_TYPE = platform.system().lower()
 ARCH_RAW = platform.machine().lower()
@@ -57,8 +63,6 @@ class DesktopStreamingService:
         """Prepare the environment for the FerrumCast engine process."""
         env = os.environ.copy()
         if OS_TYPE == "windows":
-            # Attempt to locate and configure the standard MSVC GStreamer runtime directories
-            # to establish plugin registries and bin paths before spawning the engine subprocess.
             candidates = [
                 Path(r"C:\Program Files\gstreamer\1.0\msvc_x86_64"),
                 Path(r"C:\gstreamer\1.0\msvc_x86_64"),
@@ -92,7 +96,6 @@ class DesktopStreamingService:
     async def diagnose_system(self) -> dict:
         """Run diagnostics on mirroring subsystem."""
         import shutil
-        import platform
 
         info = {
             "platform": platform.system(),
@@ -126,7 +129,6 @@ class DesktopStreamingService:
 
             portal_running = False
             try:
-                # Primary strategy: Check the process table for active portal contexts using pgrep.
                 proc = await asyncio.create_subprocess_exec(
                     "pgrep",
                     "-f",
@@ -142,7 +144,6 @@ class DesktopStreamingService:
 
             if not portal_running:
                 try:
-                    # Secondary fallback: Query systemd user service status if direct process lookup fails.
                     proc = await asyncio.create_subprocess_exec(
                         "systemctl",
                         "--user",
@@ -224,11 +225,7 @@ class DesktopStreamingService:
         return info
 
     async def collect_engine_diagnostics(self) -> dict:
-        """Collect GStreamer and environment diagnostics useful for debugging engine failures.
-
-        Returns a dict containing gst-inspect outputs and the environment as seen
-        by the spawned engine process (PATH, GST_PLUGIN_PATH, GST_PLUGIN_SCANNER).
-        """
+        """Collect GStreamer and environment diagnostics useful for debugging engine failures."""
         result = {
             "gst_inspect_version": None,
             "gst_inspect_plugins": None,
@@ -236,12 +233,8 @@ class DesktopStreamingService:
             "errors": [],
         }
 
-        # Replicate the exact environment configuration passed to the engine process
-        # to guarantee diagnostic commands run under identical conditions.
         env = self._engine_env()
 
-        # Extract relevant path and registry variables crucial for troubleshooting
-        # dynamic library search paths and GStreamer plugin resolution.
         for key in (
             "PATH",
             "GST_PLUGIN_PATH",
@@ -266,15 +259,12 @@ class DesktopStreamingService:
             except Exception as e:
                 return 1, "", str(e)
 
-        # Verify core GStreamer runtime installation and tool availability.
         code, out, err = await run_cmd("gst-inspect-1.0", "--version")
         if code == 0:
             result["gst_inspect_version"] = out.strip()
         else:
             result["errors"].append({"gst-inspect-version": err or out})
 
-        # Inspect critical streaming and acceleration modules to verify support
-        # for targeted encoders and capture pipelines.
         plugins_to_check = [
             "webrtcbin",
             "d3d11screencapturesrc",
@@ -292,8 +282,6 @@ class DesktopStreamingService:
 
         result["gst_inspect_plugins"] = plugin_outputs
 
-        # Filter global registry list to avoid downstream logger buffer bloat
-        # while preserving core media element traces.
         code, out, err = await run_cmd("gst-inspect-1.0", "--plugins")
         if code == 0:
             lines = [
@@ -328,12 +316,8 @@ class DesktopStreamingService:
         self.writer = None
 
         if OS_TYPE == "windows":
-            # Establish a connection to the Windows Named Pipe. Because standard synchronous file I/O
-            # blocks the asyncio event loop, operations are delegated to a worker thread via asyncio.to_thread.
             for _ in range(300):
                 try:
-                    # Use timeout on pipe open to prevent indefinite blocking if the pipe exists
-                    # but the engine is not ready to accept connections.
                     pipe = await asyncio.wait_for(
                         asyncio.to_thread(open, IPC_PATH, "r+b", buffering=0),
                         timeout=2.0,
@@ -435,8 +419,6 @@ class DesktopStreamingService:
             logger.error(f"Mirror engine not found at {ENGINE_PATH}")
             return False
 
-        # If the engine process is already active, request an in-place pipeline reconfiguration
-        # via IPC to bypass redundant screen authorization dialog prompts.
         if self._engine_alive() and await self._ensure_ipc():
             logger.info(
                 f"Engine alive, restarting pipeline via IPC: host={client_host} encoder={encoder} res={width}x{height}@{fps}"
@@ -548,7 +530,6 @@ class DesktopStreamingService:
             try:
                 token = Path(TOKEN_FILE).read_text().strip()
                 if token:
-                    # Supply the cached screen-capture authorization token to bypass user-facing prompts on startup.
                     args += ["--token", token]
                     logger.info(f"Using cached portal token from {TOKEN_FILE}")
             except Exception:
@@ -567,15 +548,34 @@ class DesktopStreamingService:
         if OS_TYPE == "windows":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-        logger.info(f"Starting mirror engine: {args}")
+        # Sanitize sensitive CLI arguments before logging
+        sanitized_args = []
+        skip_next = False
+        for arg in args:
+            if skip_next:
+                sanitized_args.append("***REDACTED***")
+                skip_next = False
+            elif arg in ("--srtp-key", "--token"):
+                sanitized_args.append(arg)
+                skip_next = True
+            else:
+                sanitized_args.append(arg)
+
+        logger.info(_("Starting mirror engine: {args}").format(args=sanitized_args))
         self.process = await asyncio.create_subprocess_exec(*args, **kwargs)
 
         async def log_engine(stream, prefix):
+            ansi_regex = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+            key_regex = re.compile(r"(key=[\"'])[a-fA-F0-9]{20,}([\"'])", re.IGNORECASE)
             while True:
                 line = await stream.readline()
                 if not line:
                     break
-                logger.info(f"MIRROR_ENGINE [{prefix}]: {line.decode().strip()}")
+                text = line.decode(errors="ignore").strip()
+                clean_text = ansi_regex.sub("", text)
+                clean_text = key_regex.sub(r"\1***REDACTED***\2", clean_text)
+                if clean_text:
+                    logger.info(f"MIRROR_ENGINE [{prefix}]: {clean_text}")
 
         asyncio.create_task(log_engine(self.process.stdout, "OUT"))
         asyncio.create_task(log_engine(self.process.stderr, "ERR"))
@@ -584,8 +584,6 @@ class DesktopStreamingService:
             return True
         else:
             logger.error("Mirror engine IPC connection failed")
-            # Execute system capability discovery to diagnose library linkage
-            # or runtime pipeline initialization failures on startup crash.
             try:
                 diags = await self.collect_engine_diagnostics()
                 logger.error("Engine diagnostics: %s", json.dumps(diags))
@@ -602,8 +600,6 @@ class DesktopStreamingService:
         if self.process:
             try:
                 if OS_TYPE == "windows":
-                    # Use timeout on taskkill to prevent indefinite blocking if the process
-                    # is in a zombie state. This prevents thread pool exhaustion.
                     try:
                         await asyncio.wait_for(
                             asyncio.to_thread(
@@ -612,13 +608,13 @@ class DesktopStreamingService:
                                 creationflags=subprocess.CREATE_NO_WINDOW,
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL,
-                                timeout=5,  # Add timeout to subprocess.run itself
+                                timeout=5,
                             ),
-                            timeout=10.0,  # Outer timeout as safety net
+                            timeout=10.0,
                         )
                     except (subprocess.TimeoutExpired, asyncio.TimeoutError):
                         logger.warning(
-                            "taskkill timed out, attempting direct terminate"
+                            _("taskkill timed out, attempting direct terminate")
                         )
                         try:
                             self.process.terminate()
@@ -628,12 +624,13 @@ class DesktopStreamingService:
                     self.process.terminate()
                 await asyncio.wait_for(self.process.wait(), timeout=2.0)
             except asyncio.TimeoutError:
-                logger.warning("Engine process did not exit within timeout")
+                logger.warning(_("Engine process did not exit within timeout"))
             except Exception as e:
-                logger.warning(f"Error killing engine: {e}")
+                logger.warning(_("Error killing engine: {}").format(e))
             self.process = None
+            logger.info(_("Mirror engine process terminated."))
+
         self.srtp_key = None
-        # Clear IPC state to unblock any pending reads
         if self.reader:
             self.reader.close()
         if self.writer:
@@ -647,7 +644,6 @@ class DesktopStreamingService:
             except asyncio.CancelledError:
                 pass
             self.listen_task = None
-        logger.info("Mirror engine killed")
 
     def reset_portal_token(self) -> bool:
         """Remove the persistent capture token to force native system authorization dialogs during the next startup sequence."""
@@ -668,32 +664,20 @@ class DesktopStreamingService:
         await self.writer.drain()
 
     async def _listen_ipc(self):
-        """Listen for IPC messages from the engine with timeout protection.
-
-        On Windows, the underlying pipe.readline() is a blocking synchronous call
-        delegated to a thread pool. If the engine process is killed without properly
-        closing the pipe, the readline can block indefinitely, exhausting thread pool
-        workers and freezing the server. We use asyncio.wait_for() with a timeout to
-        prevent this.
-        """
+        """Listen for IPC messages from the engine with timeout protection."""
         while True:
             if not self.reader:
                 await asyncio.sleep(0.5)
                 continue
             try:
-                # Use a timeout to prevent indefinite blocking on Windows named pipes.
-                # If the engine is killed, the pipe may not close cleanly, leaving
-                # the blocking readline() in the thread pool stuck forever.
                 line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
             except asyncio.TimeoutError:
                 logger.debug("IPC readline timeout - engine may be unresponsive")
-                # Check if the engine process is still alive
                 if self.process and self.process.returncode is not None:
                     logger.info("Engine process has exited, closing IPC")
                     self.reader = None
                     self.writer = None
                     break
-                # If still alive, continue waiting (timeout will recur)
                 continue
             except Exception as e:
                 logger.warning(f"IPC read error: {e}")
@@ -712,13 +696,10 @@ class DesktopStreamingService:
                 continue
             try:
                 msg = json.loads(line)
-                # relay portal approval status to frontend subscribers
                 if msg.get("type") == "WAITING_FOR_PORTAL_APPROVAL":
                     logger.info("Engine is waiting for Wayland portal approval")
 
                 for sub in list(self._subscribers):
-                    # Call subscribers as background tasks to prevent a slow client
-                    # (e.g. app in background) from blocking the IPC listener loop.
                     asyncio.create_task(self._safe_notify(sub, msg))
             except Exception as e:
                 logger.error(f"Mirror IPC decode fail: {e}")

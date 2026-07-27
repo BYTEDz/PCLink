@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import gettext
 import hashlib
 import hmac
 import json
@@ -13,6 +14,7 @@ from typing import Optional
 from . import constants
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 # Authentication configuration
 AUTH_CONFIG_FILE = constants.APP_DATA_PATH / "web_auth.json"
@@ -157,7 +159,12 @@ class WebAuthManager:
         }
 
         self.active_sessions[session_token] = session_data
-        log.info(f"New web UI session created for {ip_address}")
+        client_label = ip_address if ip_address else "localhost"
+        log.info(
+            _("New web UI session created for {client_ip}").format(
+                client_ip=client_label
+            )
+        )
         return session_token
 
     def validate_session(self, session_token: str, ip_address: str = None) -> bool:
