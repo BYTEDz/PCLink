@@ -387,7 +387,7 @@ class DesktopStreamingService:
         """Start or reuse engine. Dynamically forwards config params to IPC or CLI."""
         self.srtp_key = srtp_key
         if not ENGINE_PATH.exists():
-            logger.error(f"Mirror engine not found at {ENGINE_PATH}")
+            logger.error(_("Mirror engine not found at {}").format(ENGINE_PATH))
             return False
 
         # Defaults for CLI flags / IPC payload
@@ -424,7 +424,15 @@ class DesktopStreamingService:
 
         if self._engine_alive() and await self._ensure_ipc():
             logger.info(
-                f"Engine alive, restarting pipeline via IPC: host={client_host} encoder={config.get('encoder')} res={config.get('width')}x{config.get('height')}@{config.get('fps')}"
+                _(
+                    "Engine alive, restarting pipeline via IPC: host={} encoder={} res={}x{}@{}"
+                ).format(
+                    client_host,
+                    config.get("encoder"),
+                    config.get("width"),
+                    config.get("height"),
+                    config.get("fps"),
+                )
             )
             cfg = {
                 "type": "RESTART_PIPELINE",
@@ -470,8 +478,21 @@ class DesktopStreamingService:
             "show_cursor": "--show-cursor",
         }
 
+        # Keys handled specifically outside this generic loop
+        ignored_keys = {
+            "srtp",
+            "srtp_key",
+            "fps",
+            "output_mode",
+            "outputmode",
+            "udp_host",
+            "udphost",
+            "token",
+            "client_host",
+        }
+
         for k, v in config.items():
-            if v is None:
+            if v is None or k in ignored_keys:
                 continue
             flag = cli_key_map.get(k, f"--{k.replace('_', '-')}")
             if isinstance(v, bool):
@@ -493,7 +514,9 @@ class DesktopStreamingService:
                 token = Path(TOKEN_FILE).read_text().strip()
                 if token:
                     args += ["--token", token]
-                    logger.info(f"Using cached portal token from {TOKEN_FILE}")
+                    logger.info(
+                        _("Using cached portal token from {}").format(TOKEN_FILE)
+                    )
             except Exception:
                 pass
 
@@ -626,29 +649,21 @@ class DesktopStreamingService:
         await self.writer.drain()
 
     async def _listen_ipc(self):
-        """Listen for IPC messages from the engine with timeout protection."""
+        """Listen for IPC messages from the engine."""
         while True:
             if not self.reader:
                 await asyncio.sleep(0.5)
                 continue
             try:
-                line = await asyncio.wait_for(self.reader.readline(), timeout=5.0)
-            except asyncio.TimeoutError:
-                logger.debug("IPC readline timeout - engine may be unresponsive")
-                if self.process and self.process.returncode is not None:
-                    logger.info("Engine process has exited, closing IPC")
-                    self.reader = None
-                    self.writer = None
-                    break
-                continue
+                line = await self.reader.readline()
             except Exception as e:
-                logger.warning(f"IPC read error: {e}")
+                logger.warning(_("IPC read error: {}").format(e))
                 self.reader = None
                 self.writer = None
                 break
 
             if not line:
-                logger.warning("Mirror engine IPC closed")
+                logger.warning(_("Mirror engine IPC closed"))
                 self.reader = None
                 self.writer = None
                 break
@@ -659,12 +674,12 @@ class DesktopStreamingService:
             try:
                 msg = json.loads(line)
                 if msg.get("type") == "WAITING_FOR_PORTAL_APPROVAL":
-                    logger.info("Engine is waiting for Wayland portal approval")
+                    logger.info(_("Engine is waiting for Wayland portal approval"))
 
                 for sub in list(self._subscribers):
                     asyncio.create_task(self._safe_notify(sub, msg))
             except Exception as e:
-                logger.error(f"Mirror IPC decode fail: {e}")
+                logger.error(_("Mirror IPC decode fail: {}").format(e))
 
     def subscribe(self, callback):
         self._subscribers.add(callback)
