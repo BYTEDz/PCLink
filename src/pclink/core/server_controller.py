@@ -61,7 +61,7 @@ def create_control_api(controller, shutdown_callback):
 
 
 class ServerController:
-    """Manages the lifecycle of all PCLink server components."""
+    """Manages the lifecycle, background watchdog, and self-healing of all PCLink server components."""
 
     def __init__(self, shutdown_callback=None):
         self.main_api_server = None
@@ -73,6 +73,9 @@ class ServerController:
         self._shutdown_callback = shutdown_callback
         self.status = "stopped"
         self.start_time = time.time()
+
+        self._watchdog_thread = None
+        self._watchdog_running = False
 
         self.startup_manager = StartupManager()
         self._sync_startup_config()
@@ -166,8 +169,53 @@ class ServerController:
                 "WebUI setup not complete. Mobile API and discovery are disabled."
             )
 
+        self._start_watchdog()
         self.status = "running"
         log.info("ServerController started successfully.")
+
+    def _start_watchdog(self):
+        """Starts the background self-healing watchdog thread."""
+        if not self._watchdog_running:
+            self._watchdog_running = True
+            self._watchdog_thread = threading.Thread(
+                target=self._watchdog_loop, daemon=True, name="pclink-watchdog"
+            )
+            self._watchdog_thread.start()
+            log.info("Self-healing watchdog thread active.")
+
+    def _watchdog_loop(self):
+        """Monitors network reachability, discovery beacon status, and performs self-healing."""
+        while self._watchdog_running:
+            try:
+                time.sleep(15)
+
+                # 1. Health Check: Discovery Beacon Thread
+                if self.mobile_api_enabled and self.discovery_service:
+                    if not (
+                        self.discovery_service._thread
+                        and self.discovery_service._thread.is_alive()
+                    ):
+                        log.warning(
+                            "Watchdog: Discovery beacon thread died. Restarting discovery service..."
+                        )
+                        hostname = socket.gethostname()
+                        self.discovery_service = DiscoveryService(
+                            self.get_port(), hostname
+                        )
+                        self.discovery_service.start()
+
+                # 2. Automated Non-Destructive Self-Healing Check
+                from ..services.repair_service import repair_service
+
+                analysis = repair_service.detect_instability_causes()
+                if analysis.get("overall_status") in ("warning", "critical"):
+                    log.info(
+                        f"Watchdog: Detected server pressure ({analysis.get('overall_status')}). Triggering auto-heal..."
+                    )
+                    repair_service.auto_heal()
+
+            except Exception as e:
+                log.debug(f"Watchdog loop iteration exception: {e}")
 
     def activate_secure_mode(self):
         log.info("Activating secure mode...")
@@ -208,6 +256,7 @@ class ServerController:
 
     def stop_services(self):
         self.status = "stopping"
+        self._watchdog_running = False
         if self.discovery_service:
             self.discovery_service.stop()
         if self.main_api_server:

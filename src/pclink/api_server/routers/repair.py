@@ -21,6 +21,18 @@ async def diagnose():
     return repair_service.run_diagnostics()
 
 
+@router.get("/causes")
+async def detect_causes():
+    """Run root-cause analysis to detect server pressure or reachability issues."""
+    return repair_service.detect_instability_causes()
+
+
+@router.post("/auto-heal")
+async def auto_heal():
+    """Execute automated self-healing procedures."""
+    return repair_service.auto_heal()
+
+
 @router.post("/force")
 async def force_repair():
     """Force a factory reset of config and database."""

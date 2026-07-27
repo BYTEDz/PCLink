@@ -2,24 +2,33 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import gettext
+import gc
 import json
 import logging
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
+import time
+from typing import Any, Dict
+
+import psutil
 
 from ..core import constants
 from ..core.config import config_manager
 from ..core.device_manager import device_manager
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 
 class RepairService:
+    """Diagnostic, root-cause detection, and automated self-healing service."""
+
     @staticmethod
     def check_port_availability(port: int) -> dict:
-        import socket
         import requests
         import urllib3
 
@@ -29,9 +38,8 @@ class RepairService:
         try:
             s.bind(("0.0.0.0", port))
             s.close()
-            return {"status": "ok", "message": f"Port {port} is available."}
+            return {"status": "ok", "message": _("Port {} is available.").format(port)}
         except OSError as e:
-            # Check if it's our own PCLink instance holding it
             try:
                 res = requests.get(
                     f"https://127.0.0.1:{port}/auth", verify=False, timeout=1
@@ -39,7 +47,9 @@ class RepairService:
                 if "PCLink" in res.text or res.status_code == 200:
                     return {
                         "status": "ok",
-                        "message": f"Port {port} is correctly bound by PCLink.",
+                        "message": _("Port {} is correctly bound by PCLink.").format(
+                            port
+                        ),
                     }
             except Exception:
                 try:
@@ -47,21 +57,23 @@ class RepairService:
                     if "PCLink" in res2.text or res2.status_code == 200:
                         return {
                             "status": "ok",
-                            "message": f"Port {port} is correctly bound by PCLink.",
+                            "message": _(
+                                "Port {} is correctly bound by PCLink."
+                            ).format(port),
                         }
                 except Exception:
                     pass
 
             return {
                 "status": "warning",
-                "message": f"Port {port} is in use by another application.",
+                "message": _("Port {} is in use by another application.").format(port),
                 "error": str(e),
             }
 
     @staticmethod
     def check_db_integrity() -> dict:
         if not device_manager.db_path.exists():
-            return {"status": "error", "message": "Database file is missing."}
+            return {"status": "error", "message": _("Database file is missing.")}
         try:
             conn = sqlite3.connect(f"file:{device_manager.db_path}?mode=ro", uri=True)
             cursor = conn.cursor()
@@ -69,26 +81,32 @@ class RepairService:
             result = cursor.fetchone()
             conn.close()
             if result and result[0] == "ok":
-                return {"status": "ok", "message": "Database is healthy."}
+                return {"status": "ok", "message": _("Database is healthy.")}
             else:
-                return {"status": "error", "message": "Database corruption detected."}
+                return {
+                    "status": "error",
+                    "message": _("Database corruption detected."),
+                }
         except sqlite3.DatabaseError as e:
-            return {"status": "error", "message": f"Database error: {e}"}
+            return {"status": "error", "message": _("Database error: {}").format(e)}
         except Exception as e:
-            return {"status": "error", "message": f"Unexpected error: {e}"}
+            return {"status": "error", "message": _("Unexpected error: {}").format(e)}
 
     @staticmethod
     def check_config() -> dict:
         if not constants.CONFIG_FILE.exists():
-            return {"status": "error", "message": "Config file is missing."}
+            return {"status": "error", "message": _("Config file is missing.")}
         try:
             with open(constants.CONFIG_FILE, "r", encoding="utf-8") as f:
                 json.load(f)
-            return {"status": "ok", "message": "Config file is valid."}
+            return {"status": "ok", "message": _("Config file is valid.")}
         except json.JSONDecodeError as e:
-            return {"status": "error", "message": f"Config JSON is invalid: {e}"}
+            return {
+                "status": "error",
+                "message": _("Config JSON is invalid: {}").format(e),
+            }
         except Exception as e:
-            return {"status": "error", "message": f"Config error: {e}"}
+            return {"status": "error", "message": _("Config error: {}").format(e)}
 
     @staticmethod
     def check_firewall() -> dict:
@@ -114,13 +132,13 @@ class RepairService:
                 if "No rules match" in result.stdout:
                     return {
                         "status": "error",
-                        "message": "Windows Firewall rule is missing.",
+                        "message": _("Windows Firewall rule is missing."),
                     }
-                return {"status": "ok", "message": "Windows Firewall rule exists."}
+                return {"status": "ok", "message": _("Windows Firewall rule exists.")}
             except Exception as e:
                 return {
                     "status": "error",
-                    "message": f"Failed to check Windows firewall: {e}",
+                    "message": _("Failed to check Windows firewall: {}").format(e),
                 }
         elif sys.platform.startswith("linux"):
             try:
@@ -130,18 +148,162 @@ class RepairService:
                 if result.returncode == 0:
                     return {
                         "status": "warning",
-                        "message": "UFW is active, ensure port 38080 is allowed.",
+                        "message": _("UFW is active, ensure port 38080 is allowed."),
                     }
                 return {
                     "status": "ok",
-                    "message": "Linux firewall check requires manual verification or UFW is inactive.",
+                    "message": _(
+                        "Linux firewall check requires manual verification or UFW is inactive."
+                    ),
                 }
             except Exception:
                 return {
                     "status": "ok",
-                    "message": "Linux firewall check requires manual verification.",
+                    "message": _("Linux firewall check requires manual verification."),
                 }
-        return {"status": "ok", "message": "Firewall check not supported on this OS."}
+        return {
+            "status": "ok",
+            "message": _("Firewall check not supported on this OS."),
+        }
+
+    @staticmethod
+    def detect_instability_causes() -> Dict[str, Any]:
+        """Deep root-cause analyzer detecting why the server may be unstable or unreachable."""
+        causes = []
+        severity = "healthy"
+
+        # 1. Memory Pressure
+        try:
+            mem = psutil.virtual_memory()
+            proc = psutil.Process()
+            proc_mem_mb = proc.memory_info().rss / 1024 / 1024
+            if mem.percent > 92 or proc_mem_mb > 1024:
+                severity = "critical" if mem.percent > 96 else "warning"
+                causes.append(
+                    {
+                        "id": "high_memory_pressure",
+                        "title": _("High Memory Pressure"),
+                        "severity": severity,
+                        "description": _(
+                            "System memory usage is at {}% with PCLink consuming {} MB."
+                        ).format(mem.percent, round(proc_mem_mb, 1)),
+                        "recommendation": _(
+                            "Trigger memory garbage collection or clear temporary cache."
+                        ),
+                    }
+                )
+        except Exception as e:
+            log.debug(f"Memory check exception: {e}")
+
+        # 2. File Descriptor Leaks
+        try:
+            proc = psutil.Process()
+            num_fds = len(proc.open_files())
+            if num_fds > 500:
+                causes.append(
+                    {
+                        "id": "descriptor_leak",
+                        "title": _("High File Descriptor Usage"),
+                        "severity": "warning",
+                        "description": _(
+                            "PCLink currently has {} open file handles."
+                        ).format(num_fds),
+                        "recommendation": _(
+                            "Clean up stale transfer sessions and idle connections."
+                        ),
+                    }
+                )
+        except Exception:
+            pass
+
+        # 3. Database WAL File Growth
+        try:
+            wal_file = device_manager.db_path.with_suffix(".db-wal")
+            if wal_file.exists():
+                wal_size_mb = wal_file.stat().st_size / 1024 / 1024
+                if wal_size_mb > 20:
+                    causes.append(
+                        {
+                            "id": "db_wal_bloat",
+                            "title": _("Database WAL File Bloat"),
+                            "severity": "warning",
+                            "description": _(
+                                "SQLite WAL journal size is {} MB."
+                            ).format(round(wal_size_mb, 1)),
+                            "recommendation": _(
+                                "Execute WAL checkpoint to flush database write log."
+                            ),
+                        }
+                    )
+        except Exception:
+            pass
+
+        # 4. Network Interface Reachability
+        try:
+            from ..core.utils import get_available_ips
+
+            ips = get_available_ips()
+            if not ips or ips == ["127.0.0.1"]:
+                causes.append(
+                    {
+                        "id": "network_isolated",
+                        "title": _("No Active Network Interface"),
+                        "severity": "critical",
+                        "description": _(
+                            "No non-loopback IPv4 addresses detected. Remote devices cannot connect."
+                        ),
+                        "recommendation": _(
+                            "Check Wi-Fi or Ethernet network connection."
+                        ),
+                    }
+                )
+        except Exception:
+            pass
+
+        return {
+            "timestamp": time.time(),
+            "overall_status": severity,
+            "detected_causes": causes,
+            "total_issues": len(causes),
+        }
+
+    @staticmethod
+    def auto_heal() -> Dict[str, Any]:
+        """Attempts non-destructive automated repairs to resolve instability."""
+        repaired_actions = []
+
+        # 1. Force Python Garbage Collection
+        collected = gc.collect()
+        repaired_actions.append(
+            _("Garbage collection executed ({} objects freed).").format(collected)
+        )
+
+        # 2. SQLite WAL Checkpoint to shrink WAL journal bloat
+        try:
+            with sqlite3.connect(device_manager.db_path) as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            repaired_actions.append(_("SQLite WAL log checkpointed successfully."))
+        except Exception as e:
+            log.debug(f"WAL checkpoint failed: {e}")
+
+        # 3. Cleanup Stale Transfer Files
+        try:
+            from .transfer_service import transfer_service
+            import asyncio
+
+            cleaned = asyncio.run(transfer_service.cleanup_stale_sessions(days=1))
+            if cleaned > 0:
+                repaired_actions.append(
+                    _("Purged {} stale transfer files.").format(cleaned)
+                )
+        except Exception as e:
+            log.debug(f"Stale transfer cleanup during auto-heal failed: {e}")
+
+        return {
+            "status": "ok",
+            "message": _("Self-healing sequence executed successfully."),
+            "actions_taken": repaired_actions,
+        }
 
     @staticmethod
     def run_diagnostics() -> dict:
@@ -156,7 +318,7 @@ class RepairService:
     @staticmethod
     def fix_db() -> dict:
         if not device_manager.db_path.exists():
-            return {"status": "error", "message": "No DB to fix."}
+            return {"status": "error", "message": _("No DB to fix.")}
         try:
             backup_path = device_manager.db_path.with_suffix(".db.bak")
             shutil.copy2(device_manager.db_path, backup_path)
@@ -164,10 +326,12 @@ class RepairService:
             device_manager._init_database()
             return {
                 "status": "ok",
-                "message": f"Database recreated. Backup saved to {backup_path}",
+                "message": _("Database recreated. Backup saved to {}").format(
+                    backup_path
+                ),
             }
         except Exception as e:
-            return {"status": "error", "message": f"Failed to fix DB: {e}"}
+            return {"status": "error", "message": _("Failed to fix DB: {}").format(e)}
 
     @staticmethod
     def fix_config() -> dict:
@@ -177,16 +341,18 @@ class RepairService:
                 shutil.copy2(constants.CONFIG_FILE, backup_path)
                 constants.CONFIG_FILE.unlink()
             config_manager.reset_to_defaults()
-            return {"status": "ok", "message": "Config reset to defaults."}
+            return {"status": "ok", "message": _("Config reset to defaults.")}
         except Exception as e:
-            return {"status": "error", "message": f"Failed to fix config: {e}"}
+            return {
+                "status": "error",
+                "message": _("Failed to fix config: {}").format(e),
+            }
 
     @staticmethod
     def force_repair() -> dict:
         try:
             RepairService.fix_db()
             RepairService.fix_config()
-            # Also clear transfers cache
             if constants.UPLOADS_PATH.exists():
                 shutil.rmtree(constants.UPLOADS_PATH, ignore_errors=True)
                 constants.UPLOADS_PATH.mkdir(parents=True, exist_ok=True)
@@ -196,10 +362,13 @@ class RepairService:
 
             return {
                 "status": "ok",
-                "message": "Factory reset complete. System is fresh.",
+                "message": _("Factory reset complete. System is fresh."),
             }
         except Exception as e:
-            return {"status": "error", "message": f"Force repair failed: {e}"}
+            return {
+                "status": "error",
+                "message": _("Force repair failed: {}").format(e),
+            }
 
     @staticmethod
     def fix_firewall(password: str = None) -> dict:
@@ -226,15 +395,14 @@ class RepairService:
                     if hasattr(subprocess, "CREATE_NO_WINDOW")
                     else 0,
                 )
-                return {"status": "ok", "message": "Windows Firewall rule added."}
+                return {"status": "ok", "message": _("Windows Firewall rule added.")}
             except Exception as e:
                 return {
                     "status": "error",
-                    "message": f"Failed to add firewall rule: {e}",
+                    "message": _("Failed to add firewall rule: {}").format(e),
                 }
         elif sys.platform.startswith("linux"):
             port = config_manager.get("server_port", 38080)
-            # Try passwordless sudo first (if setup in sudoers)
             try:
                 res = subprocess.run(
                     ["sudo", "-n", "ufw", "allow", f"{port}/tcp"],
@@ -244,7 +412,7 @@ class RepairService:
                 if res.returncode == 0:
                     return {
                         "status": "ok",
-                        "message": f"UFW rule added for port {port}.",
+                        "message": _("UFW rule added for port {}.").format(port),
                     }
             except Exception:
                 pass
@@ -258,16 +426,15 @@ class RepairService:
                     if result.returncode == 0:
                         return {
                             "status": "ok",
-                            "message": f"UFW rule added for port {port}.",
+                            "message": _("UFW rule added for port {}.").format(port),
                         }
                     return {
                         "status": "error",
-                        "message": f"UFW command failed: {result.stderr}",
+                        "message": _("UFW command failed: {}").format(result.stderr),
                     }
                 except Exception as e:
                     return {"status": "error", "message": str(e)}
 
-            # Try pkexec
             try:
                 result = subprocess.run(
                     ["pkexec", "ufw", "allow", f"{port}/tcp"],
@@ -277,27 +444,27 @@ class RepairService:
                 if result.returncode == 0:
                     return {
                         "status": "ok",
-                        "message": f"UFW rule added for port {port} via GUI prompt.",
+                        "message": _(
+                            "UFW rule added for port {} via GUI prompt."
+                        ).format(port),
                     }
             except FileNotFoundError:
                 pass
 
             return {
                 "status": "warning",
-                "message": f"Run manually: sudo ufw allow {port}/tcp",
+                "message": _("Run manually: sudo ufw allow {}/tcp").format(port),
             }
 
         return {
             "status": "error",
-            "message": "Unsupported OS for automated firewall fix.",
+            "message": _("Unsupported OS for automated firewall fix."),
         }
 
     @staticmethod
     def fix_port(action: str, new_port: int = None) -> dict:
         if action == "change_port":
             if not new_port:
-                import socket
-
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.bind(("", 0))
                 new_port = s.getsockname()[1]
@@ -305,7 +472,7 @@ class RepairService:
             config_manager.set("server_port", new_port)
             return {
                 "status": "ok",
-                "message": f"Port changed to {new_port}. Restart PCLink.",
+                "message": _("Port changed to {}. Restart PCLink.").format(new_port),
             }
         elif action == "kill_process":
             port = config_manager.get("server_port", 38080)
@@ -323,7 +490,9 @@ class RepairService:
                         subprocess.run(f"taskkill /PID {pid} /F", shell=True)
                         return {
                             "status": "ok",
-                            "message": f"Killed process {pid} on port {port}.",
+                            "message": _("Killed process {} on port {}.").format(
+                                pid, port
+                            ),
                         }
                 elif sys.platform.startswith("linux") or sys.platform == "darwin":
                     res = subprocess.run(
@@ -334,15 +503,20 @@ class RepairService:
                         subprocess.run(["kill", "-9", pid])
                         return {
                             "status": "ok",
-                            "message": f"Killed process {pid} on port {port}.",
+                            "message": _("Killed process {} on port {}.").format(
+                                pid, port
+                            ),
                         }
                 return {
                     "status": "error",
-                    "message": "Could not find process blocking the port.",
+                    "message": _("Could not find process blocking the port."),
                 }
             except Exception as e:
-                return {"status": "error", "message": f"Failed to kill process: {e}"}
-        return {"status": "error", "message": "Invalid action."}
+                return {
+                    "status": "error",
+                    "message": _("Failed to kill process: {}").format(e),
+                }
+        return {"status": "error", "message": _("Invalid action.")}
 
 
 repair_service = RepairService()

@@ -3,6 +3,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import gettext
 import logging
 import platform
 import time
@@ -12,11 +13,13 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconn
 
 from ...core.config import config_manager
 from ...core.device_manager import device_manager
+from ...core.logging import log_telemetry_event
 from ...services import input_service
 from ..ws_manager import mobile_manager, ui_manager
 from .dependencies import verify_web_session
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 router = APIRouter(tags=["WebSocket"])
 
 AUTH_CHECK_INTERVAL = 30.0  # seconds
@@ -70,21 +73,40 @@ async def handle_keyboard_command(data: Dict[str, Any], permissions: List[str]):
 
 @router.websocket("/ws")
 async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
-    """Main communication channel for mobile devices."""
+    """Main communication channel for mobile devices with diagnostic telemetry."""
     await websocket.accept()
 
+    client_host = websocket.client.host if websocket.client else "unknown"
+
     if not token:
+        log_telemetry_event(
+            "websocket",
+            "connection_rejected",
+            {"ip": client_host, "reason": "Missing token"},
+            level=logging.WARNING,
+        )
         return await websocket.close(code=1008, reason="MISSING_TOKEN")
 
     device = device_manager.get_device_by_api_key(token)
     if not (device and device.is_approved):
+        log_telemetry_event(
+            "websocket",
+            "connection_rejected",
+            {"ip": client_host, "reason": "Invalid or revoked token"},
+            level=logging.WARNING,
+        )
         return await websocket.close(code=1008, reason="INVALID_OR_REVOKED_TOKEN")
 
     device_id = device.device_id
-    device_manager.update_device_ip(device_id, websocket.client.host)
+    device_manager.update_device_ip(device_id, client_host)
     device_manager.update_device_last_seen(device_id)
 
     await mobile_manager.connect(websocket, device_id)
+    log_telemetry_event(
+        "websocket",
+        "device_connected",
+        {"device_id": device_id, "device_name": device.device_name, "ip": client_host},
+    )
 
     from ...services.discovery_service import DiscoveryService
     from ...services.media_service import media_service
@@ -130,7 +152,12 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
             if now - last_auth_check > AUTH_CHECK_INTERVAL:
                 current_device = device_manager.get_device_by_id(device_id)
                 if not (current_device and current_device.is_approved):
-                    log.warning(f"Closing WS for revoked device: {device_id}")
+                    log_telemetry_event(
+                        "websocket",
+                        "device_revoked_disconnect",
+                        {"device_id": device_id},
+                        level=logging.WARNING,
+                    )
                     await websocket.close(code=4003, reason="DEVICE_REVOKED")
                     break
 
@@ -172,8 +199,12 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
             except Exception as e:
                 log.error(f"Error processing {msg_type}: {e}", exc_info=True)
 
-    except (WebSocketDisconnect, OSError):
-        log.debug(f"Device {device_id} disconnected normally.")
+    except (WebSocketDisconnect, OSError) as e:
+        log_telemetry_event(
+            "websocket",
+            "device_disconnected",
+            {"device_id": device_id, "reason": str(e)},
+        )
     finally:
         mobile_manager.disconnect(websocket)
 

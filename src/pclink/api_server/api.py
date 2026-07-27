@@ -3,7 +3,9 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import gettext
 import logging
+import time
 from typing import Any, Dict
 
 from contextlib import asynccontextmanager
@@ -24,7 +26,6 @@ from .routers.services_management import router as services_router
 from .routers.system import info_router, system_router
 from .routers.terminal import create_terminal_router
 
-# UPDATED: Import from the transfers package
 from .routers.transfers import (
     download_router,
     upload_router,
@@ -32,6 +33,7 @@ from .routers.transfers import (
 from .routers.utils import router as utils_router
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 # --- Pairing State ---
 pairing_events: Dict[str, asyncio.Event] = {}
@@ -79,6 +81,16 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         # Reset extension crash counter
         app.state.extension_manager.mark_startup_success()
 
+        # Non-blocking extension loader: loads extensions in parallel in background so Web UI opens immediately
+        async def background_extension_loader():
+            log.info(_("Initiating background loading for server extensions..."))
+            start_t = time.time()
+            await asyncio.to_thread(app.state.extension_manager.load_all_extensions)
+            dur = round(time.time() - start_t, 2)
+            log.info(_("Extensions loaded in background in {} seconds.").format(dur))
+
+        asyncio.create_task(background_extension_loader())
+
         yield
 
     app = FastAPI(
@@ -104,7 +116,7 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     app.state.host_port = getattr(controller_instance, "port", 38080)
     from .routers.dependencies import MOBILE_API, WEB_AUTH
 
-    # Extension System (Initialize Early for Startup Tasks)
+    # Extension System (Initialize Early for State Setup)
     from ..core.extension_manager import ExtensionManager
 
     extension_manager = ExtensionManager()
@@ -118,7 +130,6 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     # Router Registration
-    # - Services & Settings
     app.include_router(
         services_router,
         prefix="/ui/services",
@@ -126,7 +137,6 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         dependencies=[WEB_AUTH],
     )
 
-    # - UI/Static Root Redirect
     @app.get("/")
     def root():
         from fastapi.responses import RedirectResponse
@@ -144,18 +154,15 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     from .routers.server import core_router as server_core, mgmt_router as server_mgmt
     from .routers.websocket_routes import router as ws_router
 
-    # Root Level (Match UI Expectations)
-    app.include_router(auth_router)  # /auth/...
-    app.include_router(server_core)  # /heartbeat, /announce...
-    app.include_router(server_mgmt)  # /status, /logs, /ui/pairing/list...
+    app.include_router(auth_router)
+    app.include_router(server_core)
+    app.include_router(server_mgmt)
 
-    # UI Prefixed
-    app.include_router(devices_router)  # /ui/devices/...
-    app.include_router(pairing_mgmt)  # /ui/pairing/...
-    app.include_router(pairing_mobile)  # /pairing/...
+    app.include_router(devices_router)
+    app.include_router(pairing_mgmt)
+    app.include_router(pairing_mobile)
     app.include_router(repair_router, prefix="/ui/repair", dependencies=[WEB_AUTH])
 
-    # Aliases for UI Compatibility (Force /ui/devices without slash)
     @app.get("/ui/devices", dependencies=[WEB_AUTH])
     async def ui_devices_alias(request: Request):
         return await get_connected_devices(request)
@@ -172,16 +179,14 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
 
         return await update_default_permissions(payload)
 
-    app.include_router(ws_router)  # /ws, /ws/ui
+    app.include_router(ws_router)
 
-    # Services Support
     @app.get("/ui/services/list", dependencies=[WEB_AUTH])
     async def list_services_states():
         from ..core.config import config_manager
 
         return {"services": config_manager.get("services", {})}
 
-    # Core Domain Routers
     app.include_router(
         upload_router, prefix="/files/upload", tags=["Uploads"], dependencies=MOBILE_API
     )
@@ -226,12 +231,10 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         dependencies=MOBILE_API,
     )
 
-    # Mirroring (Core)
     from .routers.desktop_streaming import router as desktop_streaming_router
 
     app.include_router(desktop_streaming_router)
 
-    # Web UI & Extensions
     try:
         from ..web_ui.router import create_web_ui_router
 
@@ -239,9 +242,6 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         app.include_router(web_ui_router, prefix="/ui")
     except Exception as e:
         log.warning(f"Web UI failed to load: {e}")
-
-    # Extension Loading
-    extension_manager.load_all_extensions()
 
     app.include_router(mgmt_router, prefix="/api/extensions", dependencies=MOBILE_API)
     app.include_router(runtime_router, prefix="/extensions", dependencies=MOBILE_API)

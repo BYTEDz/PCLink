@@ -1,12 +1,19 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import gettext
 import json
+import logging
 import platform
 import socket
 import threading
 import time
 import uuid
+
+from ..core.logging import log_telemetry_event
+
+log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 # Define constants for discovery protocol.
 DISCOVERY_PORT = 38099
@@ -14,7 +21,7 @@ BEACON_MAGIC = "PCLINK_DISCOVERY_BEACON_V1"
 
 
 class DiscoveryService:
-    """Interface for LAN discovery beacons."""
+    """Interface for LAN discovery beacons with automated socket auto-rebind."""
 
     def __init__(self, api_port: int, hostname: str, server_id: str = None):
         """
@@ -27,7 +34,7 @@ class DiscoveryService:
         """
         self.api_port = api_port
         self.hostname = hostname
-        self.server_id = server_id or self._generate_server_id()
+        self.server_id = server_id or self.generate_server_id()
         self._thread: threading.Thread | None = None
         self._running = False
         self._socket: socket.socket | None = None
@@ -35,12 +42,8 @@ class DiscoveryService:
     @staticmethod
     def generate_server_id() -> str:
         """Generate deterministic UUID from hardware profile."""
-        # Create a UUID based on DNS namespace and system-specific details for consistency.
         system_info = f"{platform.node()}-{platform.system()}-{platform.machine()}"
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, system_info))
-
-    def _generate_server_id(self) -> str:
-        return self.generate_server_id()
 
     def _get_beacon_payload(self) -> bytes:
         """Prepare JSON beacon payload."""
@@ -52,64 +55,61 @@ class DiscoveryService:
             "magic": BEACON_MAGIC,
             "port": self.api_port,
             "hostname": self.hostname,
-            "https": True,  # Indicates if the API server uses HTTPS.
+            "https": True,
             "os": platform.system().lower(),
             "server_id": self.server_id,
             "version": _ver,
         }
-        # Encode payload to binary.
         return json.dumps(payload).encode("utf-8")
 
-    def _broadcast_loop(self):
-        """Continuous UDP broadcast loop."""
-        # Provision UDP socket.
-        self._socket = socket.socket(
-            socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
-        )
+    def _init_socket(self) -> bool:
+        """Initialize or re-bind UDP broadcast socket safely."""
+        if self._socket:
+            try:
+                self._socket.close()
+            except Exception:
+                pass
 
         try:
-            # Enable broadcast option on the socket.
+            self._socket = socket.socket(
+                socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
+            )
             self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            # Enable address reuse to avoid "Address already in use" errors
             self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-            # Linux-specific: Enable SO_REUSEPORT if available
             if hasattr(socket, "SO_REUSEPORT"):
                 try:
                     self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
                 except OSError:
-                    pass  # Not all Linux versions support this
+                    pass
 
-            # Set a short timeout for socket operations to allow graceful shutdown.
             self._socket.settimeout(0.2)
-
-            # Smart binding: try different approaches for Linux compatibility
             self._smart_bind_socket()
-
+            log_telemetry_event(
+                "discovery", "socket_initialized", {"port": DISCOVERY_PORT}
+            )
+            return True
         except Exception as e:
-            print(f"Error setting up UDP socket: {e}")
+            log.error(_("Failed to initialize discovery UDP socket: {}").format(e))
+            log_telemetry_event(
+                "discovery",
+                "socket_init_failed",
+                {"error": str(e)},
+                level=logging.ERROR,
+            )
+            return False
+
+    def _broadcast_loop(self):
+        """Continuous UDP broadcast loop with automatic socket recreation on network drop."""
+        if not self._init_socket():
             return
 
         beacon_payload = self._get_beacon_payload()
         broadcast_addresses = self._get_broadcast_addresses()
 
-        import sys
+        log.info(_("Discovery service starting on port {}").format(DISCOVERY_PORT))
 
-        is_frozen = getattr(sys, "frozen", False)
-        if not is_frozen:  # Only print in development
-            print(f"Starting discovery broadcast on port {DISCOVERY_PORT}")
-            print(f"Broadcasting to: {broadcast_addresses}")
-
-        # Log to file for debugging frozen builds
-        import logging
-
-        log = logging.getLogger(__name__)
-        log.info(f"Discovery service starting on port {DISCOVERY_PORT}")
-        log.info(
-            f"Broadcasting to {len(broadcast_addresses)} addresses: {broadcast_addresses}"
-        )
-
-        # Send an immediate first beacon so clients discover us without waiting 5s
+        # Send an immediate first beacon
         for broadcast_addr in broadcast_addresses:
             try:
                 self._socket.sendto(beacon_payload, (broadcast_addr, DISCOVERY_PORT))
@@ -119,13 +119,11 @@ class DiscoveryService:
         iteration = 0
         while self._running:
             try:
-                # Refresh broadcast addresses every 60 seconds (12 iterations of 5s)
-                # to handle network interface changes/wake-from-sleep.
+                # Refresh broadcast addresses every 60 seconds
                 if iteration % 12 == 0 and iteration > 0:
                     broadcast_addresses = self._get_broadcast_addresses()
                 iteration += 1
 
-                # Send to multiple broadcast addresses for better Linux compatibility
                 for broadcast_addr in broadcast_addresses:
                     try:
                         self._socket.sendto(
@@ -135,31 +133,37 @@ class DiscoveryService:
                         if (
                             getattr(e, "winerror", None) == 10051
                             or getattr(e, "errno", None) == 101
-                        ):  # 10051: Unreachable Network, 101: ENETUNREACH
+                        ):
                             log.debug(f"Skipping unreachable network: {broadcast_addr}")
                         else:
-                            log.warning(f"Failed to broadcast to {broadcast_addr}: {e}")
-                    except Exception as addr_error:
-                        log.warning(
-                            f"Failed to broadcast to {broadcast_addr}: {addr_error}"
-                        )
+                            log.warning(
+                                _("Broadcast write error on {}: {}").format(
+                                    broadcast_addr, e
+                                )
+                            )
+                            # Re-bind socket on severe socket errors
+                            self._init_socket()
+                            break
 
             except Exception as e:
-                log.error(f"Discovery broadcast error: {e}")
+                log.error(_("Discovery broadcast exception: {}").format(e))
+                self._init_socket()
 
-            # Wait for 5 seconds before sending the next beacon.
             time.sleep(5)
 
-        print("Discovery broadcast stopped.")
+        log.info(_("Discovery broadcast stopped."))
         if self._socket:
-            self._socket.close()
+            try:
+                self._socket.close()
+            except Exception:
+                pass
 
     def _smart_bind_socket(self):
         """Bind with fallback (Linux compatibility)."""
         bind_attempts = [
-            ("", 0),  # Any available port
-            ("0.0.0.0", 0),  # Explicit any address
-            ("127.0.0.1", 0),  # Localhost fallback
+            ("", 0),
+            ("0.0.0.0", 0),
+            ("127.0.0.1", 0),
         ]
 
         for host, port in bind_attempts:
@@ -169,26 +173,24 @@ class DiscoveryService:
             except OSError:
                 continue
 
-        # If all binding attempts fail, continue without binding
-        print("Warning: Could not bind UDP socket, continuing anyway")
+        log.warning(
+            _("Could not bind UDP socket explicitly, operating in unbound state.")
+        )
 
     def _get_broadcast_addresses(self):
-        """Resolve multiple broadcast targets."""
+        """Resolve multiple broadcast targets across active network adapters."""
         broadcast_addresses = ["<broadcast>", "255.255.255.255"]
 
         try:
             import psutil
 
-            # Get broadcast addresses for all active network interfaces
             for interface_name, interface_addrs in psutil.net_if_addrs().items():
-                # Skip loopback and virtual interfaces
                 if (
                     interface_name.startswith(("lo", "docker", "br-", "veth", "virbr"))
                     or "virtual" in interface_name.lower()
                 ):
                     continue
 
-                # Check if interface is up
                 try:
                     if_stats = psutil.net_if_stats().get(interface_name)
                     if not if_stats or not if_stats.isup:
@@ -198,15 +200,12 @@ class DiscoveryService:
 
                 for addr in interface_addrs:
                     if addr.family == socket.AF_INET:
-                        # On Windows, psutil often returns None for broadcast.
-                        # We calculate it manually using the address and netmask.
                         if hasattr(addr, "broadcast") and addr.broadcast:
                             target_broadcast = addr.broadcast
                         elif addr.address and addr.netmask:
                             try:
                                 import ipaddress
 
-                                # Combine IP and netmask to get the network, then find broadcast
                                 network = ipaddress.IPv4Network(
                                     f"{addr.address}/{addr.netmask}", strict=False
                                 )
@@ -223,7 +222,6 @@ class DiscoveryService:
                             broadcast_addresses.append(target_broadcast)
 
         except ImportError:
-            # Fallback: try to get broadcast addresses using system commands
             try:
                 import subprocess
 
@@ -245,22 +243,22 @@ class DiscoveryService:
             except (subprocess.SubprocessError, FileNotFoundError):
                 pass
         except Exception as e:
-            print(f"Error getting broadcast addresses: {e}")
+            log.debug(f"Error resolving broadcast addresses: {e}")
 
         return broadcast_addresses
 
     def start(self):
         """Launch background beacon thread."""
         if self._running:
-            return  # Service is already running.
+            return
         self._running = True
-        # Create and start the broadcast thread. Daemon=True ensures it exits when the main program exits.
-        self._thread = threading.Thread(target=self._broadcast_loop, daemon=True)
+        self._thread = threading.Thread(
+            target=self._broadcast_loop, daemon=True, name="pclink-discovery"
+        )
         self._thread.start()
 
     def stop(self):
         """Tear down beacon service."""
         self._running = False
-        # Wait for the broadcast thread to finish, with a timeout.
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)

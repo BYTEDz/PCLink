@@ -4,7 +4,7 @@
 
 """
 PCLink Logging Configuration
-Configures application-wide logging with structured ring-buffer caching,
+Configures application-wide logging with structured telemetry, ring-buffer caching,
 sensitive data redaction, deduplication, and file rotation.
 """
 
@@ -34,10 +34,7 @@ def _safe_print(msg: str) -> None:
 
 
 class SensitiveDataFilter(logging.Filter):
-    """
-    Filter that redacts sensitive keywords (tokens, passwords, keys)
-    from log records before emission.
-    """
+    """Filter that redacts sensitive keywords from log records before emission."""
 
     PATTERNS = [
         (
@@ -70,10 +67,7 @@ class SensitiveDataFilter(logging.Filter):
 
 
 class MemoryLogHandler(logging.Handler):
-    """
-    In-memory thread-safe circular log buffer for high-performance API queries.
-    Avoids reading disk files repeatedly.
-    """
+    """In-memory thread-safe circular log buffer with structured telemetry tags."""
 
     def __init__(self, capacity: int = 1000):
         super().__init__()
@@ -91,6 +85,8 @@ class MemoryLogHandler(logging.Handler):
                 "level_no": record.levelno,
                 "logger": record.name,
                 "message": msg,
+                "category": getattr(record, "category", "system"),
+                "details": getattr(record, "details", None),
             }
             with self.lock:
                 self.buffer.append(entry)
@@ -128,10 +124,23 @@ class MemoryLogHandler(logging.Handler):
 memory_log_handler = MemoryLogHandler(capacity=1000)
 
 
+def log_telemetry_event(
+    category: str,
+    action: str,
+    details: Optional[Dict[str, Any]] = None,
+    level: int = logging.INFO,
+):
+    """Helper to log fine-grained diagnostic and health events with category tagging."""
+    logger = logging.getLogger(f"pclink.telemetry.{category}")
+    msg = f"[{category.upper()}] {action}"
+    if details:
+        msg += f" | {details}"
+    extra = {"category": category, "details": details or {}}
+    logger.log(level, msg, extra=extra)
+
+
 class CleanConsoleHandler(logging.StreamHandler):
-    """
-    Console handler that filters redundant HTTP requests and repeated log entries.
-    """
+    """Console handler that filters redundant HTTP requests and repeated log entries."""
 
     def __init__(self, stream=None):
         super().__init__(stream)

@@ -1,6 +1,6 @@
 /**
  * src/pclink/web_ui/static/js/repair.js
- * Frontend logic for Repair Center
+ * Frontend logic for Repair Center, Self-Healing, and Root Cause Analysis
  */
 
 const repairModule = {
@@ -31,11 +31,16 @@ const repairModule = {
         }
 
         try {
-            const res = await fetch('/ui/repair/diagnose');
-            if (!res.ok) throw new Error("Failed to fetch diagnostics");
-            const data = await res.json();
+            const [diagRes, causeRes] = await Promise.all([
+                fetch('/ui/repair/diagnose'),
+                fetch('/ui/repair/causes')
+            ]);
 
-            this.renderDiagnostics(data);
+            if (!diagRes.ok) throw new Error("Failed to fetch diagnostics");
+            const data = await diagRes.json();
+            const causeData = causeRes.ok ? await causeRes.json() : null;
+
+            this.renderDiagnostics(data, causeData);
         } catch (e) {
             if (container) container.innerHTML = `<div class="alert alert-error">Failed to run diagnostics: ${e.message}</div>`;
         } finally {
@@ -46,10 +51,42 @@ const repairModule = {
         }
     },
 
-    renderDiagnostics: function (data) {
+    renderDiagnostics: function (data, causeData) {
         const container = document.getElementById('repairContent');
         if (!container) return;
         container.innerHTML = '';
+
+        // Render Self-Healing Banner if causes detected
+        if (causeData && causeData.detected_causes && causeData.detected_causes.length > 0) {
+            let causeListHtml = causeData.detected_causes.map(c => `
+                <div class="p-3 bg-base-200/50 rounded-lg border border-warning/20 my-1">
+                    <p class="font-bold text-xs text-warning flex items-center gap-1"><i data-feather="alert-triangle" class="w-3 h-3"></i> ${c.title}</p>
+                    <p class="text-[11px] opacity-70 mt-0.5">${c.description}</p>
+                    <p class="text-[10px] text-primary mt-1 font-semibold">Tip: ${c.recommendation}</p>
+                </div>
+            `).join('');
+
+            container.innerHTML += `
+                <div class="p-4 bg-warning/10 border border-warning/30 rounded-xl mb-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="font-black text-sm text-warning uppercase tracking-wider flex items-center gap-2">
+                            <i data-feather="cpu" class="w-4 h-4"></i> Root-Cause Analyzer Detected Issues (${causeData.detected_causes.length})
+                        </h3>
+                        <button class="btn btn-xs btn-warning text-black font-bold uppercase" onclick="repairModule.executeAutoHeal()">Auto-Heal Now</button>
+                    </div>
+                    ${causeListHtml}
+                </div>
+            `;
+        } else {
+            container.innerHTML += `
+                <div class="p-3 bg-success/10 border border-success/20 rounded-xl mb-4 flex items-center justify-between">
+                    <span class="text-xs font-bold text-success flex items-center gap-2">
+                        <i data-feather="check-circle" class="w-4 h-4"></i> Server Health Watchdog: System Operating Normally
+                    </span>
+                    <button class="btn btn-xs btn-outline btn-success font-bold uppercase text-[9px]" onclick="repairModule.executeAutoHeal()">Run Auto-Heal</button>
+                </div>
+            `;
+        }
 
         const components = [
             { id: 'port', title: 'Port Availability', icon: 'server', data: data.port },
@@ -90,6 +127,20 @@ const repairModule = {
         });
 
         if (window.feather) feather.replace();
+    },
+
+    executeAutoHeal: async function () {
+        if (typeof showToast === 'function') showToast('Running auto-heal sequence...', 'info');
+        try {
+            const res = await fetch('/ui/repair/auto-heal', { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                if (typeof showToast === 'function') showToast(data.message, 'success');
+                this.runDiagnostics();
+            }
+        } catch (e) {
+            if (typeof showToast === 'function') showToast('Auto-heal failed: ' + e.message, 'error');
+        }
     },
 
     promptFix: function (issueId) {
