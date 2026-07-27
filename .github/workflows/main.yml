@@ -12,10 +12,99 @@ permissions:
 jobs:
   # Trigger upstream compilation of FerrumCast Rust binaries required for bundling.
   build-ferrumcast:
-    name: Build FerrumCast Binaries
-    uses: BYTEDz/FerrumCast/.github/workflows/build.yml@main
+    name: Fetch FerrumCast Release Assets
+    runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+    env:
+      FERRUMCAST_REPO: BYTEDz/FerrumCast
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Determine FerrumCast tag
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "No tag provided, using latest release"
+            LATEST_TAG=$(curl -s -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${FERRUMCAST_REPO}/releases/latest | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+            echo "TAG=${LATEST_TAG}" >> $GITHUB_ENV
+          else
+            echo "TAG=${TAG}" >> $GITHUB_ENV
+          fi
+
+      - name: Fetch release metadata
+        run: |
+          REPO=${FERRUMCAST_REPO}
+          TAG="$TAG"
+          echo "Fetching release ${TAG} from ${REPO}"
+          curl -s -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${REPO}/releases/tags/${TAG}" -o release.json
+
+      - name: Download and extract release assets
+        run: |
+          mkdir -p out/windows out/linux-x86_64 out/linux-aarch64
+            python3 - <<'PY'
+            import json
+            j=json.load(open('release.json'))
+            assets=j.get('assets',[])
+            for a in assets:
+              name=a['name']
+              url=a['browser_download_url']
+              if 'pc-windows-msvc' in name:
+                print('WINDOW||'+name+'||'+url)
+              if 'x86_64-unknown-linux-gnu' in name:
+                print('LINUXX86||'+name+'||'+url)
+              if 'aarch64-unknown-linux-gnu' in name or 'arm64' in name:
+                print('LINUXARM||'+name+'||'+url)
+            PY
+
+          while IFS='||' read -r kind name url; do
+            case "$kind" in
+              WINDOW)
+                echo "Downloading $name to out/windows"
+                curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o "out/windows/$name" "$url"
+                unzip -o "out/windows/$name" -d out/windows || true
+                ;;
+              LINUXX86)
+                echo "Downloading $name to out/linux-x86_64"
+                curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o "out/linux-x86_64/$name" "$url"
+                tar -xzf "out/linux-x86_64/$name" -C out/linux-x86_64 || true
+                ;;
+              LINUXARM)
+                echo "Downloading $name to out/linux-aarch64"
+                curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o "out/linux-aarch64/$name" "$url"
+                tar -xzf "out/linux-aarch64/$name" -C out/linux-aarch64 || true
+                ;;
+            esac
+            done < <(python3 - <<'PY'
+            import json
+            j=json.load(open('release.json'))
+            for a in j.get('assets',[]):
+              name=a['name']
+              url=a['browser_download_url']
+              if 'pc-windows-msvc' in name:
+                print('WINDOW||'+name+'||'+url)
+              if 'x86_64-unknown-linux-gnu' in name:
+                print('LINUXX86||'+name+'||'+url)
+              if 'aarch64-unknown-linux-gnu' in name or 'arm64' in name:
+                print('LINUXARM||'+name+'||'+url)
+            PY
+            )
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ferrumcast-x86_64-pc-windows-msvc
+          path: out/windows
+
+      - name: Upload Linux x86_64 Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ferrumcast-x86_64-unknown-linux-gnu
+          path: out/linux-x86_64
+
+      - name: Upload Linux aarch64 Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ferrumcast-aarch64-unknown-linux-gnu
+          path: out/linux-aarch64
 
   # Build Windows distributions in parallel to produce separate, faster-to-download artifacts.
   build-windows:
