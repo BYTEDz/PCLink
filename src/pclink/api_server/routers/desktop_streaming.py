@@ -78,6 +78,16 @@ async def reset_portal():
     return {"success": success}
 
 
+@router.post("/input/engine", dependencies=[Depends(verify_api_key)])
+async def send_engine_input(request: Request):
+    try:
+        body = await request.json()
+        await desktop_streaming_service.send_command(body)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.websocket("/ws")
 async def desktop_streaming_websocket(websocket: WebSocket):
     try:

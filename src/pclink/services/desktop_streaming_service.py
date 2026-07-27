@@ -622,7 +622,7 @@ class DesktopStreamingService:
         if not self.writer or self.writer.is_closing():
             logger.warning("IPC not connected, cannot send command")
             return
-        await self.writer.write(json.dumps(cmd).encode() + b"\n")
+        self.writer.write(json.dumps(cmd).encode() + b"\n")
         await self.writer.drain()
 
     async def _listen_ipc(self):
