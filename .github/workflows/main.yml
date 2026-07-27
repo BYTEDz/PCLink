@@ -40,20 +40,20 @@ jobs:
       - name: Download and extract release assets
         run: |
           mkdir -p out/windows out/linux-x86_64 out/linux-aarch64
-            python3 - <<'PY'
-            import json
-            j=json.load(open('release.json'))
-            assets=j.get('assets',[])
-            for a in assets:
-              name=a['name']
-              url=a['browser_download_url']
-              if 'pc-windows-msvc' in name:
-                print('WINDOW||'+name+'||'+url)
-              if 'x86_64-unknown-linux-gnu' in name:
-                print('LINUXX86||'+name+'||'+url)
-              if 'aarch64-unknown-linux-gnu' in name or 'arm64' in name:
-                print('LINUXARM||'+name+'||'+url)
-            PY
+          python3 - <<'PY'
+          import json
+          j=json.load(open('release.json'))
+          assets=j.get('assets',[])
+          for a in assets:
+            name=a['name']
+            url=a['browser_download_url']
+            if 'pc-windows-msvc' in name:
+              print('WINDOW||'+name+'||'+url)
+            if 'x86_64-unknown-linux-gnu' in name:
+              print('LINUXX86||'+name+'||'+url)
+            if 'aarch64-unknown-linux-gnu' in name or 'arm64' in name:
+              print('LINUXARM||'+name+'||'+url)
+          PY
 
           while IFS='||' read -r kind name url; do
             case "$kind" in
@@ -73,20 +73,20 @@ jobs:
                 tar -xzf "out/linux-aarch64/$name" -C out/linux-aarch64 || true
                 ;;
             esac
-            done < <(python3 - <<'PY'
-            import json
-            j=json.load(open('release.json'))
-            for a in j.get('assets',[]):
-              name=a['name']
-              url=a['browser_download_url']
-              if 'pc-windows-msvc' in name:
-                print('WINDOW||'+name+'||'+url)
-              if 'x86_64-unknown-linux-gnu' in name:
-                print('LINUXX86||'+name+'||'+url)
-              if 'aarch64-unknown-linux-gnu' in name or 'arm64' in name:
-                print('LINUXARM||'+name+'||'+url)
-            PY
-            )
+          done < <(python3 - <<'PY'
+          import json
+          j=json.load(open('release.json'))
+          for a in j.get('assets',[]):
+            name=a['name']
+            url=a['browser_download_url']
+            if 'pc-windows-msvc' in name:
+              print('WINDOW||'+name+'||'+url)
+            if 'x86_64-unknown-linux-gnu' in name:
+              print('LINUXX86||'+name+'||'+url)
+            if 'aarch64-unknown-linux-gnu' in name or 'arm64' in name:
+              print('LINUXARM||'+name+'||'+url)
+          PY
+          )
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v7
