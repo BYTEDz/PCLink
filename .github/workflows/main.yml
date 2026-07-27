@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  # Trigger upstream compilation of FerrumCast Rust binaries required for bundling.
+  # Fetch pre-built FerrumCast binaries from its GitHub Releases repository.
   build-ferrumcast:
     name: Fetch FerrumCast Release Assets
     runs-on: ubuntu-latest
@@ -18,75 +18,63 @@ jobs:
       contents: read
     env:
       FERRUMCAST_REPO: BYTEDz/FerrumCast
-      TAG: ${{ github.ref_name }}
+      # Leave FERRUMCAST_TAG empty to fetch the latest FerrumCast release automatically,
+      # or specify a fixed tag (e.g., "v0.1.0") if needed.
+      FERRUMCAST_TAG: ""
     steps:
-      - name: Determine FerrumCast tag
+      - name: Download FerrumCast Release Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -z "$TAG" ]; then
-            echo "No tag provided, using latest release"
-            LATEST_TAG=$(curl -s -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${FERRUMCAST_REPO}/releases/latest | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
-            echo "TAG=${LATEST_TAG}" >> $GITHUB_ENV
-          else
-            echo "TAG=${TAG}" >> $GITHUB_ENV
+          mkdir -p out/windows out/linux-x86_64 out/linux-aarch64 temp_downloads
+
+          # Determine target tag (fetch latest release tag from FerrumCast if not explicitly set)
+          TARGET_TAG="${FERRUMCAST_TAG}"
+          if [ -z "$TARGET_TAG" ]; then
+            echo "No FerrumCast tag specified. Fetching latest release tag from ${FERRUMCAST_REPO}..."
+            TARGET_TAG=$(gh release view --repo "${FERRUMCAST_REPO}" --json tagName -q .tagName)
           fi
+          echo "Using FerrumCast version: ${TARGET_TAG}"
 
-      - name: Fetch release metadata
-        run: |
-          REPO=${FERRUMCAST_REPO}
-          TAG="$TAG"
-          echo "Fetching release ${TAG} from ${REPO}"
-          curl -s -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${REPO}/releases/tags/${TAG}" -o release.json
+          # Download all release assets using GitHub CLI
+          gh release download "${TARGET_TAG}" --repo "${FERRUMCAST_REPO}" --dir temp_downloads
 
-      - name: Download and extract release assets
-        run: |
-          mkdir -p out/windows out/linux-x86_64 out/linux-aarch64
-          python3 - <<'PY'
-          import json
-          j=json.load(open('release.json'))
-          assets=j.get('assets',[])
-          for a in assets:
-            name=a['name']
-            url=a['browser_download_url']
-            if 'pc-windows-msvc' in name:
-              print('WINDOW||'+name+'||'+url)
-            if 'x86_64-unknown-linux-gnu' in name:
-              print('LINUXX86||'+name+'||'+url)
-            if 'aarch64-unknown-linux-gnu' in name or 'arm64' in name:
-              print('LINUXARM||'+name+'||'+url)
-          PY
+          echo "Downloaded raw assets:"
+          ls -la temp_downloads/
 
-          while IFS='||' read -r kind name url; do
-            case "$kind" in
-              WINDOW)
-                echo "Downloading $name to out/windows"
-                curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o "out/windows/$name" "$url"
-                unzip -o "out/windows/$name" -d out/windows || true
-                ;;
-              LINUXX86)
-                echo "Downloading $name to out/linux-x86_64"
-                curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o "out/linux-x86_64/$name" "$url"
-                tar -xzf "out/linux-x86_64/$name" -C out/linux-x86_64 || true
-                ;;
-              LINUXARM)
-                echo "Downloading $name to out/linux-aarch64"
-                curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o "out/linux-aarch64/$name" "$url"
-                tar -xzf "out/linux-aarch64/$name" -C out/linux-aarch64 || true
-                ;;
-            esac
-          done < <(python3 - <<'PY'
-          import json
-          j=json.load(open('release.json'))
-          for a in j.get('assets',[]):
-            name=a['name']
-            url=a['browser_download_url']
-            if 'pc-windows-msvc' in name:
-              print('WINDOW||'+name+'||'+url)
-            if 'x86_64-unknown-linux-gnu' in name:
-              print('LINUXX86||'+name+'||'+url)
-            if 'aarch64-unknown-linux-gnu' in name or 'arm64' in name:
-              print('LINUXARM||'+name+'||'+url)
-          PY
-          )
+          # Unpack assets into platform output directories
+          for f in temp_downloads/*; do
+            filename=$(basename "$f")
+            echo "Extracting asset: $filename..."
+
+            if [[ "$filename" == *"pc-windows-msvc"* ]]; then
+              if [[ "$filename" == *.zip ]]; then
+                unzip -o "$f" -d out/windows
+              else
+                cp "$f" out/windows/
+              fi
+            elif [[ "$filename" == *"x86_64-unknown-linux-gnu"* ]]; then
+              if [[ "$filename" == *.tar.gz ]]; then
+                tar -xzf "$f" -C out/linux-x86_64
+              elif [[ "$filename" == *.zip ]]; then
+                unzip -o "$f" -d out/linux-x86_64
+              else
+                cp "$f" out/linux-x86_64/
+              fi
+            elif [[ "$filename" == *"aarch64-unknown-linux-gnu"* ]] || [[ "$filename" == *"arm64"* ]]; then
+              if [[ "$filename" == *.tar.gz ]]; then
+                tar -xzf "$f" -C out/linux-aarch64
+              elif [[ "$filename" == *.zip ]]; then
+                unzip -o "$f" -d out/linux-aarch64
+              else
+                cp "$f" out/linux-aarch64/
+              fi
+            fi
+          done
+
+          echo "Windows asset contents:" && ls -la out/windows/
+          echo "Linux x86_64 asset contents:" && ls -la out/linux-x86_64/
+          echo "Linux aarch64 asset contents:" && ls -la out/linux-aarch64/
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v7
@@ -106,7 +94,7 @@ jobs:
           name: ferrumcast-aarch64-unknown-linux-gnu
           path: out/linux-aarch64
 
-  # Build Windows distributions in parallel to produce separate, faster-to-download artifacts.
+  # Build Windows distributions in parallel.
   build-windows:
     needs: build-ferrumcast
     name: Build Windows (${{ matrix.format }})
@@ -130,7 +118,6 @@ jobs:
         run: |
           $binDir = "src\pclink\assets\bin"
           if (!(Test-Path $binDir)) { New-Item -ItemType Directory -Force -Path $binDir }
-          # Copy compiled binaries and required GStreamer DLL dependencies to the packaging directory.
           Copy-Item -Path "temp-ferrumcast\*" -Destination $binDir -Force
           Write-Host "Binaries injected for PyInstaller: $binDir"
 
@@ -146,7 +133,6 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Install Inno Setup
-        # Only install Inno Setup when building the installer to save time
         if: matrix.format == 'installer'
         run: choco install innosetup -y --no-progress
 
@@ -156,12 +142,11 @@ jobs:
       - name: Upload Windows Artifact (${{ matrix.format }})
         uses: actions/upload-artifact@v7
         with:
-          # This dynamically names the artifact (e.g. PCLink-Windows-installer)
           name: PCLink-Windows-${{ matrix.format }}
           path: releases/
           compression-level: 0
 
-  # Package Linux distributions for target architectures (amd64, arm64) using NFPM.
+  # Package Linux distributions for target architectures using NFPM.
   build-linux:
     needs: build-ferrumcast
     name: Build Linux Packages (${{ matrix.arch }})
@@ -188,7 +173,6 @@ jobs:
         run: |
           mkdir -p src/pclink/assets/bin
           if [ -d "temp-ferrumcast" ]; then
-            # Standardize executable names by removing platform-specific suffixes.
             cp temp-ferrumcast/ferrumcast-linux src/pclink/assets/bin/ferrumcast || cp temp-ferrumcast/ferrumcast src/pclink/assets/bin/ferrumcast
             chmod +x src/pclink/assets/bin/ferrumcast
           fi
@@ -223,7 +207,7 @@ jobs:
           path: releases/
           compression-level: 0
 
-  # Consolidate builds and publish the release onto GitHub.
+  # Consolidate builds and publish release to GitHub.
   publish-release:
     name: Publish GitHub Release
     needs: [build-windows, build-linux]
@@ -238,12 +222,11 @@ jobs:
       - name: Download PCLink build artifacts
         uses: actions/download-artifact@v7
         with:
-          pattern: PCLink-* # <-- Fix 1: Only download PCLink artifacts, ignore upstream FerrumCast ones
+          pattern: PCLink-*
           path: artifacts/
 
-      - name: Clean up unused artifacts (Safety Measure)
+      - name: Clean up unused artifacts
         run: |
-          # <-- Fix 2: Ensures FerrumCast raw artifacts are completely wiped if they bypassed the pattern filter
           rm -rf artifacts/ferrumcast-*
 
       - name: Generate Checksum File
@@ -255,7 +238,6 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          # Parse and extract release notes for the current version block from CHANGELOG.md.
           NOTES=$(awk -v ver="$VERSION" 'BEGIN{p=0} /^## \['"$VERSION"'\]/{p=1;next} /^## \[/{p=0} p' CHANGELOG.md)
           if [ -z "$NOTES" ]; then NOTES="See CHANGELOG.md for details."; fi
           echo "$NOTES" > RELEASE_NOTES.md
@@ -271,14 +253,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Append pre-release flag if the tag format includes alpha, beta, rc, or semver suffixes.
           PRERELEASE_FLAG=""
           if [[ "$TAG" =~ [0-9]+\.[0-9]+\.[0-9]+-.* ]] || [[ "$TAG" =~ (beta|alpha|rc) ]]; then
             PRERELEASE_FLAG="--prerelease"
           fi
 
-          # Create the GitHub Release with flattened build artifacts, dynamic PKGBUILD, and checksum manifest.
-          # If the release already exists (e.g. created by scripts/release.py), update notes and upload assets instead.
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists. Updating notes and uploading assets..."
             gh release edit "$TAG" --notes-file RELEASE_NOTES.md
