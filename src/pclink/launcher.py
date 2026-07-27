@@ -134,6 +134,10 @@ def setup_network_permissions():
 
 
 def main():
+    import multiprocessing
+
+    multiprocessing.freeze_support()
+
     set_dpi_awareness()
     setup_network_permissions()
 

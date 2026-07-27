@@ -35,6 +35,18 @@ def run_extension_process(
     Entry point for the isolated extension subprocess.
     Traps exceptions, serves route execution requests via IPC, and prevents host crashes.
     """
+    import gettext
+
+    _ = gettext.gettext
+
+    if sys.platform == "win32":
+        try:
+            import pythoncom
+
+            pythoncom.CoInitialize()
+        except Exception:
+            pass
+
     try:
         ext_path = Path(extension_path_str)
         metadata = ExtensionMetadata(**manifest_data)
@@ -61,14 +73,16 @@ def run_extension_process(
             ipc_conn.send(
                 {
                     "status": "error",
-                    "error": f"Entry file missing: {module_path.name}",
+                    "error": _("Entry file missing: {}").format(module_path.name),
                 }
             )
             return
 
         spec = importlib.util.spec_from_file_location(module_name, module_path)
         if not spec or not spec.loader:
-            ipc_conn.send({"status": "error", "error": "Failed to create module spec"})
+            ipc_conn.send(
+                {"status": "error", "error": _("Failed to create module spec")}
+            )
             return
 
         mod = importlib.util.module_from_spec(spec)
@@ -80,7 +94,9 @@ def run_extension_process(
             ipc_conn.send(
                 {
                     "status": "error",
-                    "error": f"Class '{class_name}' not found in {module_path.name}",
+                    "error": _("Class '{}' not found in {}").format(
+                        class_name, module_path.name
+                    ),
                 }
             )
             return
@@ -106,14 +122,8 @@ def run_extension_process(
             )
             instance.context = context
 
-        # 4. Extract registered routes from extension APIRouter
-        route_handlers: Dict[tuple, Any] = {}
+        # 4. Get router instance
         router = instance.get_routes()
-        for r in router.routes:
-            methods = getattr(r, "methods", {"GET"})
-            path = getattr(r, "path", "/")
-            for m in methods:
-                route_handlers[(m.upper(), path)] = r.endpoint
 
         # 5. Initialize extension
         init_res = instance.initialize()
@@ -124,7 +134,9 @@ def run_extension_process(
             ipc_conn.send(
                 {
                     "status": "error",
-                    "error": f"Extension '{extension_id}' initialize() returned False",
+                    "error": _("Extension '{}' initialize() returned False").format(
+                        extension_id
+                    ),
                 }
             )
             return
@@ -141,7 +153,11 @@ def run_extension_process(
                         continue
                 except KeyboardInterrupt:
                     # Graceful shutdown on SIGINT
-                    log.info(f"Extension '{extension_id}' received interrupt signal")
+                    log.info(
+                        _("Extension '{}' received interrupt signal").format(
+                            extension_id
+                        )
+                    )
                     break
 
                 cmd = ipc_conn.recv()
@@ -159,21 +175,50 @@ def run_extension_process(
 
                     body_data = cmd.get("body")
 
-                    # Match route handler
-                    handler = route_handlers.get(
-                        (method, subpath)
-                    ) or route_handlers.get(("ANY", subpath))
+                    # Match route handler using router routes (supporting path parameters like {action})
+                    matched_handler = None
+                    path_params = {}
 
-                    if handler:
+                    for r in router.routes:
+                        route_methods = getattr(r, "methods", {"GET"})
+                        if method in route_methods or "ANY" in route_methods:
+                            if hasattr(r, "path_regex"):
+                                match = r.path_regex.match(subpath)
+                                if match:
+                                    matched_handler = r.endpoint
+                                    path_params = match.groupdict()
+                                    break
+                            elif getattr(r, "path", None) == subpath:
+                                matched_handler = r.endpoint
+                                break
+
+                    if matched_handler:
                         try:
-                            sig = inspect.signature(handler)
-                            if len(sig.parameters) > 0 and body_data is not None:
-                                res = handler(body_data)
-                            else:
-                                res = handler()
+                            sig = inspect.signature(matched_handler)
+                            kwargs = {}
 
-                            if asyncio.iscoroutine(res):
-                                res = asyncio.run(res)
+                            # Bind path parameters
+                            for param_name in sig.parameters:
+                                if param_name in path_params:
+                                    kwargs[param_name] = path_params[param_name]
+
+                            # Bind body parameter if expected and not satisfied by path_params
+                            if body_data is not None:
+                                for param_name, param in sig.parameters.items():
+                                    if param_name not in kwargs:
+                                        if (
+                                            isinstance(body_data, dict)
+                                            and param_name in body_data
+                                        ):
+                                            kwargs[param_name] = body_data[param_name]
+                                        elif len(sig.parameters) == 1:
+                                            kwargs[param_name] = body_data
+
+                            # Execute handler
+                            if inspect.iscoroutinefunction(matched_handler):
+                                res = asyncio.run(matched_handler(**kwargs))
+                            else:
+                                res = matched_handler(**kwargs)
 
                             ipc_conn.send(
                                 {
@@ -184,6 +229,12 @@ def run_extension_process(
                                 }
                             )
                         except Exception as e:
+                            log.error(
+                                _("Error executing route '{} {}': {}").format(
+                                    method, subpath, e
+                                ),
+                                exc_info=True,
+                            )
                             ipc_conn.send(
                                 {
                                     "type": "HTTP_RESPONSE",
@@ -198,7 +249,9 @@ def run_extension_process(
                                 "type": "HTTP_RESPONSE",
                                 "req_id": req_id,
                                 "status_code": 404,
-                                "error": f"Route '{method} {subpath}' not found in worker process",
+                                "error": _(
+                                    "Route '{} {}' not found in worker process"
+                                ).format(method, subpath),
                             }
                         )
 
@@ -217,7 +270,7 @@ def run_extension_process(
                     break
 
         except KeyboardInterrupt:
-            log.info(f"Extension '{extension_id}' shutdown by signal")
+            log.info(_("Extension '{}' shutdown by signal").format(extension_id))
 
         # Cleanup before exit (only if not already cleaned up)
         if not cleaned_up:
@@ -226,11 +279,17 @@ def run_extension_process(
                 if asyncio.iscoroutine(clean_res):
                     asyncio.run(clean_res)
             except Exception as e:
-                log.error(f"Cleanup error in extension '{extension_id}': {e}")
+                log.error(
+                    _("Cleanup error in extension '{}': {}").format(extension_id, e)
+                )
 
     except Exception as e:
         tb = traceback.format_exc()
-        log.error(f"Isolated process crash in extension '{extension_id}': {e}\n{tb}")
+        log.error(
+            _("Isolated process crash in extension '{}': {}\n{}").format(
+                extension_id, e, tb
+            )
+        )
         try:
             ipc_conn.send({"status": "crash", "error": str(e), "traceback": tb})
         except Exception:

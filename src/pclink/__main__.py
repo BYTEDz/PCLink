@@ -128,6 +128,10 @@ def _open_browser():
 @click.pass_context
 def cli(ctx):
     """PCLink Server Control Interface."""
+    import multiprocessing
+
+    multiprocessing.freeze_support()
+
     if ctx.invoked_subcommand is None:
         if sys.stdout.isatty():
             launch_interactive_menu(ctx)
