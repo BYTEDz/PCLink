@@ -383,77 +383,56 @@ class DesktopStreamingService:
                 await asyncio.sleep(0.1)
         return False
 
-    async def start_engine(
-        self,
-        client_host=None,
-        encoder="auto",
-        width=None,
-        height=None,
-        fps=None,
-        bitrate=4000,
-        audio=False,
-        gdi=False,
-        speed_preset="ultrafast",
-        tune="zerolatency",
-        nvenc_preset="p4",
-        nvenc_tune="ultra-low-latency",
-        vaapi_target_usage=1,
-        qsv_target_usage=7,
-        rc_mode="cbr",
-        cqp_value=26,
-        key_int_max=60,
-        bframes=0,
-        ref_frames=1,
-        rtp_mtu=1200,
-        queue_max_time_ns=0,
-        queue_max_buffers=2,
-        aggregate_mode="zero-latency",
-        udp_buffer_size=2097152,
-        show_cursor=True,
-        colorimetry="bt709",
-        srtp_key=None,
-    ):
-        """Start or reuse engine. If already running, restart pipeline via IPC."""
+    async def start_engine(self, client_host=None, srtp_key=None, **kwargs):
+        """Start or reuse engine. Dynamically forwards config params to IPC or CLI."""
         self.srtp_key = srtp_key
         if not ENGINE_PATH.exists():
             logger.error(f"Mirror engine not found at {ENGINE_PATH}")
             return False
 
+        # Defaults for CLI flags / IPC payload
+        defaults = {
+            "encoder": "auto",
+            "bitrate": 4000,
+            "audio": False,
+            "gdi": False,
+            "speed_preset": "ultrafast",
+            "tune": "zerolatency",
+            "nvenc_preset": "p4",
+            "nvenc_tune": "ultra-low-latency",
+            "vaapi_target_usage": 1,
+            "qsv_target_usage": 7,
+            "rc_mode": "cbr",
+            "cqp_value": 26,
+            "key_int_max": 60,
+            "bframes": 0,
+            "ref_frames": 1,
+            "rtp_mtu": 1200,
+            "queue_max_time_ns": 0,
+            "queue_max_buffers": 2,
+            "aggregate_mode": "zero-latency",
+            "udp_buffer_size": 2097152,
+            "show_cursor": True,
+            "colorimetry": "bt709",
+        }
+
+        # Normalize camelCase to snake_case from incoming kwargs
+        config = defaults.copy()
+        for k, v in kwargs.items():
+            snake_k = re.sub(r"(?<!^)(?=[A-Z])", "_", k).lower()
+            config[snake_k] = v
+
         if self._engine_alive() and await self._ensure_ipc():
             logger.info(
-                f"Engine alive, restarting pipeline via IPC: host={client_host} encoder={encoder} res={width}x{height}@{fps}"
+                f"Engine alive, restarting pipeline via IPC: host={client_host} encoder={config.get('encoder')} res={config.get('width')}x{config.get('height')}@{config.get('fps')}"
             )
             cfg = {
                 "type": "RESTART_PIPELINE",
-                "encoder": encoder,
-                "bitrate": bitrate,
                 "output_mode": "rtp" if client_host else "webrtc",
                 "client_host": client_host or "127.0.0.1",
-                "audio": audio,
-                "width": width,
-                "height": height,
-                "framerate": fps,
-                "token": None,
-                "gdi": gdi,
-                "speed_preset": speed_preset,
-                "tune": tune,
-                "nvenc_preset": nvenc_preset,
-                "nvenc_tune": nvenc_tune,
-                "vaapi_target_usage": vaapi_target_usage,
-                "qsv_target_usage": qsv_target_usage,
-                "rc_mode": rc_mode,
-                "cqp_value": cqp_value,
-                "key_int_max": key_int_max,
-                "bframes": bframes,
-                "ref_frames": ref_frames,
-                "rtp_mtu": rtp_mtu,
-                "queue_max_time_ns": queue_max_time_ns,
-                "queue_max_buffers": queue_max_buffers,
-                "aggregate_mode": aggregate_mode,
-                "udp_buffer_size": udp_buffer_size,
-                "show_cursor": show_cursor,
-                "colorimetry": colorimetry,
+                "framerate": config.get("fps"),
                 "srtp_key": srtp_key,
+                **config,
             }
             await self.send_command(cfg)
             return True
@@ -470,61 +449,44 @@ class DesktopStreamingService:
         if os.path.exists(IPC_PATH):
             os.remove(IPC_PATH)
 
-        args = [
-            str(ENGINE_PATH),
-            "--encoder",
-            encoder,
-            "--bitrate",
-            str(bitrate),
-            "--audio",
-            "true" if audio else "false",
-            "--speed-preset",
-            speed_preset,
-            "--tune",
-            tune,
-            "--nvenc-preset",
-            nvenc_preset,
-            "--nvenc-tune",
-            nvenc_tune,
-            "--vaapi-target-usage",
-            str(vaapi_target_usage),
-            "--qsv-target-usage",
-            str(qsv_target_usage),
-            "--rc-mode",
-            rc_mode,
-            "--cqp-value",
-            str(cqp_value),
-            "--key-int-max",
-            str(key_int_max),
-            "--bframes",
-            str(bframes),
-            "--ref-frames",
-            str(ref_frames),
-            "--rtp-mtu",
-            str(rtp_mtu),
-            "--queue-max-time-ns",
-            str(queue_max_time_ns),
-            "--queue-max-buffers",
-            str(queue_max_buffers),
-            "--aggregate-mode",
-            aggregate_mode,
-            "--udp-buffer-size",
-            str(udp_buffer_size),
-            "--show-cursor",
-            "true" if show_cursor else "false",
-            "--colorimetry",
-            colorimetry,
-        ]
-        if width:
-            args += ["--width", str(width)]
-        if height:
-            args += ["--height", str(height)]
-        if fps:
-            args += ["--fps", str(fps)]
-        if gdi:
-            args.append("--gdi")
+        args = [str(ENGINE_PATH)]
+
+        # Map snake_case config keys to CLI flags e.g. speed_preset -> --speed-preset
+        cli_key_map = {
+            "speed_preset": "--speed-preset",
+            "nvenc_preset": "--nvenc-preset",
+            "nvenc_tune": "--nvenc-tune",
+            "vaapi_target_usage": "--vaapi-target-usage",
+            "qsv_target_usage": "--qsv-target-usage",
+            "rc_mode": "--rc-mode",
+            "cqp_value": "--cqp-value",
+            "key_int_max": "--key-int-max",
+            "ref_frames": "--ref-frames",
+            "rtp_mtu": "--rtp-mtu",
+            "queue_max_time_ns": "--queue-max-time-ns",
+            "queue_max_buffers": "--queue-max-buffers",
+            "aggregate_mode": "--aggregate-mode",
+            "udp_buffer_size": "--udp-buffer-size",
+            "show_cursor": "--show-cursor",
+        }
+
+        for k, v in config.items():
+            if v is None:
+                continue
+            flag = cli_key_map.get(k, f"--{k.replace('_', '-')}")
+            if isinstance(v, bool):
+                if k in ("gdi",):
+                    if v:
+                        args.append(flag)
+                else:
+                    args.extend([flag, "true" if v else "false"])
+            else:
+                args.extend([flag, str(v)])
+
+        if fps := config.get("fps"):
+            args.extend(["--fps", str(fps)])
         if srtp_key:
-            args += ["--srtp-key", srtp_key]
+            args.extend(["--srtp-key", srtp_key])
 
         if os.path.exists(TOKEN_FILE):
             try:
