@@ -51,6 +51,9 @@ class DiscoveryService:
             from ..core.version import __version__ as _ver
         except Exception:
             _ver = "unknown"
+
+        from ..core.utils import get_available_ips
+
         payload = {
             "magic": BEACON_MAGIC,
             "port": self.api_port,
@@ -59,6 +62,7 @@ class DiscoveryService:
             "os": platform.system().lower(),
             "server_id": self.server_id,
             "version": _ver,
+            "ips": get_available_ips(),
         }
         return json.dumps(payload).encode("utf-8")
 
