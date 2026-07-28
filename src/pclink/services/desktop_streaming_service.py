@@ -394,7 +394,7 @@ class DesktopStreamingService:
         defaults = {
             "encoder": "auto",
             "bitrate": 4000,
-            "audio": False,
+            "audio": True,
             "gdi": False,
             "speed_preset": "ultrafast",
             "tune": "zerolatency",
