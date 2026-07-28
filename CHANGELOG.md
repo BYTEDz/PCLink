@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.0] - 2026-07-28
+
+## Features
+- enable audio by default in DesktopStreamingService ([1dd8928](https://github.com/BYTEDz/PCLink/commit/1dd8928)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- add engine input endpoint and update IPC command writing to be synchronous for stream consistency ([65427b9](https://github.com/BYTEDz/PCLink/commit/65427b9)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- Enhance logging with additional sensitive data redaction and improve server health monitoring ([2013b0a](https://github.com/BYTEDz/PCLink/commit/2013b0a)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- Add support for multiprocessing freeze and enhance logging with gettext translations ([2652132](https://github.com/BYTEDz/PCLink/commit/2652132)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- Update CI workflow to fetch pre-built FerrumCast binaries and streamline asset downloading ([87953ca](https://github.com/BYTEDz/PCLink/commit/87953ca)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- Refactor asset download script for improved readability and maintainability ([b76d3f0](https://github.com/BYTEDz/PCLink/commit/b76d3f0)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- Update CI workflow to fetch and download FerrumCast release assets ([4cd0d02](https://github.com/BYTEDz/PCLink/commit/4cd0d02)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- Enhance Repair Center with Root Cause Analysis and Auto-Heal functionality ([92f0a66](https://github.com/BYTEDz/PCLink/commit/92f0a66)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- update permission roles and descriptions for file access and input controls ([477be56](https://github.com/BYTEDz/PCLink/commit/477be56)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- refactor exception handling by moving exceptions to validators and removing unused exception file ([d3c478c](https://github.com/BYTEDz/PCLink/commit/d3c478c)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- remove unused macro editor and permissions modal templates ([8f2f780](https://github.com/BYTEDz/PCLink/commit/8f2f780)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- refactor extension management by removing ExtensionService and consolidating logic into ExtensionManager ([df33de7](https://github.com/BYTEDz/PCLink/commit/df33de7)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- refactor process management by consolidating endpoints into system router and removing unused control API ([db211ef](https://github.com/BYTEDz/PCLink/commit/db211ef)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- refactor API routers and enhance media streaming with range support ([f485b8e](https://github.com/BYTEDz/PCLink/commit/f485b8e)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance IPC command handling with graceful shutdown and improved error responses ([7945739](https://github.com/BYTEDz/PCLink/commit/7945739)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- refactor notification system by consolidating Windows and Linux notifiers into a unified notifier class ([12224c4](https://github.com/BYTEDz/PCLink/commit/12224c4)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance ConfigManager with thread safety and deep merge for user settings ([cb737af](https://github.com/BYTEDz/PCLink/commit/cb737af)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance logging with gettext support for improved localization and error messages ([56e50d4](https://github.com/BYTEDz/PCLink/commit/56e50d4)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- add safe_probe function for telemetry error handling and improve logging with gettext support ([1a8566e](https://github.com/BYTEDz/PCLink/commit/1a8566e)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance device and share management with WAL-optimized SQLite connections and improved validation error handling ([f9b4079](https://github.com/BYTEDz/PCLink/commit/f9b4079)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- centralize token extraction and enhance error handling across API routers ([fa30f93](https://github.com/BYTEDz/PCLink/commit/fa30f93)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- Implement isolated process support for extensions ([79224fe](https://github.com/BYTEDz/PCLink/commit/79224fe)) by[@AzharZouhir](https://github.com/AzharZouhir)
+- enhance phone file management UI with scroll restoration and connection prompts ([3ab380f](https://github.com/BYTEDz/PCLink/commit/3ab380f)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance logging functionality with memory log handler and sensitive data redaction feat: improve repair module UIinteractions and diagnostics handling feat: update HTML templates for better log filtering and versioning ([a7c237f](https://github.com/BYTEDz/PCLink/commit/a7c237f)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- update database initialization and config reset methods in RepairService ([c2269ca](https://github.com/BYTEDz/PCLink/commit/c2269ca)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance keyboard typing with clipboard paste fallback for pynput ([be1a040](https://github.com/BYTEDz/PCLink/commit/be1a040)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- add seamless clipboard text pasting support for international characters ([b3484bc](https://github.com/BYTEDz/PCLink/commit/b3484bc)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance keyboard input handling with dynamic layout detection and logging ([95c668d](https://github.com/BYTEDz/PCLink/commit/95c668d)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- remove onefile build support and add system PATH modification option to the installer ([b080af8](https://github.com/BYTEDz/PCLink/commit/b080af8)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- add actionable toast notifications to Windows and Linux to trigger pairing approval via web UI ([34b85a1](https://github.com/BYTEDz/PCLink/commit/34b85a1)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
+## Refactoring
+- localize log messages and optimize engine IPC communication logic ([04e31b3](https://github.com/BYTEDz/PCLink/commit/04e31b3)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- simplify engine configuration by using dynamic keyword arguments and automated CLI flag mapping ([eb243be](https://github.com/BYTEDz/PCLink/commit/eb243be)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
 ## [4.5.0] - 2026-07-15
 
 > [!IMPORTANT]
