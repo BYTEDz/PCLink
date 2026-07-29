@@ -66,28 +66,44 @@ class Device:
 
     @classmethod
     def from_dict(cls, data: Dict) -> "Device":
-        created_at = datetime.fromisoformat(
-            data.get("created_at", datetime.now(timezone.utc).isoformat())
-        )
-        last_seen = datetime.fromisoformat(
-            data.get("last_seen", datetime.now(timezone.utc).isoformat())
-        )
+        created_at_val = data.get("created_at")
+        if created_at_val:
+            try:
+                created_at = datetime.fromisoformat(str(created_at_val))
+            except Exception:
+                created_at = datetime.now(timezone.utc)
+        else:
+            created_at = datetime.now(timezone.utc)
+
+        last_seen_val = data.get("last_seen")
+        if last_seen_val:
+            try:
+                last_seen = datetime.fromisoformat(str(last_seen_val))
+            except Exception:
+                last_seen = datetime.now(timezone.utc)
+        else:
+            last_seen = datetime.now(timezone.utc)
 
         perms_raw = data.get("permissions", "")
-        permissions = [p.strip() for p in perms_raw.split(",")] if perms_raw else []
+        if isinstance(perms_raw, list):
+            permissions = [str(p).strip() for p in perms_raw if str(p).strip()]
+        elif isinstance(perms_raw, str) and perms_raw.strip():
+            permissions = [p.strip() for p in perms_raw.split(",") if p.strip()]
+        else:
+            permissions = []
 
         return cls(
-            device_id=data["device_id"],
-            device_name=data["device_name"],
-            api_key=data["api_key"],
-            device_fingerprint=data.get("device_fingerprint", ""),
-            platform=data.get("platform", ""),
-            client_version=data.get("client_version", ""),
-            current_ip=data.get("current_ip", ""),
+            device_id=str(data.get("device_id") or ""),
+            device_name=str(data.get("device_name") or "Unknown Device"),
+            api_key=str(data.get("api_key") or ""),
+            device_fingerprint=str(data.get("device_fingerprint") or ""),
+            platform=str(data.get("platform") or ""),
+            client_version=str(data.get("client_version") or ""),
+            current_ip=str(data.get("current_ip") or ""),
             is_approved=bool(data.get("is_approved", False)),
             created_at=created_at,
             last_seen=last_seen,
-            hardware_id=data.get("hardware_id", ""),
+            hardware_id=str(data.get("hardware_id") or ""),
             permissions=permissions,
         )
 
@@ -122,7 +138,7 @@ class DeviceManager:
 
     def _get_connection(self) -> sqlite3.Connection:
         """Helper to create SQLite connections with WAL mode and row factory configured."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")

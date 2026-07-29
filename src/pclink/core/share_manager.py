@@ -27,7 +27,7 @@ class ShareManager:
 
     def _get_connection(self) -> sqlite3.Connection:
         """Helper to create SQLite connections with WAL mode and row factory configured."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
@@ -99,10 +99,13 @@ class ShareManager:
             # 2. Check expiration
             expires_at_str = row["expires_at"]
             if expires_at_str:
-                expires_at = datetime.fromisoformat(expires_at_str)
-                if datetime.now(timezone.utc) > expires_at:
-                    self.revoke_share_link(token)
-                    return False
+                try:
+                    expires_at = datetime.fromisoformat(expires_at_str)
+                    if datetime.now(timezone.utc) > expires_at:
+                        self.revoke_share_link(token)
+                        return False
+                except Exception:
+                    pass
 
             return True
 
