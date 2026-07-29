@@ -18,13 +18,11 @@ jobs:
       contents: read
     env:
       FERRUMCAST_REPO: BYTEDz/FerrumCast
-      # Leave FERRUMCAST_TAG empty to fetch the latest FerrumCast release automatically,
-      # or specify a fixed tag (e.g., "v0.1.0") if needed.
       FERRUMCAST_TAG: ""
     steps:
       - name: Download FerrumCast Release Assets
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.FERRUMCAST_PAT || secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p out/windows out/linux-x86_64 out/linux-aarch64 temp_downloads
 
@@ -77,19 +75,19 @@ jobs:
           echo "Linux aarch64 asset contents:" && ls -la out/linux-aarch64/
 
       - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ferrumcast-x86_64-pc-windows-msvc
           path: out/windows
 
       - name: Upload Linux x86_64 Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ferrumcast-x86_64-unknown-linux-gnu
           path: out/linux-x86_64
 
       - name: Upload Linux aarch64 Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ferrumcast-aarch64-unknown-linux-gnu
           path: out/linux-aarch64
@@ -105,10 +103,10 @@ jobs:
         format: [portable, installer]
     steps:
       - name: Check out PCLink
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download FerrumCast Windows binaries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: ferrumcast-x86_64-pc-windows-msvc
           path: temp-ferrumcast
@@ -122,7 +120,7 @@ jobs:
           Write-Host "Binaries injected for PyInstaller: $binDir"
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
@@ -140,7 +138,7 @@ jobs:
         run: python scripts/build.py --format ${{ matrix.format }} --clean
 
       - name: Upload Windows Artifact (${{ matrix.format }})
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: PCLink-Windows-${{ matrix.format }}
           path: releases/
@@ -160,10 +158,10 @@ jobs:
             os: ubuntu-24.04-arm
     steps:
       - name: Check out PCLink
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download FerrumCast Linux binaries
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: ferrumcast-${{ matrix.arch == 'arm64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
           path: temp-ferrumcast
@@ -178,7 +176,7 @@ jobs:
           fi
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
@@ -201,7 +199,7 @@ jobs:
         run: python3 scripts/build.py --format nfpm --arch ${{ matrix.arch }}
 
       - name: Upload Linux Artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: PCLink-Linux-${{ matrix.arch }}
           path: releases/
@@ -217,10 +215,10 @@ jobs:
       contents: write
     steps:
       - name: Check out PCLink
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Download PCLink build artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           pattern: PCLink-*
           path: artifacts/
