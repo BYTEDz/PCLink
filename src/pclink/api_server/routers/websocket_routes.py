@@ -143,6 +143,9 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         while True:
             message = await websocket.receive()
 
+            if message.get("type") == "websocket.disconnect":
+                break
+
             now = time.time()
             if now - last_auth_check > AUTH_CHECK_INTERVAL:
                 current_device = device_manager.get_device_by_id(device_id)
@@ -219,7 +222,7 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
                 except Exception as e:
                     log.error(f"Error processing {msg_type}: {e}", exc_info=True)
 
-    except (WebSocketDisconnect, OSError) as e:
+    except (WebSocketDisconnect, RuntimeError, OSError, asyncio.CancelledError) as e:
         log_telemetry_event(
             "websocket",
             "device_disconnected",
@@ -258,17 +261,26 @@ async def web_ui_websocket_endpoint(websocket: WebSocket):
         events = getattr(app_state, "pairing_events", {})
 
         while True:
-            data = await websocket.receive_json()
-            msg_type = data.get("type")
+            message = await websocket.receive()
 
-            if msg_type in ("approve_pair", "deny_pair"):
-                pid = data.get("pairing_id")
-                if pid and pid in events:
-                    if msg_type == "approve_pair" and pid in results:
-                        results[pid]["approved"] = True
-                    events[pid].set()
+            if message.get("type") == "websocket.disconnect":
+                break
 
-    except (WebSocketDisconnect, OSError):
+            if "text" in message and message["text"]:
+                try:
+                    data = json.loads(message["text"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+                msg_type = data.get("type")
+                if msg_type in ("approve_pair", "deny_pair"):
+                    pid = data.get("pairing_id")
+                    if pid and pid in events:
+                        if msg_type == "approve_pair" and pid in results:
+                            results[pid]["approved"] = True
+                        events[pid].set()
+
+    except (WebSocketDisconnect, RuntimeError, OSError, asyncio.CancelledError):
         pass
     finally:
         ui_manager.disconnect(websocket)

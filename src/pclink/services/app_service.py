@@ -39,11 +39,10 @@ class AppService:
             return self._cache["apps"]
 
         apps = []
-        # Run synchronous and heavy directory scanning operations in a thread pool to avoid blocking the event loop
         if sys.platform == "win32":
             apps = await asyncio.to_thread(self._discover_win32)
         elif sys.platform.startswith("linux"):
-            apps = await asyncio.to_thread(self._discover_linux)
+            apps = await self._discover_linux_async()
 
         self._cache = {"apps": apps, "timestamp": now}
         return apps
@@ -76,44 +75,63 @@ class AppService:
                     continue
         return sorted(list(apps.values()), key=lambda x: x["name"])
 
-    def _discover_linux(self) -> List[Dict]:
-        apps = {}
+    def _parse_desktop_file(self, desktop_file: Path) -> Optional[Dict]:
+        """Parses a single .desktop file and resolves its application icon."""
+        try:
+            cfg = configparser.ConfigParser(interpolation=None)
+            cfg.read(str(desktop_file), encoding="utf-8")
+            if "Desktop Entry" in cfg:
+                entry = cfg["Desktop Entry"]
+                if entry.getboolean("NoDisplay", False):
+                    return None
+                if entry.get("Type", "Application") != "Application":
+                    return None
+
+                name = entry.get("Name")
+                cmd = entry.get("Exec")
+                if name and cmd:
+                    clean_cmd = re.sub(r"\s*%[a-zA-Z]", "", cmd).strip().strip('"')
+                    icon = entry.get("Icon")
+                    resolved_icon = self.find_linux_icon(icon) if icon else None
+                    return {
+                        "name": name,
+                        "command": clean_cmd,
+                        "icon_path": resolved_icon or icon,
+                        "is_custom": False,
+                    }
+        except Exception:
+            pass
+        return None
+
+    async def _discover_linux_async(self) -> List[Dict]:
+        """Parses .desktop files and resolves icons in parallel worker threads."""
         paths = [
             Path("/usr/share/applications"),
             Path.home() / ".local/share/applications",
         ]
+        desktop_files = []
         for p in paths:
-            if not p.is_dir():
-                continue
-            for desktop in p.glob("**/*.desktop"):
+            if p.is_dir():
                 try:
-                    cfg = configparser.ConfigParser(interpolation=None)
-                    cfg.read(str(desktop), encoding="utf-8")
-                    if "Desktop Entry" in cfg:
-                        entry = cfg["Desktop Entry"]
-                        if entry.getboolean("NoDisplay", False):
-                            continue
-                        if entry.get("Type", "Application") != "Application":
-                            continue
-
-                        name = entry.get("Name")
-                        cmd = entry.get("Exec")
-                        if name and cmd:
-                            # Clean execution field codes according to Desktop Entry Specification
-                            clean_cmd = (
-                                re.sub(r"\s*%[a-zA-Z]", "", cmd).strip().strip('"')
-                            )
-                            icon = entry.get("Icon")
-                            resolved_icon = self.find_linux_icon(icon) if icon else None
-                            if name not in apps:
-                                apps[name] = {
-                                    "name": name,
-                                    "command": clean_cmd,
-                                    "icon_path": resolved_icon or icon,
-                                    "is_custom": False,
-                                }
+                    desktop_files.extend(list(p.glob("**/*.desktop")))
                 except Exception:
-                    continue
+                    pass
+
+        if not desktop_files:
+            return []
+
+        tasks = [
+            asyncio.to_thread(self._parse_desktop_file, df) for df in desktop_files
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        apps = {}
+        for res in results:
+            if isinstance(res, dict) and res.get("name"):
+                name = res["name"]
+                if name not in apps:
+                    apps[name] = res
+
         return sorted(list(apps.values()), key=lambda x: x["name"])
 
     def find_linux_icon(self, name: str) -> Optional[str]:

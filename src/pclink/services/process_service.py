@@ -38,7 +38,7 @@ class ProcessInfo(BaseModel):
 
 
 class ProcessService:
-    """Logic for process management and telemetry."""
+    """Logic for process management, telemetry, and parallel icon processing."""
 
     def _get_icon_base64(self, exe_path: str) -> Optional[str]:
         if (
@@ -88,47 +88,63 @@ class ProcessService:
         except Exception:
             return None
 
-    async def get_processes(self) -> List[ProcessInfo]:
-        """List active processes with system metrics."""
-        return await asyncio.to_thread(self._get_sync_processes)
+    def _parse_single_process(self, proc_info_dict: dict) -> Optional[ProcessInfo]:
+        """Parses a single process dictionary and extracts its icon synchronously."""
+        try:
+            name = proc_info_dict.get("name")
+            if not name:
+                return None
 
-    def _get_sync_processes(self) -> List[ProcessInfo]:
-        processes_data = []
-        psutil.cpu_percent(interval=0.1)
+            exe = proc_info_dict.get("exe")
+            icon = (
+                self._get_icon_base64(exe) if IS_WINDOWS_ICON_SUPPORT and exe else None
+            )
+
+            mem_info = proc_info_dict.get("memory_info")
+            mem = round(mem_info.rss / (1024 * 1024), 2) if mem_info else 0.0
+            cpu = proc_info_dict.get("cpu_percent") or 0.0
+
+            return ProcessInfo(
+                pid=proc_info_dict["pid"],
+                name=name,
+                username=proc_info_dict.get("username", "N/A"),
+                cpu_percent=round(cpu, 2),
+                memory_mb=mem,
+                icon_base64=icon,
+            )
+        except Exception:
+            return None
+
+    async def get_processes(self) -> List[ProcessInfo]:
+        """List active processes with system metrics using parallel icon extraction."""
         attrs = ["pid", "name", "username", "cpu_percent", "memory_info"]
         if IS_WINDOWS_ICON_SUPPORT:
             attrs.append("exe")
 
-        for proc in psutil.process_iter(attrs=attrs):
-            try:
-                p = proc.info
-                if not p.get("name"):
+        def _collect_raw_procs():
+            psutil.cpu_percent(interval=0.05)
+            raw_list = []
+            for proc in psutil.process_iter(attrs=attrs):
+                try:
+                    raw_list.append(proc.info)
+                except (
+                    psutil.NoSuchProcess,
+                    psutil.AccessDenied,
+                    psutil.ZombieProcess,
+                ):
                     continue
-                icon = (
-                    self._get_icon_base64(p["exe"])
-                    if IS_WINDOWS_ICON_SUPPORT and p.get("exe")
-                    else None
-                )
-                mem = (
-                    round(p["memory_info"].rss / (1024 * 1024), 2)
-                    if p.get("memory_info")
-                    else 0.0
-                )
-                cpu = p.get("cpu_percent") or 0.0
-                processes_data.append(
-                    ProcessInfo(
-                        pid=p["pid"],
-                        name=p["name"],
-                        username=p.get("username", "N/A"),
-                        cpu_percent=round(cpu, 2),
-                        memory_mb=mem,
-                        icon_base64=icon,
-                    )
-                )
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
-            except Exception:
-                continue
+            return raw_list
+
+        raw_procs = await asyncio.to_thread(_collect_raw_procs)
+
+        if not raw_procs:
+            return []
+
+        # Process icons and metrics concurrently across thread pool
+        tasks = [asyncio.to_thread(self._parse_single_process, p) for p in raw_procs]
+        parsed_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        processes_data = [res for res in parsed_results if isinstance(res, ProcessInfo)]
         return processes_data
 
     async def kill_process(self, pid: int) -> str:

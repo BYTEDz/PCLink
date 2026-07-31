@@ -186,7 +186,7 @@ class FileService:
         return "file"
 
     async def scan_directory(self, path: Path) -> List[Dict[str, Any]]:
-        """Scans a directory and returns its items."""
+        """Scans a directory and returns items instantly (uses fast cache for durations)."""
 
         def _scan():
             if not os.access(path, os.R_OK):
@@ -200,35 +200,16 @@ class FileService:
                     item_type = self.get_item_type(entry.name, is_dir)
                     duration_ms = 0
 
-                    if not is_dir and item_type in ("video", "audio") and AV_INSTALLED:
-                        file_path = path / entry.name
-                        cache_key = (str(file_path), stat.st_mtime, stat.st_size)
-
+                    if not is_dir and item_type in ("video", "audio"):
+                        cache_key = (
+                            str(path / entry.name),
+                            stat.st_mtime,
+                            stat.st_size,
+                        )
                         if cache_key in self._metadata_cache:
                             duration_ms = self._metadata_cache[cache_key].get(
                                 "duration", 0
                             )
-                        else:
-                            try:
-                                with av.open(str(file_path)) as container:
-                                    if container.duration is not None:
-                                        duration_ms = container.duration // 1000
-                                    elif container.streams and getattr(
-                                        container.streams, "video", None
-                                    ):
-                                        stream = container.streams.video[0]
-                                        if stream.duration and stream.time_base:
-                                            duration_ms = int(
-                                                float(
-                                                    stream.duration * stream.time_base
-                                                )
-                                                * 1000
-                                            )
-                                self._metadata_cache[cache_key] = {
-                                    "duration": duration_ms
-                                }
-                            except Exception:
-                                pass
 
                     items.append(
                         {
@@ -277,9 +258,21 @@ class FileService:
                     ".bmp",
                 ):
                     with Image.open(file_path) as img:
+                        # Convert palette and transparency images to RGBA to avoid Pillow UserWarnings
+                        if (
+                            img.mode in ("P", "PA", "1", "L")
+                            or "transparency" in img.info
+                        ):
+                            img = img.convert("RGBA")
+
                         img.thumbnail((256, 256))
                         buf = BytesIO()
-                        img.convert("RGB").save(buf, format="PNG")
+
+                        if img.mode == "RGBA":
+                            img.save(buf, format="PNG")
+                        else:
+                            img.convert("RGB").save(buf, format="PNG")
+
                         data = buf.getvalue()
                         cache_file.write_bytes(data)
                         return data
@@ -332,7 +325,7 @@ class FileService:
         return await asyncio.to_thread(_get_thumb)
 
     async def get_media_info(self, file_path: Path) -> Optional[Dict[str, Any]]:
-        """Extracts media info (duration, resolution) from a video or audio file."""
+        """Extracts media info (duration, resolution) from a video or audio file on demand."""
         if not AV_INSTALLED or not file_path.is_file():
             return None
 
