@@ -904,10 +904,11 @@ def repair():
     help=_("Execute diagnostic checks on system configuration and network state.")
 )
 def diagnose():
+    import asyncio
     from .services.repair_service import repair_service
 
     click.secho(_("Initiating system diagnostics..."), fg="cyan")
-    results = repair_service.run_diagnostics()
+    results = asyncio.run(repair_service.run_diagnostics())
     for component, res in results.items():
         status = res.get("status")
         msg = res.get("message")

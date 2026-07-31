@@ -17,8 +17,8 @@ class RepairRequest(BaseModel):
 
 @router.get("/diagnose")
 async def diagnose():
-    """Run all diagnostic checks."""
-    return repair_service.run_diagnostics()
+    """Run all diagnostic checks concurrently."""
+    return await repair_service.run_diagnostics()
 
 
 @router.get("/causes")

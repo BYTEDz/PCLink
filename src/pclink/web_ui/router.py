@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-# src/pclink/web_ui/router.py
 """
 PCLink Web UI Router
-Serves the web-based control panel interface
+Serves the web-based control panel interface with dynamic asset cache busting.
 """
 
 from fastapi import APIRouter, FastAPI, Request
@@ -13,11 +12,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ..core.utils import resource_path
+from ..core.version import __version__
 
 
 def create_web_ui_router(app: FastAPI) -> APIRouter:
     """
-    Create and configure the web UI router and mount static files.
+    Create and configure the web UI router, mount static files with cache control headers,
+    and inject dynamic versioning for cache busting.
     """
     router = APIRouter()
 
@@ -35,12 +36,14 @@ def create_web_ui_router(app: FastAPI) -> APIRouter:
 
     @router.get("/", response_class=HTMLResponse)
     async def serve_web_ui(request: Request):
-        """Serve the main web UI page or redirect to auth."""
+        """Serve the main web UI page or redirect to auth with dynamic asset cache-busting."""
         from ..core.web_auth import web_auth_manager
+
+        context = {"request": request, "server_version": __version__}
 
         # Check if setup is completed
         if not web_auth_manager.is_setup_completed():
-            return templates.TemplateResponse(request=request, name="auth.html")
+            return templates.TemplateResponse("auth.html", context)
 
         # Check for valid session
         session_token = request.cookies.get("pclink_session")
@@ -49,14 +52,15 @@ def create_web_ui_router(app: FastAPI) -> APIRouter:
         if not session_token or not web_auth_manager.validate_session(
             session_token, client_ip
         ):
-            return templates.TemplateResponse(request=request, name="auth.html")
+            return templates.TemplateResponse("auth.html", context)
 
         # Serve main UI using Jinja2
-        return templates.TemplateResponse(request=request, name="base.html")
+        return templates.TemplateResponse("base.html", context)
 
     @router.get("/auth", response_class=HTMLResponse)
     async def serve_auth_page(request: Request):
-        """Serve the authentication page explicitly."""
-        return templates.TemplateResponse(request=request, name="auth.html")
+        """Serve the authentication page explicitly with dynamic cache-busting."""
+        context = {"request": request, "server_version": __version__}
+        return templates.TemplateResponse("auth.html", context)
 
     return router

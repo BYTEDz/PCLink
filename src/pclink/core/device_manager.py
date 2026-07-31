@@ -129,7 +129,7 @@ class IPChangeLog:
 
 
 class DeviceManager:
-    """Manages device registration, authentication, and permission tracking with WAL-optimized SQLite backend."""
+    """Manages device registration, authentication, permission tracking, and auto-migrations with WAL-optimized SQLite backend."""
 
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or (constants.APP_DATA_PATH / "devices.db")
@@ -145,7 +145,7 @@ class DeviceManager:
         return conn
 
     def _init_database(self):
-        """Init sqlite and apply column migrations."""
+        """Init sqlite, create tables, and perform automatic column migration for version updates."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         with self._get_connection() as conn:
@@ -198,7 +198,35 @@ class DeviceManager:
             """
             )
 
+            # Auto-Migrate missing columns if updating from an older database schema
+            self._migrate_schema(conn)
             conn.commit()
+
+    def _migrate_schema(self, conn: sqlite3.Connection):
+        """Inspects table schema and runs non-destructive ALTER TABLE migrations if missing columns are detected."""
+        try:
+            cursor = conn.execute("PRAGMA table_info(devices)")
+            existing_columns = {row["name"] for row in cursor.fetchall()}
+
+            expected_columns = {
+                "hardware_id": "TEXT DEFAULT ''",
+                "permissions": "TEXT DEFAULT ''",
+                "device_fingerprint": "TEXT DEFAULT ''",
+                "platform": "TEXT DEFAULT ''",
+                "client_version": "TEXT DEFAULT ''",
+                "current_ip": "TEXT DEFAULT ''",
+            }
+
+            for col_name, col_type in expected_columns.items():
+                if col_name not in existing_columns:
+                    log.info(
+                        f"Database Migration: Adding missing column '{col_name}' to 'devices' table."
+                    )
+                    conn.execute(
+                        f"ALTER TABLE devices ADD COLUMN {col_name} {col_type};"
+                    )
+        except Exception as e:
+            log.error(f"Failed to auto-migrate database schema: {e}", exc_info=True)
 
     def register_device(
         self,
@@ -212,7 +240,6 @@ class DeviceManager:
     ) -> Device:
         """Register a new device and assign the default permission set."""
         with self._lock:
-            # --- Check Blacklist ---
             if hardware_id and self.is_hardware_banned(hardware_id):
                 log.warning(
                     f"Registration attempt from banned hardware ID: {hardware_id}"
@@ -285,7 +312,6 @@ class DeviceManager:
         if not hardware_id:
             return False
         with self._lock:
-            # 1. Add to blacklist
             with self._get_connection() as conn:
                 conn.execute(
                     """
@@ -296,7 +322,6 @@ class DeviceManager:
                 )
                 conn.commit()
 
-            # 2. Revoke all devices matching this hardware_id
             for device in self.get_all_devices():
                 if device.hardware_id == hardware_id:
                     self.revoke_device(device.device_id)

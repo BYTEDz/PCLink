@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-import gettext
+import asyncio
 import gc
+import gettext
 import json
 import logging
 import shutil
@@ -289,7 +290,6 @@ class RepairService:
         # 3. Cleanup Stale Transfer Files
         try:
             from .transfer_service import transfer_service
-            import asyncio
 
             cleaned = asyncio.run(transfer_service.cleanup_stale_sessions(days=1))
             if cleaned > 0:
@@ -312,32 +312,60 @@ class RepairService:
         }
 
     @staticmethod
-    def run_diagnostics() -> dict:
+    async def run_diagnostics() -> dict:
+        """Runs all 4 diagnostic checks concurrently off the main event loop thread."""
         port = config_manager.get("server_port", 38080)
+
+        port_task = asyncio.to_thread(RepairService.check_port_availability, port)
+        db_task = asyncio.to_thread(RepairService.check_db_integrity)
+        config_task = asyncio.to_thread(RepairService.check_config)
+        firewall_task = asyncio.to_thread(RepairService.check_firewall)
+
+        port_res, db_res, config_res, firewall_res = await asyncio.gather(
+            port_task, db_task, config_task, firewall_task
+        )
+
         return {
-            "port": RepairService.check_port_availability(port),
-            "db": RepairService.check_db_integrity(),
-            "config": RepairService.check_config(),
-            "firewall": RepairService.check_firewall(),
+            "port": port_res,
+            "db": db_res,
+            "config": config_res,
+            "firewall": firewall_res,
         }
 
     @staticmethod
     def fix_db() -> dict:
+        """Non-destructively repairs database schema migrations, and falls back to a clean backup only if integrity is severely corrupted."""
         if not device_manager.db_path.exists():
-            return {"status": "error", "message": _("No DB to fix.")}
+            device_manager._init_database()
+            return {"status": "ok", "message": _("Database initialized.")}
         try:
+            # 1. First attempt non-destructive schema migration
+            device_manager._init_database()
+
+            # 2. Check if integrity passes after migration
+            integrity = RepairService.check_db_integrity()
+            if integrity.get("status") == "ok":
+                return {
+                    "status": "ok",
+                    "message": _("Database schema successfully migrated and verified."),
+                }
+
+            # 3. Fallback: Create backup and re-initialize if database is corrupted
             backup_path = device_manager.db_path.with_suffix(".db.bak")
             shutil.copy2(device_manager.db_path, backup_path)
             device_manager.db_path.unlink()
             device_manager._init_database()
             return {
                 "status": "ok",
-                "message": _("Database recreated. Backup saved to {}").format(
+                "message": _("Corrupted DB backed up to {} and recreated.").format(
                     backup_path
                 ),
             }
         except Exception as e:
-            return {"status": "error", "message": _("Failed to fix DB: {}").format(e)}
+            return {
+                "status": "error",
+                "message": _("Failed to repair DB: {}").format(e),
+            }
 
     @staticmethod
     def fix_config() -> dict:

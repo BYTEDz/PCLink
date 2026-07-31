@@ -69,19 +69,33 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
 }
 
 
-def _deep_merge(default: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively merges user settings onto default dictionary structure."""
+def _deep_merge_and_sanitize(
+    default: Dict[str, Any], user: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Recursively merges user settings onto default dictionary and enforces type safety."""
     res = deepcopy(default)
     for k, v in user.items():
-        if k in res and isinstance(res[k], dict) and isinstance(v, dict):
-            res[k] = _deep_merge(res[k], v)
+        if k in res:
+            default_val = res[k]
+            # Type safety check: Ensure user value matches expected type of default setting
+            if isinstance(default_val, dict) and isinstance(v, dict):
+                res[k] = _deep_merge_and_sanitize(default_val, v)
+            elif type(default_val) is type(v):
+                res[k] = v
+            elif isinstance(default_val, int) and isinstance(v, str) and v.isdigit():
+                # Auto-coerce numeric strings to integers (e.g. port "38080" -> 38080)
+                res[k] = int(v)
+            else:
+                log.warning(
+                    f"Config Sanitizer: Type mismatch for key '{k}'. Expected {type(default_val).__name__}, got {type(v).__name__}. Restoring default value."
+                )
         else:
             res[k] = v
     return res
 
 
 class ConfigManager:
-    """Thread-safe configuration manager backed by JSON store with structured defaults."""
+    """Thread-safe configuration manager backed by JSON store with structured defaults and type sanitization."""
 
     def __init__(self):
         self.config_file = constants.CONFIG_FILE
@@ -90,7 +104,7 @@ class ConfigManager:
         self._load_from_file()
 
     def _load_from_file(self):
-        """Sync filesystem configuration to internal cache with fallback to defaults."""
+        """Sync filesystem configuration to internal cache with fallback and type sanitization."""
         with self._lock:
             self._json_cache = deepcopy(DEFAULT_SETTINGS)
             if not self.config_file.exists():
@@ -102,7 +116,9 @@ class ConfigManager:
                 with self.config_file.open("r", encoding="utf-8") as f:
                     user_config = json.load(f)
                     if isinstance(user_config, dict):
-                        self._json_cache = _deep_merge(DEFAULT_SETTINGS, user_config)
+                        self._json_cache = _deep_merge_and_sanitize(
+                            DEFAULT_SETTINGS, user_config
+                        )
 
                 log.info(f"Configuration loaded from {self.config_file}")
             except (IOError, json.JSONDecodeError) as e:
