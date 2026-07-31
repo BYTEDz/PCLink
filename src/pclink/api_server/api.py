@@ -129,9 +129,13 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     extension_manager.app = app
     app.state.extension_manager = extension_manager
 
-    # Global Middleware
+    # Hardened CORS Middleware: Restrict cross-origin access to local/LAN IP addresses with credential support
     app.add_middleware(
-        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+        CORSMiddleware,
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 

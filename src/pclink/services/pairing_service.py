@@ -5,7 +5,7 @@
 import asyncio
 import logging
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..core import constants
 from ..core.config import config_manager
@@ -45,9 +45,12 @@ class PairingService:
         client_version: Optional[str] = None,
         platform_name: Optional[str] = None,
         hardware_id: Optional[str] = None,
-        app_state: Any = None,
+        ui_broadcaster: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+        has_active_ui_connections: bool = False,
+        tray_notifier: Optional[Callable[[str, str], None]] = None,
+        web_ui_url: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Handles incoming pairing requests from mobile devices, including hardware ID re-auth."""
+        """Handles incoming pairing requests from mobile devices, using explicit decoupled callbacks for notifications."""
 
         # 1. Hardware ID re-auth check (app reinstall path)
         if hardware_id:
@@ -91,10 +94,10 @@ class PairingService:
             "platform": platform_name,
         }
 
-        # 4. Notify Web UI (Browser)
-        if app_state and hasattr(app_state, "ui_manager"):
+        # 4. Notify Web UI via decoupled broadcaster
+        if ui_broadcaster:
             try:
-                await app_state.ui_manager.broadcast(
+                await ui_broadcaster(
                     {
                         "type": "pairing_request",
                         "data": {
@@ -109,21 +112,17 @@ class PairingService:
             except Exception as e:
                 log.error(f"Error broadcasting pairing request to Web UI: {e}")
 
-            # 5. Tray Notification if no active browser tab
-            if not app_state.ui_manager.active_connections:
-                try:
-                    controller = getattr(app_state, "controller", None)
-                    tray = getattr(app_state, "tray_manager", None)
-                    if tray is not None and controller is not None:
-                        web_ui_url = controller.get_web_ui_url()
-                        asyncio.get_event_loop().run_in_executor(
-                            None,
-                            tray.show_pairing_notification,
-                            device_name,
-                            web_ui_url,
-                        )
-                except Exception as _e:
-                    log.debug(f"Pairing notification skipped: {_e}")
+        # 5. Tray Notification if no active browser tab
+        if not has_active_ui_connections and tray_notifier and web_ui_url:
+            try:
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    tray_notifier,
+                    device_name,
+                    web_ui_url,
+                )
+            except Exception as _e:
+                log.debug(f"Pairing notification skipped: {_e}")
 
         # 6. Wait for UI / CLI approval (30s timeout)
         try:
