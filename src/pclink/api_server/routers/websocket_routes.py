@@ -4,8 +4,10 @@
 
 import asyncio
 import gettext
+import json
 import logging
 import platform
+import struct
 import time
 from typing import Any, Dict, List
 
@@ -25,30 +27,24 @@ router = APIRouter(tags=["WebSocket"])
 AUTH_CHECK_INTERVAL = 30.0  # seconds
 
 
-async def handle_mouse_command(data: Dict[str, Any], permissions: List[str]):
+def handle_mouse_command_fast(data: Dict[str, Any], permissions: List[str]):
+    """Direct non-blocking execution for mouse movement without thread pool scheduling overhead."""
     if "input" not in permissions or not input_service.is_available():
         return
 
     action = data.get("action")
     try:
         if action == "move":
-            await asyncio.to_thread(
-                input_service.mouse_move, data.get("dx", 0), data.get("dy", 0)
-            )
+            input_service.mouse_move(data.get("dx", 0), data.get("dy", 0))
+        elif action == "scroll":
+            input_service.mouse_scroll(data.get("dx", 0), data.get("dy", 0))
         elif action == "click":
-            await asyncio.to_thread(
-                input_service.mouse_click,
+            input_service.mouse_click(
                 data.get("button", "left"),
                 data.get("clicks", 1),
             )
         elif action == "double_click":
-            await asyncio.to_thread(
-                input_service.mouse_click, data.get("button", "left"), 2
-            )
-        elif action == "scroll":
-            await asyncio.to_thread(
-                input_service.mouse_scroll, data.get("dx", 0), data.get("dy", 0)
-            )
+            input_service.mouse_click(data.get("button", "left"), 2)
     except Exception as e:
         log.error(f"Mouse command '{action}' failed: {e}")
 
@@ -73,7 +69,7 @@ async def handle_keyboard_command(data: Dict[str, Any], permissions: List[str]):
 
 @router.websocket("/ws")
 async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
-    """Main communication channel for mobile devices with diagnostic telemetry."""
+    """Main communication channel for mobile devices supporting dual-format (binary + JSON) frames."""
     await websocket.accept()
 
     client_host = websocket.client.host if websocket.client else "unknown"
@@ -145,10 +141,9 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
 
     try:
         while True:
-            data = await websocket.receive_json()
-            msg_type = data.get("type")
-            now = time.time()
+            message = await websocket.receive()
 
+            now = time.time()
             if now - last_auth_check > AUTH_CHECK_INTERVAL:
                 current_device = device_manager.get_device_by_id(device_id)
                 if not (current_device and current_device.is_approved):
@@ -165,39 +160,64 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
                 services = config_manager.get("services", {})
                 last_auth_check = now
 
-            required_service = type_service_map.get(msg_type)
-            if required_service and not services.get(required_service, True):
-                continue
+            # --- Binary Frame Fast-Path (5 Bytes) ---
+            if "bytes" in message and message["bytes"]:
+                raw_bytes = message["bytes"]
+                if not services.get("input", True) or "input" not in permissions:
+                    continue
 
-            try:
-                if msg_type == "ping":
-                    await websocket.send_json({"type": "pong"})
-                elif msg_type == "mouse_control":
-                    await handle_mouse_command(data, permissions)
-                elif msg_type == "keyboard_control":
-                    await handle_keyboard_command(data, permissions)
-                elif msg_type == "media_control" and "media" in permissions:
-                    action = data.get("action")
-                    if action == "play_pause":
-                        await asyncio.to_thread(media_service.play_pause)
-                    elif action == "next":
-                        await asyncio.to_thread(media_service.next_track)
-                    elif action == "previous":
-                        await asyncio.to_thread(media_service.previous_track)
-                    elif action == "volume_up":
-                        await asyncio.to_thread(media_service.volume_up)
-                    elif action == "volume_down":
-                        await asyncio.to_thread(media_service.volume_down)
-                elif msg_type == "FORCE_KEYFRAME":
-                    from ...services.desktop_streaming_service import (
-                        desktop_streaming_service,
-                    )
+                if len(raw_bytes) >= 5:
+                    cmd_type = raw_bytes[0]
+                    dx, dy = struct.unpack(">hh", raw_bytes[1:5])
 
-                    await desktop_streaming_service.send_command(
-                        {"type": "FORCE_KEYFRAME"}
-                    )
-            except Exception as e:
-                log.error(f"Error processing {msg_type}: {e}", exc_info=True)
+                    if cmd_type == 0x01:  # MOUSE_MOVE
+                        input_service.mouse_move(dx, dy)
+                        continue
+                    elif cmd_type == 0x02:  # MOUSE_SCROLL
+                        input_service.mouse_scroll(dx, dy)
+                        continue
+
+            # --- JSON Text Frame Fallback ---
+            if "text" in message and message["text"]:
+                try:
+                    data = json.loads(message["text"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+                msg_type = data.get("type")
+                required_service = type_service_map.get(msg_type)
+                if required_service and not services.get(required_service, True):
+                    continue
+
+                try:
+                    if msg_type == "ping":
+                        await websocket.send_json({"type": "pong"})
+                    elif msg_type == "mouse_control":
+                        handle_mouse_command_fast(data, permissions)
+                    elif msg_type == "keyboard_control":
+                        await handle_keyboard_command(data, permissions)
+                    elif msg_type == "media_control" and "media" in permissions:
+                        action = data.get("action")
+                        if action == "play_pause":
+                            await asyncio.to_thread(media_service.play_pause)
+                        elif action == "next":
+                            await asyncio.to_thread(media_service.next_track)
+                        elif action == "previous":
+                            await asyncio.to_thread(media_service.previous_track)
+                        elif action == "volume_up":
+                            await asyncio.to_thread(media_service.volume_up)
+                        elif action == "volume_down":
+                            await asyncio.to_thread(media_service.volume_down)
+                    elif msg_type == "FORCE_KEYFRAME":
+                        from ...services.desktop_streaming_service import (
+                            desktop_streaming_service,
+                        )
+
+                        await desktop_streaming_service.send_command(
+                            {"type": "FORCE_KEYFRAME"}
+                        )
+                except Exception as e:
+                    log.error(f"Error processing {msg_type}: {e}", exc_info=True)
 
     except (WebSocketDisconnect, OSError) as e:
         log_telemetry_event(

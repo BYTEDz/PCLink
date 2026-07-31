@@ -75,6 +75,10 @@ class InputService:
         return self.use_evdev or (self.mouse is not None and self.keyboard is not None)
 
     def mouse_move(self, dx: int, dy: int):
+        """Dispatches mouse movement deltas directly to the active hardware/virtual backend."""
+        if not dx and not dy:
+            return
+
         if self.use_evdev:
             self.evdev.move_relative(dx, dy)
         elif self.mouse:
@@ -88,6 +92,9 @@ class InputService:
             self.mouse.click(btn, clicks)
 
     def mouse_scroll(self, dx: int, dy: int):
+        if not dx and not dy:
+            return
+
         if self.use_evdev:
             self.evdev.scroll(dx, dy)
         elif self.mouse:
