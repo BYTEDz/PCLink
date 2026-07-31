@@ -12,10 +12,6 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from ..core.constants import DOWNLOADS_PATH, UPLOADS_PATH
-from ..services.file_service import AIOFILES_INSTALLED, file_service
-
-if AIOFILES_INSTALLED:
-    import aiofiles
 
 log = logging.getLogger(__name__)
 
@@ -73,9 +69,6 @@ class TransferService:
             return json.loads(meta_file.read_text(encoding="utf-8"))
 
         try:
-            if AIOFILES_INSTALLED:
-                async with aiofiles.open(meta_file, "r", encoding="utf-8") as f:
-                    return json.loads(await f.read())
             return await asyncio.to_thread(_read_sync)
         except Exception as e:
             log.error(f"Failed to read session {transfer_id}: {e}")
@@ -88,11 +81,7 @@ class TransferService:
             meta_file.write_text(json.dumps(data), encoding="utf-8")
 
         try:
-            if AIOFILES_INSTALLED:
-                async with aiofiles.open(meta_file, "w", encoding="utf-8") as f:
-                    await f.write(json.dumps(data))
-            else:
-                await asyncio.to_thread(_save_sync)
+            await asyncio.to_thread(_save_sync)
         except Exception as e:
             log.error(f"Failed to save session {transfer_id}: {e}")
 
@@ -130,6 +119,8 @@ class TransferService:
         file_size: int,
         conflict: str,
     ):
+        from ..services.file_service import file_service
+
         dest = file_service.validate_path(dest_path)
         if not dest.is_dir():
             raise ValueError("Destination not a directory")
@@ -209,7 +200,6 @@ class TransferService:
             current_buffer = self.buffer_sizes.get(upload_id, 0)
 
             # Security Fix: Prevent OOM (Memory Exhaustion) Attacks
-
             if offset > expected and (current_buffer + chunk_size) > UPLOAD_BUFFER_SIZE:
                 raise BufferError("Upload buffer exceeded. Missing chunks detected.")
 
@@ -229,16 +219,12 @@ class TransferService:
 
             if chunks_to_write:
                 combined_data = b"".join(chunks_to_write)
-                if AIOFILES_INSTALLED:
-                    async with aiofiles.open(part_file, "ab") as f:
-                        await f.write(combined_data)
-                else:
 
-                    def _append_sync():
-                        with part_file.open("ab") as f:
-                            f.write(combined_data)
+                def _append_sync():
+                    with part_file.open("ab") as f:
+                        f.write(combined_data)
 
-                    await asyncio.to_thread(_append_sync)
+                await asyncio.to_thread(_append_sync)
 
                 self.next_write_offset[upload_id] = curr
                 self.buffer_sizes[upload_id] -= written
@@ -281,6 +267,8 @@ class TransferService:
     # --- DOWNLOAD ---
 
     async def initiate_download(self, client_id: str, file_path: str):
+        from ..services.file_service import file_service
+
         path = file_service.validate_path(file_path)
         if not path.is_file():
             raise FileNotFoundError("File not found")

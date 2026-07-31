@@ -1,3 +1,4 @@
+# src/pclink/services/app_service.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -13,13 +14,6 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 log = logging.getLogger(__name__)
-
-try:
-    import winshell
-
-    WINSHELL_AVAILABLE = True
-except ImportError:
-    WINSHELL_AVAILABLE = False
 
 
 class AppService:
@@ -48,31 +42,39 @@ class AppService:
         return apps
 
     def _discover_win32(self) -> List[Dict]:
-        if not WINSHELL_AVAILABLE:
-            return []
         apps = {}
-        paths = [
-            Path(winshell.folder("common_programs")),
-            Path(winshell.folder("programs")),
-        ]
-        for p in paths:
-            for lnk in p.glob("**/*.lnk"):
-                try:
-                    target = winshell.shortcut(str(lnk)).path
-                    if (
-                        target
-                        and target.lower().endswith(".exe")
-                        and os.path.exists(target)
-                    ):
-                        if lnk.stem not in apps:
-                            apps[lnk.stem] = {
-                                "name": lnk.stem,
-                                "command": target,
-                                "icon_path": target,
-                                "is_custom": False,
-                            }
-                except Exception:
+        try:
+            import win32com.client
+
+            shell = win32com.client.Dispatch("WScript.Shell")
+            paths = [
+                Path(shell.SpecialFolders("AllUsersPrograms")),
+                Path(shell.SpecialFolders("Programs")),
+            ]
+            for p in paths:
+                if not p.exists():
                     continue
+                for lnk in p.glob("**/*.lnk"):
+                    try:
+                        shortcut = shell.CreateShortcut(str(lnk))
+                        target = shortcut.TargetPath
+                        if (
+                            target
+                            and target.lower().endswith(".exe")
+                            and os.path.exists(target)
+                        ):
+                            if lnk.stem not in apps:
+                                apps[lnk.stem] = {
+                                    "name": lnk.stem,
+                                    "command": target,
+                                    "icon_path": target,
+                                    "is_custom": False,
+                                }
+                    except Exception:
+                        continue
+        except Exception as e:
+            log.debug(f"Win32 shortcut discovery failed: {e}")
+
         return sorted(list(apps.values()), key=lambda x: x["name"])
 
     def _parse_desktop_file(self, desktop_file: Path) -> Optional[Dict]:
@@ -140,7 +142,6 @@ class AppService:
         if Path(name).is_absolute() and Path(name).exists():
             return name
 
-        # Common directories where app icons are located
         search_bases = [
             Path("/usr/share/pixmaps"),
             Path("/usr/share/icons/hicolor/scalable/apps"),
@@ -154,7 +155,6 @@ class AppService:
 
         extensions = [".png", ".svg", ".xpm"]
 
-        # Pass 1: Direct path lookup (extremely fast, avoids heavy disk crawling)
         for base in search_bases:
             if not base.is_dir():
                 continue
@@ -163,12 +163,10 @@ class AppService:
                 if candidate.exists():
                     return str(candidate)
 
-        # Pass 2: Fallback to targeted shallow searches if direct lookup is missed
         for base in search_bases:
             if not base.is_dir():
                 continue
 
-            # Prevent rglob over huge parent directories directly
             if str(base) in (
                 "/usr/share/icons",
                 str(Path.home() / ".local/share/icons"),

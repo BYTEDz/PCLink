@@ -36,13 +36,6 @@ try:
 except ImportError:
     AV_INSTALLED = False
 
-try:
-    import aiofiles
-
-    AIOFILES_INSTALLED = True
-except ImportError:
-    AIOFILES_INSTALLED = False
-
 # Constants
 HOME_DIR = Path.home().resolve()
 THUMBNAIL_CACHE_DIR = Path(tempfile.gettempdir()) / "pclink_thumbnails"
@@ -185,50 +178,90 @@ class FileService:
 
         return "file"
 
-    async def scan_directory(self, path: Path) -> List[Dict[str, Any]]:
-        """Scans a directory and returns items instantly (uses fast cache for durations)."""
+    def _probe_media_duration_sync(self, file_path: Path, cache_key: tuple) -> int:
+        """Helper to probe media container duration synchronously."""
+        if cache_key in self._metadata_cache:
+            return self._metadata_cache[cache_key].get("duration", 0)
 
-        def _scan():
+        duration_ms = 0
+        try:
+            with av.open(str(file_path)) as container:
+                if container.duration is not None:
+                    duration_ms = container.duration // 1000
+                elif container.streams and getattr(container.streams, "video", None):
+                    stream = container.streams.video[0]
+                    if stream.duration and stream.time_base:
+                        duration_ms = int(
+                            float(stream.duration * stream.time_base) * 1000
+                        )
+            self._metadata_cache[cache_key] = {"duration": duration_ms}
+        except Exception:
+            pass
+        return duration_ms
+
+    async def scan_directory(self, path: Path) -> List[Dict[str, Any]]:
+        """Scans a directory and probes media durations in parallel worker threads."""
+
+        def _scan_entries():
             if not os.access(path, os.R_OK):
                 raise PermissionError(_("Read access denied: {}").format(path))
 
-            items = []
+            scanned = []
             for entry in os.scandir(path):
                 try:
                     stat = entry.stat()
                     is_dir = entry.is_dir()
                     item_type = self.get_item_type(entry.name, is_dir)
-                    duration_ms = 0
-
-                    if not is_dir and item_type in ("video", "audio"):
-                        cache_key = (
-                            str(path / entry.name),
-                            stat.st_mtime,
-                            stat.st_size,
-                        )
-                        if cache_key in self._metadata_cache:
-                            duration_ms = self._metadata_cache[cache_key].get(
-                                "duration", 0
-                            )
-
-                    items.append(
-                        {
-                            "name": entry.name,
-                            "path": str(path / entry.name),
-                            "is_dir": is_dir,
-                            "size": stat.st_size,
-                            "modified_at": stat.st_mtime,
-                            "item_type": item_type,
-                            "duration": duration_ms,
-                        }
+                    scanned.append(
+                        (entry.name, is_dir, item_type, stat.st_size, stat.st_mtime)
                     )
                 except Exception:
                     continue
+            return scanned
 
-            items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
-            return items
+        scanned_entries = await asyncio.to_thread(_scan_entries)
 
-        return await asyncio.to_thread(_scan)
+        # Prepare media probing tasks for parallel execution
+        media_tasks = []
+        media_indices = []
+
+        for idx, (name, is_dir, item_type, size, mtime) in enumerate(scanned_entries):
+            if not is_dir and item_type in ("video", "audio") and AV_INSTALLED:
+                file_p = path / name
+                cache_key = (str(file_p), mtime, size)
+                media_tasks.append(
+                    asyncio.to_thread(
+                        self._probe_media_duration_sync, file_p, cache_key
+                    )
+                )
+                media_indices.append(idx)
+
+        # Execute all media probes concurrently across thread pool
+        probe_results = []
+        if media_tasks:
+            probe_results = await asyncio.gather(*media_tasks, return_exceptions=True)
+
+        durations_map = {}
+        for idx_pos, result_dur in zip(media_indices, probe_results):
+            if isinstance(result_dur, int):
+                durations_map[idx_pos] = result_dur
+
+        items = []
+        for idx, (name, is_dir, item_type, size, mtime) in enumerate(scanned_entries):
+            items.append(
+                {
+                    "name": name,
+                    "path": str(path / name),
+                    "is_dir": is_dir,
+                    "size": size,
+                    "modified_at": mtime,
+                    "item_type": item_type,
+                    "duration": durations_map.get(idx, 0),
+                }
+            )
+
+        items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+        return items
 
     async def get_thumbnail(self, file_path: Path) -> Optional[bytes]:
         """Generates or retrieves a cached thumbnail for an image or a video."""
@@ -694,36 +727,24 @@ class FileService:
     ):
         """Asynchronous iterator to read a byte range from a file."""
         try:
-            if AIOFILES_INSTALLED:
-                async with aiofiles.open(path, "rb") as f:
-                    await f.seek(start)
-                    remaining = (end - start) + 1
-                    while remaining > 0:
-                        chunk = await f.read(min(chunk_size, remaining))
-                        if not chunk:
-                            break
-                        remaining -= len(chunk)
-                        yield chunk
-            else:
-                log.info("Using non-blocking sync I/O fallback for streaming")
 
-                def _read_chunk(f_obj, size):
-                    return f_obj.read(size)
+            def _read_chunk(f_obj, size):
+                return f_obj.read(size)
 
-                f = await asyncio.to_thread(path.open, "rb")
-                try:
-                    await asyncio.to_thread(f.seek, start)
-                    remaining = (end - start) + 1
-                    while remaining > 0:
-                        chunk = await asyncio.to_thread(
-                            _read_chunk, f, min(chunk_size, remaining)
-                        )
-                        if not chunk:
-                            break
-                        remaining -= len(chunk)
-                        yield chunk
-                finally:
-                    await asyncio.to_thread(f.close)
+            f = await asyncio.to_thread(path.open, "rb")
+            try:
+                await asyncio.to_thread(f.seek, start)
+                remaining = (end - start) + 1
+                while remaining > 0:
+                    chunk = await asyncio.to_thread(
+                        _read_chunk, f, min(chunk_size, remaining)
+                    )
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+            finally:
+                await asyncio.to_thread(f.close)
         except Exception as e:
             log.error(f"Streaming error for {path}: {e}")
 

@@ -757,23 +757,31 @@ class SystemService:
         return False
 
     async def get_wol_info(self) -> Dict[str, Any]:
-        """Gets MAC address for Wake-on-LAN."""
+        """Gets MAC address for Wake-on-LAN using psutil."""
         now = time.time()
         if _mac_address_cache["mac"] and (
             now - _mac_address_cache["timestamp"] < _MAC_CACHE_TTL
         ):
             return {"supported": True, "mac_address": _mac_address_cache["mac"]}
 
-        try:
-            from getmac import get_mac_address
+        def _get_mac():
+            try:
+                for nic, addrs in psutil.net_if_addrs().items():
+                    for addr in addrs:
+                        # AF_LINK is the standard for MAC addresses
+                        if addr.family == psutil.AF_LINK:
+                            if addr.address and addr.address != "00:00:00:00:00:00":
+                                return addr.address
+            except Exception:
+                pass
+            return None
 
-            mac = await asyncio.to_thread(get_mac_address)
-            if mac:
-                _mac_address_cache["mac"] = mac
-                _mac_address_cache["timestamp"] = now
-                return {"supported": True, "mac_address": mac}
-        except Exception:
-            pass
+        mac = await asyncio.to_thread(_get_mac)
+        if mac:
+            _mac_address_cache["mac"] = mac
+            _mac_address_cache["timestamp"] = now
+            return {"supported": True, "mac_address": mac}
+
         return {"supported": False, "mac_address": None}
 
 
