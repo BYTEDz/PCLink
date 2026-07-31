@@ -20,6 +20,7 @@ from ...core.logging import memory_log_handler
 from ...core.utils import get_cert_fingerprint
 from ...core.version import __version__
 from ...services.discovery_service import DiscoveryService
+from ...services.pairing_service import pairing_service
 from ...services.transfer_service import (
     DOWNLOAD_SESSION_DIR,
     TEMP_UPLOAD_DIR,
@@ -483,18 +484,7 @@ async def update_transfer_cleanup_config(request: Request):
 @mgmt_router.get("/ui/pairing/list")
 async def list_pending_pairings(request: Request):
     """List all currently pending pairing requests."""
-    results = getattr(request.app.state, "pairing_results", {})
-    pending = []
-    for pid, data in results.items():
-        pending.append(
-            {
-                "pairing_id": pid,
-                "device_name": data.get("device_name"),
-                "ip": data.get("ip"),
-                "platform": data.get("platform"),
-            }
-        )
-    return {"requests": pending}
+    return {"requests": pairing_service.get_pending_requests()}
 
 
 @core_router.post("/announce")

@@ -8,12 +8,36 @@ from typing import Optional, Union
 
 from fastapi import Depends, Header, HTTPException, Query, Request, WebSocket
 
-from ...core.device_manager import Device, device_manager
-from ...core.share_manager import share_manager
-from ...core.web_auth import web_auth_manager
+from ...core.device_manager import Device, device_manager as default_device_manager
+from ...core.share_manager import share_manager as default_share_manager
+from ...core.web_auth import web_auth_manager as default_web_auth_manager
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
+
+
+def get_device_manager(conn: Union[Request, WebSocket]):
+    """Helper to resolve DeviceManager from app state or default singleton."""
+    app = getattr(conn, "app", None)
+    if app and hasattr(app.state, "device_manager"):
+        return app.state.device_manager
+    return default_device_manager
+
+
+def get_share_manager(conn: Union[Request, WebSocket]):
+    """Helper to resolve ShareManager from app state or default singleton."""
+    app = getattr(conn, "app", None)
+    if app and hasattr(app.state, "share_manager"):
+        return app.state.share_manager
+    return default_share_manager
+
+
+def get_web_auth_manager(conn: Union[Request, WebSocket]):
+    """Helper to resolve WebAuthManager from app state or default singleton."""
+    app = getattr(conn, "app", None)
+    if app and hasattr(app.state, "web_auth_manager"):
+        return app.state.web_auth_manager
+    return default_web_auth_manager
 
 
 def extract_token(
@@ -60,7 +84,8 @@ async def verify_web_session(request: Request) -> bool:
         raise HTTPException(status_code=401, detail=_("No session token"))
 
     client_ip = request.client.host if request.client else None
-    if not web_auth_manager.validate_session(session_token, client_ip):
+    web_auth_mgr = get_web_auth_manager(request)
+    if not web_auth_mgr.validate_session(session_token, client_ip):
         raise HTTPException(status_code=401, detail=_("Invalid or expired session"))
     return True
 
@@ -78,14 +103,15 @@ async def get_authenticated_device(
     if not key:
         raise HTTPException(status_code=401, detail=_("Missing API Key"))
 
-    device = device_manager.get_device_by_api_key(key)
+    device_mgr = get_device_manager(request)
+    device = device_mgr.get_device_by_api_key(key)
     if device and device.is_approved:
         if request.client:
             client_ip = request.client.host
             if device.current_ip != client_ip:
-                device_manager.update_device_ip(device.device_id, client_ip)
+                device_mgr.update_device_ip(device.device_id, client_ip)
             else:
-                device_manager.update_device_last_seen(device.device_id)
+                device_mgr.update_device_last_seen(device.device_id)
         return device
 
     raise HTTPException(status_code=403, detail="DEVICE_REVOKED")
@@ -101,23 +127,25 @@ async def verify_api_key(
     if request.url.path.startswith("/files/download"):
         req_path = request.query_params.get("path")
         req_token = extract_token(request, x_api_key, token)
+        share_mgr = get_share_manager(request)
         if (
             req_token
             and req_path
-            and share_manager.validate_share_token(req_token, req_path)
+            and share_mgr.validate_share_token(req_token, req_path)
         ):
             return True
 
     key = extract_token(request, x_api_key, token)
     if key:
-        device = device_manager.get_device_by_api_key(key)
+        device_mgr = get_device_manager(request)
+        device = device_mgr.get_device_by_api_key(key)
         if device and device.is_approved:
             if request.client:
                 client_ip = request.client.host
                 if device.current_ip != client_ip:
-                    device_manager.update_device_ip(device.device_id, client_ip)
+                    device_mgr.update_device_ip(device.device_id, client_ip)
                 else:
-                    device_manager.update_device_last_seen(device.device_id)
+                    device_mgr.update_device_last_seen(device.device_id)
             return True
         raise HTTPException(status_code=403, detail="DEVICE_REVOKED")
 

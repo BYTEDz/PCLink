@@ -31,13 +31,10 @@ from .routers.transfers import (
     upload_router,
 )
 from .routers.utils import router as utils_router
+from ..services.pairing_service import pairing_service
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
-
-# --- Pairing State ---
-pairing_events: Dict[str, asyncio.Event] = {}
-pairing_results: Dict[str, dict] = {}
 
 
 # --- FastAPI App Factory ---
@@ -105,13 +102,22 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     )
 
     from .ws_manager import mobile_manager, ui_manager
+    from ..core.device_manager import device_manager
+    from ..core.share_manager import share_manager
+    from ..core.web_auth import web_auth_manager
+    from ..core.config import config_manager
 
-    # Expose managers to state for access in routers
+    # Register managers and core services on app state
     app.state.mobile_manager = mobile_manager
     app.state.ui_manager = ui_manager
     app.state.connected_devices = connected_devices
-    app.state.pairing_events = pairing_events
-    app.state.pairing_results = pairing_results
+    app.state.pairing_events = pairing_service.pairing_events
+    app.state.pairing_results = pairing_service.pairing_results
+    app.state.pairing_service = pairing_service
+    app.state.device_manager = device_manager
+    app.state.share_manager = share_manager
+    app.state.web_auth_manager = web_auth_manager
+    app.state.config_manager = config_manager
     app.state.controller = controller_instance
     app.state.host_port = getattr(controller_instance, "port", 38080)
     from .routers.dependencies import MOBILE_API, WEB_AUTH
@@ -183,8 +189,6 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
 
     @app.get("/ui/services/list", dependencies=[WEB_AUTH])
     async def list_services_states():
-        from ..core.config import config_manager
-
         return {"services": config_manager.get("services", {})}
 
     app.include_router(

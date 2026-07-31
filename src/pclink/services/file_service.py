@@ -2,6 +2,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import gettext
 import hashlib
 import logging
 import mimetypes
@@ -15,7 +16,10 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
+from ..core.validators import validate_filename
+
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 # Optional dependencies
 try:
@@ -46,12 +50,26 @@ THUMBNAIL_CACHE_DIR.mkdir(exist_ok=True, parents=True)
 
 
 class FileService:
-    """Logic for file browsing, management, thumbnails, and archives."""
+    """Logic for file browsing, management, thumbnails, archives, and batch operations."""
 
     def __init__(self):
         self._roots_cache = None
         self._roots_cache_time = 0.0
         self._metadata_cache = {}  # (str_path, mtime, size) -> dict / duration
+
+    async def get_file_hash(self, path: str) -> str:
+        """Fast hashing utilizing native C-implementation in modern Python."""
+
+        def _read():
+            with open(path, "rb") as f:
+                if hasattr(hashlib, "file_digest"):
+                    return hashlib.file_digest(f, "md5").hexdigest()
+                hasher = hashlib.md5()
+                for chunk in iter(lambda: f.read(131072), b""):
+                    hasher.update(chunk)
+                return hasher.hexdigest()
+
+        return await asyncio.to_thread(_read)
 
     def get_system_roots(self) -> List[Path]:
         """Get available system roots (drives on Windows, / on Unix) with a short TTL cache."""
@@ -102,13 +120,12 @@ class FileService:
     def validate_path(self, user_path: str, check_existence: bool = True) -> Path:
         """Validates and resolves a user-provided path string."""
         if not user_path:
-            raise ValueError("Path cannot be empty")
+            raise ValueError(_("Path cannot be empty"))
 
-        # Expand vars and user (~), then normalize
         path = Path(os.path.expanduser(os.path.expandvars(user_path)))
 
         if ".." in path.parts:
-            raise PermissionError("Relative pathing ('..') is rejected")
+            raise PermissionError(_("Relative pathing ('..') is rejected"))
 
         if not path.is_absolute():
             path = HOME_DIR / path
@@ -116,10 +133,10 @@ class FileService:
         resolved = path.resolve(strict=False)
 
         if check_existence and not resolved.exists():
-            raise FileNotFoundError(f"Path not found: {user_path}")
+            raise FileNotFoundError(_("Path not found: {}").format(user_path))
 
         if not self.is_path_safe(resolved):
-            raise PermissionError(f"Access to path denied: {user_path}")
+            raise PermissionError(_("Access to path denied: {}").format(user_path))
 
         return resolved
 
@@ -173,7 +190,7 @@ class FileService:
 
         def _scan():
             if not os.access(path, os.R_OK):
-                raise PermissionError(f"Read access denied: {path}")
+                raise PermissionError(_("Read access denied: {}").format(path))
 
             items = []
             for entry in os.scandir(path):
@@ -368,6 +385,157 @@ class FileService:
                 return None
 
         return await asyncio.to_thread(_get_info)
+
+    async def create_folder(self, parent_path: str, folder_name: str) -> None:
+        """Creates a new folder under parent_path."""
+        parent = self.validate_path(parent_path)
+        if not parent.is_dir():
+            raise NotADirectoryError(_("Parent path is not a directory"))
+
+        name = validate_filename(folder_name)
+        new_p = parent / name
+        new_p = self.validate_path(str(new_p), check_existence=False)
+
+        if new_p.exists():
+            raise FileExistsError(_("Target already exists"))
+
+        await asyncio.to_thread(new_p.mkdir)
+
+    async def rename_item(self, path: str, new_name: str) -> None:
+        """Renames a file or folder."""
+        src = self.validate_path(path)
+
+        if "/" in new_name or "\\" in new_name:
+            dest = self.validate_path(new_name, check_existence=False)
+        else:
+            new_n = validate_filename(new_name)
+            dest = src.parent / new_n
+
+        dest = self.validate_path(str(dest), check_existence=False)
+
+        if src.resolve() == dest.resolve():
+            return
+
+        if dest.exists():
+            raise FileExistsError(_("Target already exists"))
+
+        if not dest.parent.exists():
+            await asyncio.to_thread(os.makedirs, str(dest.parent), exist_ok=True)
+
+        await asyncio.to_thread(shutil.move, str(src), str(dest))
+
+    async def batch_rename_items(self, items: List[Any]) -> Dict[str, Any]:
+        """Renames multiple items in chunks with conflict detection and deduplication."""
+        results, wait_list = [], []
+        success_count = 0
+
+        async def _do_rename(item: Any, is_retry: bool = False) -> dict:
+            item_path = getattr(
+                item, "path", item.get("path") if isinstance(item, dict) else None
+            )
+            target_path = getattr(
+                item,
+                "target_path",
+                item.get("target_path") if isinstance(item, dict) else None,
+            )
+            new_name = getattr(
+                item,
+                "new_name",
+                item.get("new_name") if isinstance(item, dict) else None,
+            )
+
+            try:
+                src = self.validate_path(item_path)
+
+                if target_path:
+                    dest = self.validate_path(target_path, check_existence=False)
+                elif new_name:
+                    if ".." in new_name or "/" in new_name or "\\" in new_name:
+                        return {
+                            "path": item_path,
+                            "status": "error",
+                            "error": "UNSAFE_PATH",
+                        }
+                    raw_dest = src.parent / new_name
+                    dest = self.validate_path(str(raw_dest), check_existence=False)
+                else:
+                    return {
+                        "path": item_path,
+                        "status": "error",
+                        "error": "MISSING_DESTINATION",
+                    }
+
+                dest = dest.resolve(strict=False)
+
+                if src.resolve() == dest.resolve():
+                    return {
+                        "path": item_path,
+                        "status": "success",
+                        "new_path": str(dest),
+                    }
+
+                if dest.exists():
+                    if not is_retry:
+                        return {"path": item_path, "status": "conflict"}
+
+                    src_stat, dest_stat = src.stat(), dest.stat()
+                    if src_stat.st_size == dest_stat.st_size:
+                        if await self.get_file_hash(
+                            str(src)
+                        ) == await self.get_file_hash(str(dest)):
+                            await asyncio.to_thread(os.remove, str(src))
+                            return {
+                                "path": item_path,
+                                "status": "duplicate_deleted",
+                                "new_path": str(dest),
+                            }
+
+                    return {
+                        "path": item_path,
+                        "status": "error",
+                        "error": "TARGET_EXISTS",
+                    }
+
+                if not dest.parent.exists():
+                    await asyncio.to_thread(
+                        os.makedirs, str(dest.parent), exist_ok=True
+                    )
+
+                await asyncio.to_thread(shutil.move, str(src), str(dest))
+                return {"path": item_path, "status": "success", "new_path": str(dest)}
+
+            except Exception as e:
+                log.error(f"Rename failed for {item_path}: {e}")
+                return {"path": item_path, "status": "error", "error": str(e)}
+
+        chunk_size = 50
+        first_pass_results = []
+
+        for i in range(0, len(items), chunk_size):
+            chunk = items[i : i + chunk_size]
+            chunk_res = await asyncio.gather(*[_do_rename(item) for item in chunk])
+            first_pass_results.extend(chunk_res)
+
+        for i, res in enumerate(first_pass_results):
+            if res["status"] == "conflict":
+                wait_list.append(items[i])
+            else:
+                if res["status"] in ["success", "duplicate_deleted"]:
+                    success_count += 1
+                results.append(res)
+
+        if wait_list:
+            for item in wait_list:
+                res = await _do_rename(item, is_retry=True)
+                if res["status"] in ["success", "duplicate_deleted"]:
+                    success_count += 1
+                results.append(res)
+
+        return {
+            "success_count": success_count,
+            "error_count": len(items) - success_count,
+            "results": results,
+        }
 
     async def compress(
         self, source_paths: List[str], target_zip: str
@@ -575,5 +743,4 @@ class FileService:
         return path.parent / f"{stem} ({count}){suf}"
 
 
-# Global instance
 file_service = FileService()

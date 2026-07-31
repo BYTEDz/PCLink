@@ -3,7 +3,6 @@
 
 import asyncio
 import gettext
-import hashlib
 import json
 import logging
 import mimetypes
@@ -19,7 +18,6 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ...core.share_manager import share_manager
-from ...core.validators import validate_filename
 from ...services.file_service import HOME_DIR, file_service
 from .dependencies import extract_token, verify_api_key, verify_web_session
 
@@ -107,6 +105,8 @@ def _map_error(e: Exception):
         raise HTTPException(status_code=404, detail=_("File or directory not found"))
     if isinstance(e, PermissionError):
         raise HTTPException(status_code=403, detail=_("Permission denied"))
+    if isinstance(e, FileExistsError):
+        raise HTTPException(status_code=409, detail=_("Target already exists"))
     if isinstance(e, ValueError):
         raise HTTPException(status_code=400, detail=str(e))
     if isinstance(e, shutil.SameFileError):
@@ -116,21 +116,6 @@ def _map_error(e: Exception):
 
     log.error(f"Internal file error: {e}", exc_info=True)
     raise HTTPException(status_code=500, detail=_("Internal server error"))
-
-
-async def get_file_hash(path: str) -> str:
-    """Fast hashing utilizing native C-implementation in modern Python."""
-
-    def _read():
-        with open(path, "rb") as f:
-            if hasattr(hashlib, "file_digest"):
-                return hashlib.file_digest(f, "md5").hexdigest()
-            hasher = hashlib.md5()
-            for chunk in iter(lambda: f.read(131072), b""):
-                hasher.update(chunk)
-            return hasher.hexdigest()
-
-    return await asyncio.to_thread(_read)
 
 
 async def verify_download_access(
@@ -341,18 +326,7 @@ async def extract(payload: ExtractPayload):
 @router.post("/create-folder", dependencies=[Depends(verify_api_key)])
 async def create_folder(payload: CreateFolderPayload):
     try:
-        parent = file_service.validate_path(payload.parent_path)
-        if not parent.is_dir():
-            raise HTTPException(400, _("Parent path is not a directory"))
-
-        name = validate_filename(payload.folder_name)
-        new_p = parent / name
-        new_p = file_service.validate_path(str(new_p), check_existence=False)
-
-        if new_p.exists():
-            raise HTTPException(409, _("Target already exists"))
-
-        await asyncio.to_thread(new_p.mkdir)
+        await file_service.create_folder(payload.parent_path, payload.folder_name)
         return {"status": "success"}
     except Exception as e:
         _map_error(e)
@@ -361,26 +335,7 @@ async def create_folder(payload: CreateFolderPayload):
 @router.patch("/rename", dependencies=[Depends(verify_api_key)])
 async def rename(payload: RenamePayload):
     try:
-        src = file_service.validate_path(payload.path)
-
-        if "/" in payload.new_name or "\\" in payload.new_name:
-            dest = file_service.validate_path(payload.new_name, check_existence=False)
-        else:
-            new_n = validate_filename(payload.new_name)
-            dest = src.parent / new_n
-
-        dest = file_service.validate_path(str(dest), check_existence=False)
-
-        if src.resolve() == dest.resolve():
-            return {"status": "success"}
-
-        if dest.exists():
-            raise HTTPException(409, _("Target already exists"))
-
-        if not dest.parent.exists():
-            await asyncio.to_thread(os.makedirs, str(dest.parent), exist_ok=True)
-
-        await asyncio.to_thread(shutil.move, str(src), str(dest))
+        await file_service.rename_item(payload.path, payload.new_name)
         return {"status": "success"}
     except Exception as e:
         _map_error(e)
@@ -388,97 +343,10 @@ async def rename(payload: RenamePayload):
 
 @router.post("/batch-rename", dependencies=[Depends(verify_api_key)])
 async def batch_rename(payload: BatchRenamePayload):
-    items = payload.items
-    results, wait_list = [], []
-    success_count = 0
-
-    async def _do_rename(item: BatchRenameItem, is_retry: bool = False) -> dict:
-        try:
-            src = file_service.validate_path(item.path)
-
-            if item.target_path:
-                dest = file_service.validate_path(
-                    item.target_path, check_existence=False
-                )
-            elif item.new_name:
-                if (
-                    ".." in item.new_name
-                    or "/" in item.new_name
-                    or "\\" in item.new_name
-                ):
-                    return {
-                        "path": item.path,
-                        "status": "error",
-                        "error": "UNSAFE_PATH",
-                    }
-                raw_dest = src.parent / item.new_name
-                dest = file_service.validate_path(str(raw_dest), check_existence=False)
-            else:
-                return {
-                    "path": item.path,
-                    "status": "error",
-                    "error": "MISSING_DESTINATION",
-                }
-
-            dest = dest.resolve(strict=False)
-
-            if src.resolve() == dest.resolve():
-                return {"path": item.path, "status": "success", "new_path": str(dest)}
-
-            if dest.exists():
-                if not is_retry:
-                    return {"path": item.path, "status": "conflict"}
-
-                src_stat, dest_stat = src.stat(), dest.stat()
-                if src_stat.st_size == dest_stat.st_size:
-                    if await get_file_hash(str(src)) == await get_file_hash(str(dest)):
-                        await asyncio.to_thread(os.remove, str(src))
-                        return {
-                            "path": item.path,
-                            "status": "duplicate_deleted",
-                            "new_path": str(dest),
-                        }
-
-                return {"path": item.path, "status": "error", "error": "TARGET_EXISTS"}
-
-            if not dest.parent.exists():
-                await asyncio.to_thread(os.makedirs, str(dest.parent), exist_ok=True)
-
-            await asyncio.to_thread(shutil.move, str(src), str(dest))
-            return {"path": item.path, "status": "success", "new_path": str(dest)}
-
-        except Exception as e:
-            log.error(f"Rename failed for {item.path}: {e}")
-            return {"path": item.path, "status": "error", "error": str(e)}
-
-    chunk_size = 50
-    first_pass_results = []
-
-    for i in range(0, len(items), chunk_size):
-        chunk = items[i : i + chunk_size]
-        chunk_res = await asyncio.gather(*[_do_rename(item) for item in chunk])
-        first_pass_results.extend(chunk_res)
-
-    for i, res in enumerate(first_pass_results):
-        if res["status"] == "conflict":
-            wait_list.append(items[i])
-        else:
-            if res["status"] in ["success", "duplicate_deleted"]:
-                success_count += 1
-            results.append(res)
-
-    if wait_list:
-        for item in wait_list:
-            res = await _do_rename(item, is_retry=True)
-            if res["status"] in ["success", "duplicate_deleted"]:
-                success_count += 1
-            results.append(res)
-
-    return {
-        "success_count": success_count,
-        "error_count": len(items) - success_count,
-        "results": results,
-    }
+    try:
+        return await file_service.batch_rename_items(payload.items)
+    except Exception as e:
+        _map_error(e)
 
 
 @router.post("/delete", dependencies=[Depends(verify_api_key)])

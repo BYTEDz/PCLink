@@ -8,6 +8,7 @@ from .file_service import file_service
 from .input_service import input_service
 from .macro_service import macro_service
 from .media_service import media_service
+from .pairing_service import pairing_service
 from .process_service import process_service
 from .system_service import system_service
 from .terminal_service import terminal_service
@@ -26,4 +27,5 @@ __all__ = [
     "terminal_service",
     "DiscoveryService",
     "transfer_service",
+    "pairing_service",
 ]
