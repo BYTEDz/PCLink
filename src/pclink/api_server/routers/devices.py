@@ -4,8 +4,8 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from ...core.device_manager import device_manager
 from ...core.config import config_manager
+from ...core.device_manager import device_manager
 from ..ws_manager import mobile_manager
 from .dependencies import WEB_AUTH
 
@@ -14,13 +14,18 @@ router = APIRouter(prefix="/ui/devices", tags=["Devices"], dependencies=[WEB_AUT
 
 
 @router.get("")
-async def get_connected_devices(request: Request):
-    """List all paired devices and their online status."""
+async def get_connected_devices(
+    request: Request,
+    include_unapproved: bool = Query(
+        False, description="Include unapproved/pending devices"
+    ),
+):
+    """List all devices and their online/approval status."""
     devices = []
 
-    # 1. Fetch approved devices from DB
+    # 1. Fetch devices from DB
     for device in device_manager.get_all_devices():
-        if device.is_approved:
+        if device.is_approved or include_unapproved:
             devices.append(
                 {
                     "id": device.device_id,
@@ -30,7 +35,7 @@ async def get_connected_devices(request: Request):
                     "client_version": device.client_version,
                     "last_seen": device.last_seen.isoformat(),
                     "permissions": ",".join(device.permissions),
-                    "is_approved": True,
+                    "is_approved": device.is_approved,
                     "is_online": device.device_id in mobile_manager.device_connections,
                 }
             )

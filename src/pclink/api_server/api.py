@@ -9,7 +9,7 @@ import time
 from typing import Any, Dict
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -174,8 +174,13 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     app.include_router(repair_router, prefix="/ui/repair", dependencies=[WEB_AUTH])
 
     @app.get("/ui/devices", dependencies=[WEB_AUTH])
-    async def ui_devices_alias(request: Request):
-        return await get_connected_devices(request)
+    async def ui_devices_alias(
+        request: Request,
+        include_unapproved: bool = Query(False),
+    ):
+        return await get_connected_devices(
+            request, include_unapproved=include_unapproved
+        )
 
     @app.get("/settings/defaults/permissions", dependencies=[WEB_AUTH])
     async def ui_default_perms_alias():

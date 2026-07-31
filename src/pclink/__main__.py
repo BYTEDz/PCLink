@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import asyncio
 import gettext
 import os
 import subprocess
@@ -39,22 +40,121 @@ _ = gettext.gettext
 CONTROL_API_URL = f"http://127.0.0.1:{constants.CONTROL_PORT}"
 
 
+# ==========================================
+# Helpers & Utilities
+# ==========================================
+
+
+def _wait_for_condition(condition, timeout=5, interval=1):
+    """Wait for a condition to be met within a timeout."""
+    for _ in range(timeout):
+        if condition():
+            return True
+        time.sleep(interval)
+    return False
+
+
 def is_server_running():
     """Checks if the internal control API is reachable."""
     try:
         response = requests.get(f"{CONTROL_API_URL}/status", timeout=0.5)
         return response.status_code == 200
-    except requests.ConnectionError:
+    except requests.exceptions.RequestException:
         return False
+
+
+def _api_call(method, url, **kwargs):
+    """Helper for CLI API calls using IPv4 loopback."""
+    import requests
+    import urllib3
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    try:
+        res = requests.request(
+            method,
+            url,
+            verify=False,
+            headers={"X-Internal-Auth": "true"},
+            timeout=5,
+            **kwargs,
+        )
+        if method == "GET":
+            return res.json() if res.status_code == 200 else None
+        return res.status_code == 200
     except Exception:
-        return False
+        return None if method == "GET" else False
+
+
+def _get_api_data(url: str, params=None):
+    return _api_call("GET", url, params=params)
+
+
+def _post_api_data(url: str, params=None, json=None):
+    return _api_call("POST", url, params=params, json=json)
+
+
+def _print_table(headers, rows, widths):
+    """Unified table printer with PrettyTable fallback."""
+    if PrettyTable:
+        table = PrettyTable()
+        table.field_names = headers
+        table.align = "l"
+        for row in rows:
+            table.add_row(row)
+        click.echo(table)
+    else:
+        fmt = " | ".join([f"{{{i}:<{w}}}" for i, w in enumerate(widths)])
+        click.secho(fmt.format(*headers), bold=True)
+        click.echo("-" * (sum(widths) + len(widths) * 3 - 3))
+        for row in rows:
+            click.echo(fmt.format(*[str(x) for x in row]))
+
+
+def _resolve_target_id(id_or_idx, api_endpoint, list_key, id_key="id"):
+    """Resolve an index to an ID via API data if applicable."""
+    if not str(id_or_idx).isdigit():
+        return id_or_idx
+
+    port = config_manager.get("server_port", 38080)
+    data = (
+        _get_api_data(f"https://127.0.0.1:{port}/ui/{api_endpoint}")
+        if is_server_running()
+        else None
+    )
+
+    if data and list_key in data:
+        items = data[list_key]
+        idx = int(id_or_idx) - 1
+        if isinstance(items, dict):  # For blacklist
+            keys = list(items.keys())
+            if 0 <= idx < len(keys):
+                return keys[idx]
+        elif isinstance(items, list):
+            if 0 <= idx < len(items):
+                return items[idx][id_key]
+    return id_or_idx
+
+
+def _run_interactive_menu(title, choices, action_map):
+    """Shared handler for processing interactive menus."""
+    while True:
+        action = questionary.select(title, choices=choices).ask()
+        if action in ("back", "exit", None):
+            break
+        if action in action_map:
+            action_map[action]()
+        click.echo("")
+
+
+# ==========================================
+# Core Operations
+# ==========================================
 
 
 def _start_server_process():
     """Launches the main PCLink process in a fully detached state."""
     try:
         launcher_path = os.path.join(os.path.dirname(__file__), "launcher.py")
-
         kwargs = {
             "stdin": subprocess.DEVNULL,
             "stdout": subprocess.DEVNULL,
@@ -79,11 +179,7 @@ def _start_server_process():
         subprocess.Popen([executable, launcher_path], **kwargs)
 
         click.secho(_("Awaiting PCLink daemon initialization..."), fg="cyan")
-        for _i in range(5):
-            time.sleep(1)
-            if is_server_running():
-                return True
-        return False
+        return _wait_for_condition(is_server_running, 5)
     except Exception as e:
         click.secho(
             _("Failed to initialize PCLink daemon: {}").format(e),
@@ -113,14 +209,13 @@ def _open_browser():
             webbrowser.open(url)
         else:
             click.secho(_("Failed to retrieve the Web UI URL."), fg="red", err=True)
-    except requests.RequestException as e:
-        click.secho(
-            _("Failed to communicate with PCLink daemon: {}").format(e),
-            fg="red",
-            err=True,
-        )
     except Exception as e:
         click.secho(_("An unexpected error occurred: {}").format(e), fg="red", err=True)
+
+
+# ==========================================
+# Base CLI Setup
+# ==========================================
 
 
 @click.group(invoke_without_command=True)
@@ -137,6 +232,11 @@ def cli(ctx):
             launch_interactive_menu(ctx)
         else:
             ctx.invoke(start)
+
+
+# ==========================================
+# Service Control Commands
+# ==========================================
 
 
 @cli.command(help=_("Start the PCLink background daemon."))
@@ -168,25 +268,11 @@ def stop():
     try:
         click.secho(_("Transmitting shutdown signal to PCLink daemon..."), fg="cyan")
         requests.post(f"{CONTROL_API_URL}/stop", timeout=1)
-    except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
+    except Exception:
         pass
-    except Exception as e:
-        click.secho(
-            _("An error occurred during daemon termination: {}").format(e),
-            fg="red",
-            err=True,
-        )
-        return
 
     click.secho(_("Awaiting daemon termination..."), fg="cyan")
-    shutdown_success = False
-    for _i in range(5):
-        if not is_server_running():
-            shutdown_success = True
-            break
-        time.sleep(1)
-
-    if shutdown_success:
+    if _wait_for_condition(lambda: not is_server_running(), 5):
         click.secho(
             _("✓ PCLink daemon terminated successfully."), fg="green", bold=True
         )
@@ -219,12 +305,6 @@ def restart():
             fg="green",
             bold=True,
         )
-    except requests.RequestException as e:
-        click.secho(
-            _("Failed to connect to PCLink daemon for restart: {}").format(e),
-            fg="red",
-            err=True,
-        )
     except Exception as e:
         click.secho(_("An unexpected error occurred: {}").format(e), fg="red", err=True)
 
@@ -235,10 +315,10 @@ def status():
         response = requests.get(f"{CONTROL_API_URL}/status", timeout=1)
         response.raise_for_status()
         data = response.json()
+
         state = data.get("status", "unknown").title()
         port = data.get("port")
         mobile_api = _("Enabled") if data.get("mobile_api_enabled") else _("Disabled")
-
         state_color = "green" if state.lower() == "running" else "yellow"
 
         click.echo(
@@ -253,10 +333,8 @@ def status():
             click.style(_("  • Mobile API: "), bold=True)
             + click.style(mobile_api, fg="cyan")
         )
-    except requests.RequestException:
+    except Exception:
         click.secho(_("PCLink daemon is not currently active."), fg="yellow")
-    except Exception as e:
-        click.secho(_("An unexpected error occurred: {}").format(e), fg="red", err=True)
 
 
 @cli.command(name="ui", help=_("Launch the Web UI dashboard in the default browser."))
@@ -307,6 +385,11 @@ def logs(follow):
         click.secho(_("Error reading log file: {}").format(e), fg="red", err=True)
 
 
+# ==========================================
+# Setup & Updates
+# ==========================================
+
+
 @cli.command(help=_("Initialize the primary administrator password for the Web UI."))
 def setup():
     if web_auth_manager.is_setup_completed():
@@ -319,12 +402,10 @@ def setup():
         return
 
     click.secho(_("=== PCLink Initial Configuration ==="), fg="cyan", bold=True)
-    click.echo("")
-    click.echo(
-        _("Create an administrator password for the Web UI (minimum 8 characters)")
+    password = click.prompt(
+        _("Create an administrator password for the Web UI (minimum 8 characters)"),
+        hide_input=True,
     )
-
-    password = click.prompt(_("Password"), hide_input=True)
     confirm_password = click.prompt(_("Confirm password"), hide_input=True)
 
     if len(password) < 8:
@@ -340,13 +421,11 @@ def setup():
         return
 
     if web_auth_manager.setup_password(password):
-        click.echo("")
         click.secho(
-            _("✓ Administrator password established successfully!"),
+            _("\n✓ Administrator password established successfully!\n"),
             fg="green",
             bold=True,
         )
-        click.echo("")
         click.echo(_("Next steps:"))
         click.echo(
             click.style("  1. ", bold=True) + _("Initialize daemon: pclink start")
@@ -368,6 +447,99 @@ def setup():
         )
 
 
+@cli.command(name="update", help=_("Check for and install PCLink application updates."))
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help=_("Force update or reinstall even if up to date."),
+)
+@click.option(
+    "--yes", "-y", is_flag=True, help=_("Automatically confirm installation prompts.")
+)
+def update_command(force: bool, yes: bool):
+    from .core.update_checker import UpdateChecker
+
+    click.secho(_("Checking for PCLink updates..."), fg="cyan")
+    update_info = UpdateChecker().check_for_updates()
+    current_v = __version__
+
+    if not update_info and not force:
+        click.secho(
+            _("✓ PCLink v{} is already up to date.").format(current_v),
+            fg="green",
+            bold=True,
+        )
+        return
+
+    latest_v = update_info.get("version") if update_info else current_v
+    click.secho(
+        _("New version available: v{} -> v{}").format(current_v, latest_v)
+        if update_info
+        else _("Forcing reinstall for PCLink v{}...").format(current_v),
+        fg="yellow",
+        bold=True,
+    )
+
+    if not yes and not click.confirm(_("Do you wish to proceed with the update?")):
+        return click.echo(_("Update cancelled."))
+
+    was_running = is_server_running()
+    if was_running:
+        click.secho(_("Stopping active PCLink daemon for upgrade..."), fg="cyan")
+        try:
+            requests.post(f"{CONTROL_API_URL}/stop", timeout=2)
+            time.sleep(1)
+        except Exception:
+            pass
+
+    success = False
+    if sys.platform.startswith("linux"):
+        click.secho(_("Executing smart Linux updater..."), fg="cyan")
+        try:
+            success = (
+                subprocess.run(
+                    [
+                        "bash",
+                        "-c",
+                        "curl -fsSL https://raw.githubusercontent.com/BYTEDz/PCLink/main/install.sh | bash -s -- -u -y",
+                    ]
+                ).returncode
+                == 0
+            )
+        except Exception as e:
+            click.secho(_("Installer script failed: {}").format(e), fg="red", err=True)
+
+    if not success:
+        click.secho(_("Attempting upgrade via Python package manager..."), fg="cyan")
+        pip_cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "pclink"]
+        try:
+            if subprocess.run(pip_cmd).returncode == 0:
+                success = True
+            else:
+                success = (
+                    subprocess.run(pip_cmd + ["--break-system-packages"]).returncode
+                    == 0
+                )
+        except Exception as e:
+            click.secho(_("Pip upgrade failed: {}").format(e), fg="red", err=True)
+
+    if success:
+        click.secho(_("✓ PCLink upgrade complete!"), fg="green", bold=True)
+        if was_running:
+            click.secho(_("Restarting PCLink daemon..."), fg="cyan")
+            _start_server_process()
+    else:
+        click.secho(
+            _("✗ Failed to update PCLink automatically."), fg="red", bold=True, err=True
+        )
+
+
+# ==========================================
+# Configuration Group
+# ==========================================
+
+
 @cli.group(help=_("Manage PCLink config (set autostart, set tray)."))
 def config():
     pass
@@ -383,34 +555,27 @@ def config_set():
 )
 @click.argument("state", type=click.Choice(["enable", "disable"]))
 def config_set_autostart(state):
+    is_enable = state == "enable"
     try:
-        startup_manager = StartupManager()
-        if state == "enable":
-            if startup_manager.enable():
-                config_manager.set("auto_start", True)
-                click.secho(
-                    _(
-                        "✓ Automatic startup enabled. PCLink will initialize on system boot."
-                    ),
-                    fg="green",
+        manager = StartupManager()
+        success = manager.enable() if is_enable else manager.disable()
+        if success:
+            config_manager.set("auto_start", is_enable)
+            msg = (
+                _("✓ Automatic startup enabled. PCLink will initialize on system boot.")
+                if is_enable
+                else _(
+                    "✓ Automatic startup disabled. PCLink will no longer initialize on system boot."
                 )
-            else:
-                click.secho(
-                    _("✗ Failed to enable automatic startup."), fg="red", err=True
-                )
+            )
+            click.secho(msg, fg="green")
         else:
-            if startup_manager.disable():
-                config_manager.set("auto_start", False)
-                click.secho(
-                    _(
-                        "✓ Automatic startup disabled. PCLink will no longer initialize on system boot."
-                    ),
-                    fg="green",
-                )
-            else:
-                click.secho(
-                    _("✗ Failed to disable automatic startup."), fg="red", err=True
-                )
+            msg = (
+                _("✗ Failed to enable automatic startup.")
+                if is_enable
+                else _("✗ Failed to disable automatic startup.")
+            )
+            click.secho(msg, fg="red", err=True)
     except Exception as e:
         click.secho(_("Configuration error: {}").format(e), fg="red", err=True)
 
@@ -436,59 +601,94 @@ def config_set_tray(state):
         )
 
 
+# ==========================================
+# Device Management Group
+# ==========================================
+
+
 def _get_pending_pairings(port: int):
-    """Helper to fetch pairings from the local server."""
-    import requests
-    import urllib3
+    """Helper to fetch pending pairings from the local server or fallback directly to SQLite."""
+    if is_server_running():
+        data = _get_api_data(f"https://127.0.0.1:{port}/ui/pairing/list")
+        if data and "requests" in data:
+            return data.get("requests", [])
 
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    try:
-        url = f"https://localhost:{port}/ui/pairing/list"
-        res = requests.get(
-            url, verify=False, headers={"X-Internal-Auth": "true"}, timeout=5
+    from .core.device_manager import device_manager
+
+    return [
+        {
+            "pairing_id": d.device_id,
+            "device_name": d.device_name,
+            "ip": d.current_ip,
+            "platform": d.platform,
+        }
+        for d in device_manager.get_all_devices()
+        if not d.is_approved
+    ]
+
+
+def _process_pairing(id_or_idx, action, success_msg, error_msg):
+    """Unified handler for approving or denying a pairing request."""
+    port = config_manager.get("server_port", 38080)
+    requests_list = _get_pending_pairings(port)
+
+    if not requests_list:
+        return click.secho(_("No pending pairing requests found."), fg="yellow")
+
+    target_id = id_or_idx
+    if not target_id:
+        if questionary:
+            choices = [
+                questionary.Choice(
+                    title=f"{req.get('device_name', 'Unknown')} [{req.get('platform', 'N/A')}] (IP: {req.get('ip', 'N/A')})",
+                    value=req["pairing_id"],
+                )
+                for req in requests_list
+            ] + [questionary.Choice(title=_("Cancel"), value=None)]
+
+            target_id = questionary.select(
+                _(f"Select pending device request to {action.upper()}:"),
+                choices=choices,
+            ).ask()
+            if not target_id:
+                return
+        else:
+            list_requests()
+            val = click.prompt(_(f"Select request index to {action.upper()}"), type=int)
+            if 0 < val <= len(requests_list):
+                target_id = requests_list[val - 1]["pairing_id"]
+    elif str(target_id).isdigit():
+        idx = int(target_id)
+        if 0 < idx <= len(requests_list):
+            target_id = requests_list[idx - 1]["pairing_id"]
+
+    if not target_id:
+        return click.secho(_("Error: Invalid selection."), fg="red", err=True)
+
+    success = False
+    if is_server_running():
+        api_url = f"https://127.0.0.1:{port}/ui/pairing/{action}"
+        success = _post_api_data(
+            api_url, json={"pairing_id": target_id}
+        ) or _post_api_data(api_url, params={"pairing_id": target_id})
+
+    if not success:
+        from .core.device_manager import device_manager
+
+        success = (
+            device_manager.approve_device(target_id)
+            if action == "approve"
+            else device_manager.revoke_device(target_id)
         )
-        return res.json().get("requests", []) if res.status_code == 200 else []
-    except Exception:
-        return []
 
-
-def _get_api_data(url: str, params=None):
-    """Helper for CLI API calls."""
-    import requests
-    import urllib3
-
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    try:
-        res = requests.get(
-            url,
-            params=params,
-            verify=False,
-            headers={"X-Internal-Auth": "true"},
-            timeout=5,
+    if success:
+        click.secho(
+            success_msg.format(target_id),
+            fg="green" if action == "approve" else "yellow",
+            bold=True,
         )
-        return res.json() if res.status_code == 200 else None
-    except Exception:
-        return None
-
-
-def _post_api_data(url: str, params=None, json=None):
-    """Helper for CLI API calls."""
-    import requests
-    import urllib3
-
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    try:
-        res = requests.post(
-            url,
-            params=params,
-            json=json,
-            verify=False,
-            headers={"X-Internal-Auth": "true"},
-            timeout=5,
-        )
-        return res.status_code == 200
-    except Exception:
-        return False
+    else:
+        click.secho(error_msg, fg="red", err=True)
 
 
 PERM_ROLES = {
@@ -523,63 +723,84 @@ def device_group():
 
 
 @device_group.command(name="list", help=_("List all currently paired devices."))
-def list_devices():
+@click.option(
+    "--all", "-a", is_flag=True, help=_("Include unapproved/pending pairing requests.")
+)
+def list_devices(all: bool = False):
     port = config_manager.get("server_port", 38080)
-    data = _get_api_data(f"https://localhost:{port}/ui/devices")
-    if not data or not data.get("devices"):
-        click.secho(_("No paired devices found."), fg="yellow")
+    data = (
+        _get_api_data(
+            f"https://127.0.0.1:{port}/ui/devices",
+            params={"include_unapproved": str(all).lower()},
+        )
+        if is_server_running()
+        else None
+    )
+
+    devices = data.get("devices", []) if data else []
+    if not devices:
+        from .core.device_manager import device_manager
+
+        for d in device_manager.get_all_devices():
+            if d.is_approved or all:
+                devices.append(
+                    {
+                        "id": d.device_id,
+                        "name": d.device_name,
+                        "ip": d.current_ip,
+                        "platform": d.platform,
+                        "last_seen": d.last_seen.isoformat(),
+                        "is_approved": d.is_approved,
+                        "is_online": False,
+                    }
+                )
+
+    if not devices:
+        pending = _get_pending_pairings(port)
+        if pending:
+            click.secho(
+                _(
+                    "No approved devices found, but {} pending pairing request(s) exist."
+                ).format(len(pending)),
+                fg="yellow",
+                bold=True,
+            )
+            click.echo(
+                _(
+                    "Execute 'pclink device approve' or 'pclink device requests' to approve them."
+                )
+            )
+        else:
+            click.secho(_("No paired devices found."), fg="yellow")
         return
 
-    if PrettyTable:
-        table = PrettyTable()
-        table.field_names = [
-            _("ID"),
-            _("Device"),
-            _("IP"),
-            _("Platform"),
-            _("Last Seen"),
-        ]
-        table.align = "l"
-        for idx, d in enumerate(data["devices"], 1):
-            table.add_row([idx, d["name"], d["ip"], d["platform"], d["last_seen"]])
-        click.echo(table)
-    else:
-        click.secho(
-            f"{'#':<3} | {_('Device'):<20} | {_('IP'):<15} | {_('Platform'):<10} | {_('Last Seen')}",
-            bold=True,
+    rows = []
+    for idx, d in enumerate(devices, 1):
+        status_str = _("Approved") if d.get("is_approved") else _("Pending")
+        if d.get("is_online"):
+            status_str += f" ({_('Online')})"
+        rows.append(
+            [idx, d["name"], d["ip"], d["platform"], status_str, d["last_seen"]]
         )
-        click.echo("-" * 75)
-        for idx, d in enumerate(data["devices"], 1):
-            click.echo(
-                f"{idx:<3} | {d['name']:<20} | {d['ip']:<15} | {d['platform']:<10} | {d['last_seen']}"
-            )
+
+    _print_table(
+        [_("ID"), _("Device"), _("IP"), _("Platform"), _("Status"), _("Last Seen")],
+        rows,
+        [3, 20, 15, 10, 15, 25],
+    )
 
 
 @device_group.command(name="requests", help=_("List pending device pairing requests."))
 def list_requests():
-    port = config_manager.get("server_port", 38080)
-    requests_list = _get_pending_pairings(port)
-
+    requests_list = _get_pending_pairings(config_manager.get("server_port", 38080))
     if not requests_list:
-        click.secho(_("No pending pairing requests found."), fg="yellow")
-        return
+        return click.secho(_("No pending pairing requests found."), fg="yellow")
 
-    if PrettyTable:
-        table = PrettyTable()
-        table.field_names = [_("ID"), _("Device"), _("IP"), _("Platform")]
-        table.align = "l"
-        for idx, req in enumerate(requests_list, 1):
-            table.add_row([idx, req["device_name"], req["ip"], req["platform"]])
-        click.echo(table)
-    else:
-        click.secho(
-            f"{'#':<3} | {_('Device'):<20} | {_('IP'):<15} | {_('Platform')}", bold=True
-        )
-        click.echo("-" * 60)
-        for idx, req in enumerate(requests_list, 1):
-            click.echo(
-                f"{idx:<3} | {req['device_name']:<20} | {req['ip']:<15} | {req['platform']}"
-            )
+    rows = [
+        [idx, r["device_name"], r["ip"], r["platform"]]
+        for idx, r in enumerate(requests_list, 1)
+    ]
+    _print_table([_("ID"), _("Device"), _("IP"), _("Platform")], rows, [3, 20, 15, 15])
 
 
 @device_group.command(
@@ -587,122 +808,45 @@ def list_requests():
 )
 @click.argument("id_or_idx", required=False)
 def approve_pairing(id_or_idx: str = None):
-    port = config_manager.get("server_port", 38080)
-    requests_list = _get_pending_pairings(port)
-    target_id = None
-
-    if not requests_list:
-        click.secho(_("No pending pairing requests found."), fg="yellow")
-        return
-
-    if not id_or_idx:
-        list_requests()
-        val = click.prompt(_("Select request index to APPROVE"), type=int)
-        if 0 < val <= len(requests_list):
-            target_id = requests_list[val - 1]["pairing_id"]
-    elif id_or_idx.isdigit():
-        idx = int(id_or_idx)
-        if 0 < idx <= len(requests_list):
-            target_id = requests_list[idx - 1]["pairing_id"]
-    else:
-        target_id = id_or_idx
-
-    if not target_id:
-        click.secho(_("Error: Invalid selection."), fg="red", err=True)
-        return
-
-    try:
-        import requests
-        import urllib3
-
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        url = f"https://localhost:{port}/ui/pairing/approve"
-        response = requests.post(
-            url,
-            params={"pairing_id": target_id},
-            verify=False,
-            headers={"X-Internal-Auth": "true"},
-            timeout=5,
-        )
-        if response.status_code == 200:
-            click.secho(
-                _("✓ Approved device {}.").format(target_id), fg="green", bold=True
-            )
-        else:
-            click.secho(
-                _("Operation failed: {}").format(response.text), fg="red", err=True
-            )
-    except Exception as e:
-        click.secho(_("Error occurred: {}").format(e), fg="red", err=True)
+    _process_pairing(
+        id_or_idx,
+        "approve",
+        _("✓ Approved pairing request {}."),
+        _("Error: Failed to approve pairing request."),
+    )
 
 
 @device_group.command(name="reject", help=_("Reject a pending device pairing request."))
 @click.argument("id_or_idx", required=False)
 def reject_pairing(id_or_idx: str = None):
-    port = config_manager.get("server_port", 38080)
-    requests_list = _get_pending_pairings(port)
-    target_id = None
-
-    if not requests_list:
-        click.secho(_("No pending pairing requests found."), fg="yellow")
-        return
-
-    if not id_or_idx:
-        list_requests()
-        val = click.prompt(_("Select request index to REJECT"), type=int)
-        if 0 < val <= len(requests_list):
-            target_id = requests_list[val - 1]["pairing_id"]
-    elif id_or_idx.isdigit():
-        idx = int(id_or_idx)
-        if 0 < idx <= len(requests_list):
-            target_id = requests_list[idx - 1]["pairing_id"]
-    else:
-        target_id = id_or_idx
-
-    if not target_id:
-        click.secho(_("Error: Invalid selection."), fg="red", err=True)
-        return
-
-    try:
-        import requests
-        import urllib3
-
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        url = f"https://localhost:{port}/ui/pairing/deny"
-        response = requests.post(
-            url,
-            params={"pairing_id": target_id},
-            verify=False,
-            headers={"X-Internal-Auth": "true"},
-            timeout=5,
-        )
-        if response.status_code == 200:
-            click.secho(
-                _("✗ Rejected device request {}.").format(target_id),
-                fg="yellow",
-                bold=True,
-            )
-        else:
-            click.secho(
-                _("Operation failed: {}").format(response.text), fg="red", err=True
-            )
-    except Exception as e:
-        click.secho(_("Error occurred: {}").format(e), fg="red", err=True)
+    _process_pairing(
+        id_or_idx,
+        "deny",
+        _("✗ Rejected pairing request {}."),
+        _("Error: Failed to reject pairing request."),
+    )
 
 
 @device_group.command(name="revoke", help=_("Revoke access for a paired device."))
 @click.argument("id_or_idx")
 def revoke_device(id_or_idx: str):
     port = config_manager.get("server_port", 38080)
-    target_id = id_or_idx
-    if id_or_idx.isdigit():
-        data = _get_api_data(f"https://localhost:{port}/ui/devices")
-        if data and 0 < int(id_or_idx) <= len(data["devices"]):
-            target_id = data["devices"][int(id_or_idx) - 1]["id"]
+    target_id = _resolve_target_id(id_or_idx, "devices", "devices", "id")
 
-    if _post_api_data(
-        f"https://localhost:{port}/ui/devices/revoke", params={"device_id": target_id}
-    ):
+    success = (
+        _post_api_data(
+            f"https://127.0.0.1:{port}/ui/devices/revoke",
+            params={"device_id": target_id},
+        )
+        if is_server_running()
+        else False
+    )
+    if not success:
+        from .core.device_manager import device_manager
+
+        success = device_manager.revoke_device(target_id)
+
+    if success:
         click.secho(
             _("✓ Access revoked for device {}.").format(target_id),
             fg="green",
@@ -716,15 +860,25 @@ def revoke_device(id_or_idx: str):
 @click.argument("id_or_idx")
 def ban_device(id_or_idx: str):
     port = config_manager.get("server_port", 38080)
-    target_id = id_or_idx
-    if id_or_idx.isdigit():
-        data = _get_api_data(f"https://localhost:{port}/ui/devices")
-        if data and 0 < int(id_or_idx) <= len(data["devices"]):
-            target_id = data["devices"][int(id_or_idx) - 1]["id"]
+    target_id = _resolve_target_id(id_or_idx, "devices", "devices", "id")
 
-    if _post_api_data(
-        f"https://localhost:{port}/ui/devices/ban", params={"device_id": target_id}
-    ):
+    success = (
+        _post_api_data(
+            f"https://127.0.0.1:{port}/ui/devices/ban", params={"device_id": target_id}
+        )
+        if is_server_running()
+        else False
+    )
+    if not success:
+        from .core.device_manager import device_manager
+
+        device = device_manager.get_device_by_id(target_id)
+        if device and device.hardware_id:
+            success = device_manager.ban_hardware(
+                device.hardware_id, "Manual ban via CLI"
+            )
+
+    if success:
         click.secho(
             _("✓ Device {} banned permanently.").format(target_id), fg="red", bold=True
         )
@@ -733,19 +887,25 @@ def ban_device(id_or_idx: str):
 
 
 @device_group.command(name="unban", help=_("Remove a hardware ID from the ban list."))
-@click.argument("hwid_or_idx")
-def unban_device(hwid_or_idx: str):
+@click.argument("id_or_idx")
+def unban_device(id_or_idx: str):
     port = config_manager.get("server_port", 38080)
-    target_hwid = hwid_or_idx
-    if hwid_or_idx.isdigit():
-        data = _get_api_data(f"https://localhost:{port}/ui/devices/blacklist")
-        if data and 0 < int(hwid_or_idx) <= len(data["blacklist"]):
-            target_hwid = list(data["blacklist"].keys())[int(hwid_or_idx) - 1]
+    target_hwid = _resolve_target_id(id_or_idx, "devices/blacklist", "blacklist")
 
-    if _post_api_data(
-        f"https://localhost:{port}/ui/devices/unban",
-        params={"hardware_id": target_hwid},
-    ):
+    success = (
+        _post_api_data(
+            f"https://127.0.0.1:{port}/ui/devices/unban",
+            params={"hardware_id": target_hwid},
+        )
+        if is_server_running()
+        else False
+    )
+    if not success:
+        from .core.device_manager import device_manager
+
+        success = device_manager.unban_hardware(target_hwid)
+
+    if success:
         click.secho(
             _("✓ Hardware ID {} unbanned.").format(target_hwid), fg="green", bold=True
         )
@@ -755,24 +915,30 @@ def unban_device(hwid_or_idx: str):
 
 @device_group.command(name="blacklist", help=_("List all banned hardware IDs."))
 def list_blacklist():
-    port = config_manager.get("server_port", 38080)
-    data = _get_api_data(f"https://localhost:{port}/ui/devices/blacklist")
-    if not data or not data.get("blacklist"):
-        click.secho(_("The hardware ban list is currently empty."), fg="yellow")
-        return
+    data = (
+        _get_api_data(
+            f"https://127.0.0.1:{config_manager.get('server_port', 38080)}/ui/devices/blacklist"
+        )
+        if is_server_running()
+        else None
+    )
 
-    if PrettyTable:
-        table = PrettyTable()
-        table.field_names = [_("ID"), _("Hardware ID"), _("Reason")]
-        table.align = "l"
-        for idx, (hwid, reason) in enumerate(data["blacklist"].items(), 1):
-            table.add_row([idx, hwid, reason])
-        click.echo(table)
-    else:
-        click.secho(f"{'#':<3} | {_('Hardware ID'):<40} | {_('Reason')}", bold=True)
-        click.echo("-" * 65)
-        for idx, (hwid, reason) in enumerate(data["blacklist"].items(), 1):
-            click.echo(f"{idx:<3} | {hwid:<40} | {reason}")
+    blacklist = data.get("blacklist", {}) if data else {}
+    if not blacklist:
+        from .core.device_manager import device_manager
+
+        blacklist = {
+            item["hardware_id"]: item.get("reason", "Manual ban")
+            for item in device_manager.get_blacklist()
+        }
+
+    if not blacklist:
+        return click.secho(_("The hardware ban list is currently empty."), fg="yellow")
+
+    rows = [
+        [idx, hwid, reason] for idx, (hwid, reason) in enumerate(blacklist.items(), 1)
+    ]
+    _print_table([_("ID"), _("Hardware ID"), _("Reason")], rows, [3, 40, 25])
 
 
 @device_group.command(
@@ -782,17 +948,27 @@ def list_blacklist():
 @click.argument("role", type=click.Choice(list(PERM_ROLES.keys())))
 def update_perms(id_or_idx: str, role: str):
     port = config_manager.get("server_port", 38080)
-    target_id = id_or_idx
-    if id_or_idx.isdigit():
-        data = _get_api_data(f"https://localhost:{port}/ui/devices")
-        if data and 0 < int(id_or_idx) <= len(data["devices"]):
-            target_id = data["devices"][int(id_or_idx) - 1]["id"]
-
+    target_id = _resolve_target_id(id_or_idx, "devices", "devices", "id")
     perms = PERM_ROLES.get(role, [])
-    if _post_api_data(
-        f"https://localhost:{port}/ui/devices/{target_id}/permissions/bulk",
-        json={"permissions": perms},
-    ):
+
+    success = (
+        _post_api_data(
+            f"https://127.0.0.1:{port}/ui/devices/{target_id}/permissions/bulk",
+            json={"permissions": perms},
+        )
+        if is_server_running()
+        else False
+    )
+    if not success:
+        from .core.device_manager import device_manager
+
+        device = device_manager.get_device_by_id(target_id)
+        if device:
+            device.permissions = perms
+            device_manager._save_device(device)
+            success = True
+
+    if success:
         click.secho(
             _("✓ Role '{}' applied successfully to device {}.").format(role, target_id),
             fg="cyan",
@@ -809,38 +985,36 @@ def update_perms(id_or_idx: str, role: str):
 )
 def get_qr():
     if qrcode is None:
-        click.secho(
+        return click.secho(
             _("Error: 'qrcode' library is not installed. Please install it via pip."),
             fg="red",
             err=True,
         )
-        return
 
     if not web_auth_manager.is_setup_completed():
-        click.secho(
+        return click.secho(
             _(
                 "Administrator setup is incomplete. Execute 'pclink setup' prior to retrieving pairing information."
             ),
             fg="yellow",
             err=True,
         )
-        return
 
     if not is_server_running():
-        click.secho(
+        return click.secho(
             _(
                 "PCLink daemon is offline. Execute 'pclink start' to retrieve pairing information."
             ),
             fg="yellow",
             err=True,
         )
-        return
 
-    password = click.prompt(_("Enter Administrator Password"), hide_input=True)
-
-    if not web_auth_manager.verify_password(password):
-        click.secho(_("Authentication failed. Incorrect password."), fg="red", err=True)
-        return
+    if not web_auth_manager.verify_password(
+        click.prompt(_("Enter Administrator Password"), hide_input=True)
+    ):
+        return click.secho(
+            _("Authentication failed. Incorrect password."), fg="red", err=True
+        )
 
     try:
         response = requests.get(f"{CONTROL_API_URL}/qr-data", timeout=5)
@@ -848,23 +1022,18 @@ def get_qr():
         qr_data = response.json().get("qr_data")
 
         if not qr_data:
-            click.secho(
+            return click.secho(
                 _("Failed to retrieve pairing data from the daemon."),
                 fg="red",
                 err=True,
             )
-            return
 
-        click.echo("")
         click.secho(
-            _("=== PCLink Device Pairing Information ==="), fg="cyan", bold=True
+            _("\n=== PCLink Device Pairing Information ===\n"), fg="cyan", bold=True
         )
-        click.echo("")
 
         qr_obj = qrcode.QRCode(
-            error_correction=qr_constants.ERROR_CORRECT_L,
-            box_size=1,
-            border=4,
+            error_correction=qr_constants.ERROR_CORRECT_L, box_size=1, border=4
         )
         qr_obj.add_data(qr_data)
         qr_obj.make(fit=True)
@@ -874,14 +1043,12 @@ def get_qr():
             click.echo("")
         except Exception:
             click.secho(
-                _("(QR code display not available in this terminal environment)"),
+                _("(QR code display not available in this terminal environment)\n"),
                 fg="yellow",
             )
-            click.echo("")
 
         click.secho(_("Manual Pairing Code:"), bold=True)
-        click.echo(qr_data)
-        click.echo("")
+        click.echo(f"{qr_data}\n")
         click.secho(
             _(
                 "Scan the QR code or manually enter the code above in the PCLink mobile client."
@@ -889,10 +1056,13 @@ def get_qr():
             fg="cyan",
         )
 
-    except requests.RequestException as e:
-        click.secho(_("Failed to fetch pairing data: {}").format(e), fg="red", err=True)
     except Exception as e:
-        click.secho(_("An unexpected error occurred: {}").format(e), fg="red", err=True)
+        click.secho(_("Failed to fetch pairing data: {}").format(e), fg="red", err=True)
+
+
+# ==========================================
+# Diagnostic & Repair Group
+# ==========================================
 
 
 @cli.group(help=_("Diagnostic and repair utilities (diagnose, fix, wayland)."))
@@ -904,20 +1074,18 @@ def repair():
     help=_("Execute diagnostic checks on system configuration and network state.")
 )
 def diagnose():
-    import asyncio
     from .services.repair_service import repair_service
 
     click.secho(_("Initiating system diagnostics..."), fg="cyan")
     results = asyncio.run(repair_service.run_diagnostics())
+
     for component, res in results.items():
-        status = res.get("status")
-        msg = res.get("message")
-        if status == "ok":
-            click.secho(_("✓ {}: {}").format(component.upper(), msg), fg="green")
-        elif status == "warning":
-            click.secho(_("⚠ {}: {}").format(component.upper(), msg), fg="yellow")
-        else:
-            click.secho(_("✗ {}: {}").format(component.upper(), msg), fg="red")
+        msg, status = res.get("message"), res.get("status")
+        color = (
+            "green" if status == "ok" else "yellow" if status == "warning" else "red"
+        )
+        symbol = "✓" if status == "ok" else "⚠" if status == "warning" else "✗"
+        click.secho(_("{} {}: {}").format(symbol, component.upper(), msg), fg=color)
 
 
 @repair.command(
@@ -937,7 +1105,6 @@ def diagnose():
 )
 def run_repair(issue_id: str, kill: bool, change_port_flag: bool):
     from .services.repair_service import repair_service
-    import sys
     import getpass
 
     click.secho(_("Attempting to resolve issue: {}").format(issue_id), fg="cyan")
@@ -947,31 +1114,25 @@ def run_repair(issue_id: str, kill: bool, change_port_flag: bool):
     elif issue_id == "config":
         res = repair_service.fix_config()
     elif issue_id == "firewall":
-        pwd = None
-        if sys.platform.startswith("linux"):
-            click.secho(
-                _("Firewall configuration on Linux may require elevated privileges."),
-                fg="yellow",
-            )
-            pwd = getpass.getpass(
-                _("Enter sudo password (leave blank if passwordless): ")
-            )
+        pwd = (
+            getpass.getpass(_("Enter sudo password (leave blank if passwordless): "))
+            if sys.platform.startswith("linux")
+            else None
+        )
         res = repair_service.fix_firewall(password=pwd)
     elif issue_id == "port":
-        action = None
         if kill:
             action = "kill_process"
         elif change_port_flag:
             action = "change_port"
         else:
-            click.secho(
+            return click.secho(
                 _(
                     "Error: Resolution strategy required for port issues. Specify '--kill' or '--change-port'."
                 ),
                 fg="red",
                 err=True,
             )
-            return
         res = repair_service.fix_port(action)
 
     if res.get("status") == "ok":
@@ -985,12 +1146,11 @@ def run_repair(issue_id: str, kill: bool, change_port_flag: bool):
 )
 def repair_wayland():
     if sys.platform != "linux":
-        click.secho(
+        return click.secho(
             _("This utility is exclusively for Linux systems operating under Wayland."),
             fg="red",
             err=True,
         )
-        return
 
     from .core.wayland_utils import (
         check_uinput_access,
@@ -998,239 +1158,197 @@ def repair_wayland():
         setup_uinput_permissions,
     )
 
-    if not is_wayland():
-        click.secho(
-            _(
-                "Wayland environment not detected. This patch is designed specifically for Wayland sessions."
-            ),
-            fg="yellow",
-        )
-        if not click.confirm(_("Do you wish to proceed anyway?")):
-            return
+    if not is_wayland() and not click.confirm(
+        _("Wayland environment not detected. Proceed anyway?")
+    ):
+        return
 
     if check_uinput_access():
         click.secho(_("✓ Write access to /dev/uinput is already granted."), fg="green")
-        click.secho(
+        return click.secho(
             _(
                 "If input emulation is still malfunctioning, please restart the mobile client and attempt reconnection."
             ),
             fg="cyan",
         )
-        return
 
     click.secho(_("=== Wayland Input Emulation Patch ==="), fg="cyan", bold=True)
     click.echo(
-        _("PCLink requires elevated privileges to instantiate virtual input devices.")
-    )
-    click.echo(
-        _("Execute the following command with root privileges to grant access:\n")
+        _(
+            "PCLink requires elevated privileges to instantiate virtual input devices.\nExecute the following command with root privileges:\n"
+        )
     )
     click.secho(setup_uinput_permissions(), fg="yellow", bold=True)
-    click.echo("")
     click.secho(
         _(
-            "Notice: A system restart or session logout is required for group policy modifications to take effect."
+            "\nNotice: A system restart or session logout is required for modifications to take effect."
         ),
         fg="magenta",
     )
 
 
+# ==========================================
+# Interactive Menus
+# ==========================================
+
+
+def _pending_requests_menu(ctx):
+    if not _get_pending_pairings(config_manager.get("server_port", 38080)):
+        return click.secho(_("No pending pairing requests found."), fg="yellow")
+
+    ctx.invoke(list_requests)
+    choices = [
+        questionary.Choice(_("Approve a Request"), value="approve"),
+        questionary.Choice(_("Reject a Request"), value="reject"),
+        questionary.Choice(_("Back"), value="back"),
+    ]
+    action_map = {
+        "approve": lambda: ctx.invoke(approve_pairing, id_or_idx=None),
+        "reject": lambda: ctx.invoke(reject_pairing, id_or_idx=None),
+    }
+    _run_interactive_menu(_("Pending Request Action:"), choices, action_map)
+
+
 def _device_menu(ctx):
-    while True:
-        action = questionary.select(
-            _("Manage Devices & Pairing:"),
-            choices=[
-                questionary.Choice(_("List Paired Devices"), value="list"),
-                questionary.Choice(_("List Pending Requests"), value="requests"),
-                questionary.Choice(_("Approve Request"), value="approve"),
-                questionary.Choice(_("Reject Request"), value="reject"),
-                questionary.Choice(_("Get Pairing QR Code"), value="get_qr"),
-                questionary.Choice(_("Revoke Device Access"), value="revoke"),
-                questionary.Choice(_("Ban Device"), value="ban"),
-                questionary.Choice(_("Unban Device"), value="unban"),
-                questionary.Choice(_("List Banlist (Blacklist)"), value="blacklist"),
-                questionary.Choice(_("Back to Main Menu"), value="back"),
-            ],
-        ).ask()
+    def _prompt_and_run(cmd, prompt_msg, list_cmd=None):
+        if list_cmd:
+            ctx.invoke(list_cmd, all=False) if list_cmd == list_devices else ctx.invoke(
+                list_cmd
+            )
+        val = questionary.text(prompt_msg).ask()
+        if val:
+            ctx.invoke(cmd, id_or_idx=val)
 
-        if action == "list":
-            ctx.invoke(list_devices)
-        elif action == "requests":
-            ctx.invoke(list_requests)
-        elif action == "approve":
-            ctx.invoke(approve_pairing, id_or_idx=None)
-        elif action == "reject":
-            ctx.invoke(reject_pairing, id_or_idx=None)
-        elif action == "get_qr":
-            ctx.invoke(get_qr)
-        elif action == "revoke":
-            ctx.invoke(list_devices)
-            dev_id = questionary.text(
-                _("Enter Device ID or Index to Revoke (or press Enter to cancel):")
-            ).ask()
-            if dev_id:
-                ctx.invoke(revoke_device, id_or_idx=dev_id)
-        elif action == "ban":
-            ctx.invoke(list_devices)
-            dev_id = questionary.text(
-                _("Enter Device ID or Index to Ban (or press Enter to cancel):")
-            ).ask()
-            if dev_id:
-                ctx.invoke(ban_device, id_or_idx=dev_id)
-        elif action == "unban":
-            ctx.invoke(list_blacklist)
-            hwid = questionary.text(
-                _("Enter Hardware ID or Index to Unban (or press Enter to cancel):")
-            ).ask()
-            if hwid:
-                ctx.invoke(unban_device, hwid_or_idx=hwid)
-        elif action == "blacklist":
-            ctx.invoke(list_blacklist)
-        elif action == "back" or action is None:
-            break
-
-        if action not in ["back", None]:
-            click.echo("")
+    choices = [
+        questionary.Choice(_("List Paired Devices"), value="list"),
+        questionary.Choice(_("Pending Pairing Requests"), value="requests"),
+        questionary.Choice(_("Get Pairing QR Code"), value="get_qr"),
+        questionary.Choice(_("Revoke Device Access"), value="revoke"),
+        questionary.Choice(_("Ban Device"), value="ban"),
+        questionary.Choice(_("Unban Device"), value="unban"),
+        questionary.Choice(_("List Banlist (Blacklist)"), value="blacklist"),
+        questionary.Choice(_("Back to Main Menu"), value="back"),
+    ]
+    action_map = {
+        "list": lambda: ctx.invoke(list_devices, all=False),
+        "requests": lambda: _pending_requests_menu(ctx),
+        "get_qr": lambda: ctx.invoke(get_qr),
+        "revoke": lambda: _prompt_and_run(
+            revoke_device,
+            _("Enter Device ID or Index to Revoke (or press Enter to cancel):"),
+            list_devices,
+        ),
+        "ban": lambda: _prompt_and_run(
+            ban_device,
+            _("Enter Device ID or Index to Ban (or press Enter to cancel):"),
+            list_devices,
+        ),
+        "unban": lambda: _prompt_and_run(
+            unban_device,
+            _("Enter Hardware ID or Index to Unban (or press Enter to cancel):"),
+            list_blacklist,
+        ),
+        "blacklist": lambda: ctx.invoke(list_blacklist),
+    }
+    _run_interactive_menu(_("Manage Devices & Pairing:"), choices, action_map)
 
 
 def _config_menu(ctx):
-    while True:
-        action = questionary.select(
-            _("Configuration:"),
-            choices=[
-                questionary.Choice(_("Enable Autostart"), value="auto_en"),
-                questionary.Choice(_("Disable Autostart"), value="auto_dis"),
-                questionary.Choice(_("Enable System Tray"), value="tray_en"),
-                questionary.Choice(_("Disable System Tray"), value="tray_dis"),
-                questionary.Choice(_("Back to Main Menu"), value="back"),
-            ],
-        ).ask()
-
-        if action == "auto_en":
-            ctx.invoke(config_set_autostart, state="enable")
-        elif action == "auto_dis":
-            ctx.invoke(config_set_autostart, state="disable")
-        elif action == "tray_en":
-            ctx.invoke(config_set_tray, state="enable")
-        elif action == "tray_dis":
-            ctx.invoke(config_set_tray, state="disable")
-        elif action == "back" or action is None:
-            break
-
-        if action not in ["back", None]:
-            click.echo("")
+    choices = [
+        questionary.Choice(_("Enable Autostart"), value="auto_en"),
+        questionary.Choice(_("Disable Autostart"), value="auto_dis"),
+        questionary.Choice(_("Enable System Tray"), value="tray_en"),
+        questionary.Choice(_("Disable System Tray"), value="tray_dis"),
+        questionary.Choice(_("Back to Main Menu"), value="back"),
+    ]
+    action_map = {
+        "auto_en": lambda: ctx.invoke(config_set_autostart, state="enable"),
+        "auto_dis": lambda: ctx.invoke(config_set_autostart, state="disable"),
+        "tray_en": lambda: ctx.invoke(config_set_tray, state="enable"),
+        "tray_dis": lambda: ctx.invoke(config_set_tray, state="disable"),
+    }
+    _run_interactive_menu(_("Configuration:"), choices, action_map)
 
 
 def _repair_menu(ctx):
-    while True:
-        action = questionary.select(
-            _("Repair Center:"),
+    def _fix_port():
+        strat = questionary.select(
+            _("Select Port Resolution Strategy:"),
             choices=[
-                questionary.Choice(_("Run Diagnostics"), value="diagnose"),
-                questionary.Choice(_("Fix Port Issue"), value="fix_port"),
-                questionary.Choice(_("Fix Firewall Issue"), value="fix_firewall"),
-                questionary.Choice(_("Fix Config Issue"), value="fix_config"),
-                questionary.Choice(_("Fix Database Issue"), value="fix_db"),
-                questionary.Choice(_("Apply Wayland Patch (Linux)"), value="wayland"),
-                questionary.Choice(_("Back to Main Menu"), value="back"),
+                questionary.Choice(_("Kill Conflicting Process"), value="kill"),
+                questionary.Choice(_("Auto-Assign New Port"), value="change"),
+                questionary.Choice(_("Cancel"), value="cancel"),
             ],
         ).ask()
+        if strat == "kill":
+            ctx.invoke(run_repair, issue_id="port", kill=True, change_port_flag=False)
+        elif strat == "change":
+            ctx.invoke(run_repair, issue_id="port", kill=False, change_port_flag=True)
 
-        if action == "diagnose":
-            ctx.invoke(diagnose)
-        elif action == "fix_port":
-            strat = questionary.select(
-                _("Select Port Resolution Strategy:"),
-                choices=[
-                    questionary.Choice(_("Kill Conflicting Process"), value="kill"),
-                    questionary.Choice(_("Auto-Assign New Port"), value="change"),
-                    questionary.Choice(_("Cancel"), value="cancel"),
-                ],
-            ).ask()
-            if strat == "kill":
-                ctx.invoke(
-                    run_repair, issue_id="port", kill=True, change_port_flag=False
-                )
-            elif strat == "change":
-                ctx.invoke(
-                    run_repair, issue_id="port", kill=False, change_port_flag=True
-                )
-        elif action == "fix_firewall":
-            ctx.invoke(
-                run_repair, issue_id="firewall", kill=False, change_port_flag=False
-            )
-        elif action == "fix_config":
-            ctx.invoke(
-                run_repair, issue_id="config", kill=False, change_port_flag=False
-            )
-        elif action == "fix_db":
-            ctx.invoke(run_repair, issue_id="db", kill=False, change_port_flag=False)
-        elif action == "wayland":
-            ctx.invoke(repair_wayland)
-        elif action == "back" or action is None:
-            break
-
-        if action not in ["back", None]:
-            click.echo("")
+    choices = [
+        questionary.Choice(_("Run Diagnostics"), value="diagnose"),
+        questionary.Choice(_("Fix Port Issue"), value="fix_port"),
+        questionary.Choice(_("Fix Firewall Issue"), value="fix_firewall"),
+        questionary.Choice(_("Fix Config Issue"), value="fix_config"),
+        questionary.Choice(_("Fix Database Issue"), value="fix_db"),
+        questionary.Choice(_("Apply Wayland Patch (Linux)"), value="wayland"),
+        questionary.Choice(_("Back to Main Menu"), value="back"),
+    ]
+    action_map = {
+        "diagnose": lambda: ctx.invoke(diagnose),
+        "fix_port": _fix_port,
+        "fix_firewall": lambda: ctx.invoke(
+            run_repair, issue_id="firewall", kill=False, change_port_flag=False
+        ),
+        "fix_config": lambda: ctx.invoke(
+            run_repair, issue_id="config", kill=False, change_port_flag=False
+        ),
+        "fix_db": lambda: ctx.invoke(
+            run_repair, issue_id="db", kill=False, change_port_flag=False
+        ),
+        "wayland": lambda: ctx.invoke(repair_wayland),
+    }
+    _run_interactive_menu(_("Repair Center:"), choices, action_map)
 
 
 def launch_interactive_menu(ctx):
     if not questionary:
         click.secho(
-            _(
-                "Interactive mode requires 'questionary'. To enable it, install via: pip install questionary"
-            ),
+            _("Interactive mode requires 'questionary' (pip install questionary)."),
             fg="red",
             err=True,
         )
-        ctx.invoke(start)
-        return
+        return ctx.invoke(start)
 
     click.secho(_("\n=== PCLink Control Center ===\n"), fg="cyan", bold=True)
-
-    while True:
-        action = questionary.select(
-            _("Main Menu:"),
-            choices=[
-                questionary.Choice(_("Start PCLink Daemon"), value="start"),
-                questionary.Choice(_("Stop PCLink Daemon"), value="stop"),
-                questionary.Choice(_("Restart PCLink Daemon"), value="restart"),
-                questionary.Choice(_("Status"), value="status"),
-                questionary.Choice(_("Open Web UI"), value="ui"),
-                questionary.Choice(_("Manage Devices & Pairing"), value="devices"),
-                questionary.Choice(_("Configuration"), value="config"),
-                questionary.Choice(_("Repair Center"), value="repair"),
-                questionary.Choice(_("View Logs"), value="logs"),
-                questionary.Choice(_("Initial Admin Setup"), value="setup"),
-                questionary.Choice(_("Exit"), value="exit"),
-            ],
-        ).ask()
-
-        if action == "start":
-            ctx.invoke(start)
-        elif action == "stop":
-            ctx.invoke(stop)
-        elif action == "restart":
-            ctx.invoke(restart)
-        elif action == "status":
-            ctx.invoke(status)
-        elif action == "ui":
-            ctx.invoke(ui)
-        elif action == "logs":
-            ctx.invoke(logs, follow=False)
-        elif action == "setup":
-            ctx.invoke(setup)
-        elif action == "devices":
-            _device_menu(ctx)
-        elif action == "config":
-            _config_menu(ctx)
-        elif action == "repair":
-            _repair_menu(ctx)
-        elif action == "exit" or action is None:
-            break
-
-        if action not in ["exit", None]:
-            click.echo("")
+    choices = [
+        questionary.Choice(_("Start PCLink Daemon"), value="start"),
+        questionary.Choice(_("Stop PCLink Daemon"), value="stop"),
+        questionary.Choice(_("Restart PCLink Daemon"), value="restart"),
+        questionary.Choice(_("Status"), value="status"),
+        questionary.Choice(_("Open Web UI"), value="ui"),
+        questionary.Choice(_("Manage Devices & Pairing"), value="devices"),
+        questionary.Choice(_("Configuration"), value="config"),
+        questionary.Choice(_("Repair Center"), value="repair"),
+        questionary.Choice(_("Check for Updates"), value="update"),
+        questionary.Choice(_("View Logs"), value="logs"),
+        questionary.Choice(_("Initial Admin Setup"), value="setup"),
+        questionary.Choice(_("Exit"), value="exit"),
+    ]
+    action_map = {
+        "start": lambda: ctx.invoke(start),
+        "stop": lambda: ctx.invoke(stop),
+        "restart": lambda: ctx.invoke(restart),
+        "status": lambda: ctx.invoke(status),
+        "ui": lambda: ctx.invoke(ui),
+        "logs": lambda: ctx.invoke(logs, follow=False),
+        "setup": lambda: ctx.invoke(setup),
+        "devices": lambda: _device_menu(ctx),
+        "config": lambda: _config_menu(ctx),
+        "repair": lambda: _repair_menu(ctx),
+        "update": lambda: ctx.invoke(update_command, force=False, yes=False),
+    }
+    _run_interactive_menu(_("Main Menu:"), choices, action_map)
 
 
 if __name__ == "__main__":
