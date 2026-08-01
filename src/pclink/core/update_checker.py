@@ -8,7 +8,6 @@ import time
 from typing import Optional
 
 import requests
-from packaging import version
 
 from .version import __version__
 
@@ -90,9 +89,15 @@ class UpdateChecker:
             return None
 
     def _is_newer_version(self, latest: str, current: str) -> bool:
-        """Compare version strings using semantic versioning."""
+        """Compare version strings using semantic versioning (built-in)."""
         try:
-            return version.parse(latest) > version.parse(current)
+            # Strip 'v', ignore pre-release tags, convert to integer tuples
+            # e.g., "4.6.1-beta" -> (4, 6, 1)
+            def parse_v(v_str):
+                clean = v_str.lower().lstrip("v").split("-")[0]
+                return tuple(int(x) for x in clean.split(".") if x.isdigit())
+
+            return parse_v(latest) > parse_v(current)
         except Exception as e:
             log.warning(f"Error comparing versions '{latest}' vs '{current}': {e}")
             return False
