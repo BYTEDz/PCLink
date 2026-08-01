@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import sys
 import gettext
 import click
 
@@ -12,6 +13,9 @@ except ImportError:
     questionary = None
 
 from ..core.config import config_manager
+from ..core.version import version_info
+from ..core.web_auth import web_auth_manager
+from .helpers import PCLINK_CLI_STYLE
 
 # Import commands to execute them via context (ctx.invoke)
 from .commands.server import (
@@ -23,6 +27,7 @@ from .commands.server import (
     logs,
     setup,
     update_command,
+    about_command,
 )
 from .commands.devices import (
     list_devices,
@@ -34,28 +39,62 @@ from .commands.devices import (
     unban_device,
     list_blacklist,
     get_qr,
+    update_perms,
+    device_policy,
     _get_pending_pairings,
 )
-from .commands.config import config_set_autostart, config_set_tray
+from .commands.config import (
+    config_set_autostart,
+    config_set_tray,
+    list_services,
+    edit_services_interactive,
+)
 from .commands.repair import diagnose, run_repair, repair_wayland
 
 _ = gettext.gettext
 
 
+def _print_menu_header():
+    """Renders the ASCII logo banner and version tag at the top of the menu."""
+    click.clear()
+    click.secho(
+        r"""  ____   ____ _     _       _
+ |  _ \ / ___| |   (_)_ __ | | __
+ | |_) | |   | |   | | '_ \| |/ /
+ |  __/| |___| |___| | | | |   <
+ |_|    \____|_____|_|_| |_|_|\_\
+""",
+        fg="cyan",
+        bold=True,
+    )
+    click.secho(
+        f"  {version_info.product_name} v{version_info.version}\n",
+        fg="green",
+        bold=True,
+    )
+
+
 def _run_interactive_menu(title, choices, action_map):
-    """Shared handler for processing interactive menus."""
+    """Shared handler for processing interactive submenus with automatic screen clearing."""
     while True:
-        action = questionary.select(title, choices=choices).ask()
+        _print_menu_header()
+        action = questionary.select(
+            title, choices=choices, style=PCLINK_CLI_STYLE
+        ).ask()
         if action in ("back", "exit", None):
-            break
+            click.clear()
+            return "NO_PAUSE"
         if action in action_map:
-            action_map[action]()
-        click.echo("")
+            click.clear()
+            res = action_map[action]()
+            if res != "NO_PAUSE" and sys.stdout.isatty():
+                click.pause(_("\nPress Any Key to Return to Menu..."))
 
 
 def _pending_requests_menu(ctx):
     if not _get_pending_pairings(config_manager.get("server_port", 38080)):
-        return click.secho(_("No pending pairing requests found."), fg="yellow")
+        click.secho(_("No pending pairing requests found."), fg="yellow")
+        return
 
     ctx.invoke(list_requests)
     choices = [
@@ -67,33 +106,46 @@ def _pending_requests_menu(ctx):
         "approve": lambda: ctx.invoke(approve_pairing, id_or_idx=None),
         "reject": lambda: ctx.invoke(reject_pairing, id_or_idx=None),
     }
-    _run_interactive_menu(_("Pending Request Action:"), choices, action_map)
+    return _run_interactive_menu(_("Pending Request Action:"), choices, action_map)
 
 
 def _device_menu(ctx):
-    def _prompt_and_run(cmd, prompt_msg, list_cmd=None):
+    def _prompt_and_run(cmd, prompt_msg, list_cmd=None, **kwargs):
         if list_cmd:
             ctx.invoke(list_cmd, all=False) if list_cmd == list_devices else ctx.invoke(
                 list_cmd
             )
-        val = questionary.text(prompt_msg).ask()
+        val = questionary.text(prompt_msg, style=PCLINK_CLI_STYLE).ask()
         if val:
-            ctx.invoke(cmd, id_or_idx=val)
+            ctx.invoke(cmd, id_or_idx=val, **kwargs)
 
     choices = [
         questionary.Choice(_("List Paired Devices"), value="list"),
         questionary.Choice(_("Pending Pairing Requests"), value="requests"),
         questionary.Choice(_("Get Pairing QR Code"), value="get_qr"),
+        questionary.Choice(_("Manage Default Device Policy (Layer 2)"), value="policy"),
+        questionary.Choice(
+            _("Edit Device Permissions (Layer 3)"), value="perm_checkbox"
+        ),
         questionary.Choice(_("Revoke Device Access"), value="revoke"),
         questionary.Choice(_("Ban Device"), value="ban"),
         questionary.Choice(_("Unban Device"), value="unban"),
-        questionary.Choice(_("List Banlist (Blacklist)"), value="blacklist"),
+        questionary.Choice(_("List Blacklist"), value="blacklist"),
         questionary.Choice(_("Back to Main Menu"), value="back"),
     ]
     action_map = {
         "list": lambda: ctx.invoke(list_devices, all=False),
         "requests": lambda: _pending_requests_menu(ctx),
         "get_qr": lambda: ctx.invoke(get_qr),
+        "policy": lambda: ctx.invoke(device_policy, edit=True),
+        "perm_checkbox": lambda: _prompt_and_run(
+            update_perms,
+            _(
+                "Enter Device ID or Index to Edit Permissions (or press Enter to cancel):"
+            ),
+            list_devices,
+            role=None,
+        ),
         "revoke": lambda: _prompt_and_run(
             revoke_device,
             _("Enter Device ID or Index to Revoke (or press Enter to cancel):"),
@@ -111,7 +163,24 @@ def _device_menu(ctx):
         ),
         "blacklist": lambda: ctx.invoke(list_blacklist),
     }
-    _run_interactive_menu(_("Manage Devices & Pairing:"), choices, action_map)
+    return _run_interactive_menu(_("Manage Devices & Pairing:"), choices, action_map)
+
+
+def _service_menu(ctx):
+    choices = [
+        questionary.Choice(_("List Global Service Status"), value="list"),
+        questionary.Choice(
+            _("Edit Global Service Kill Switches (Layer 1)"), value="edit"
+        ),
+        questionary.Choice(_("Back to Main Menu"), value="back"),
+    ]
+    action_map = {
+        "list": lambda: ctx.invoke(list_services),
+        "edit": lambda: ctx.invoke(edit_services_interactive),
+    }
+    return _run_interactive_menu(
+        _("Global Services / Kill Switches (Layer 1):"), choices, action_map
+    )
 
 
 def _config_menu(ctx):
@@ -120,6 +189,9 @@ def _config_menu(ctx):
         questionary.Choice(_("Disable Autostart"), value="auto_dis"),
         questionary.Choice(_("Enable System Tray"), value="tray_en"),
         questionary.Choice(_("Disable System Tray"), value="tray_dis"),
+        questionary.Choice(
+            _("Global Services / Kill Switches (Layer 1)"), value="services"
+        ),
         questionary.Choice(_("Back to Main Menu"), value="back"),
     ]
     action_map = {
@@ -127,8 +199,9 @@ def _config_menu(ctx):
         "auto_dis": lambda: ctx.invoke(config_set_autostart, state="disable"),
         "tray_en": lambda: ctx.invoke(config_set_tray, state="enable"),
         "tray_dis": lambda: ctx.invoke(config_set_tray, state="disable"),
+        "services": lambda: _service_menu(ctx),
     }
-    _run_interactive_menu(_("Configuration:"), choices, action_map)
+    return _run_interactive_menu(_("Configuration:"), choices, action_map)
 
 
 def _repair_menu(ctx):
@@ -140,6 +213,7 @@ def _repair_menu(ctx):
                 questionary.Choice(_("Auto-Assign New Port"), value="change"),
                 questionary.Choice(_("Cancel"), value="cancel"),
             ],
+            style=PCLINK_CLI_STYLE,
         ).ask()
         if strat == "kill":
             ctx.invoke(run_repair, issue_id="port", kill=True, change_port_flag=False)
@@ -169,7 +243,7 @@ def _repair_menu(ctx):
         ),
         "wayland": lambda: ctx.invoke(repair_wayland),
     }
-    _run_interactive_menu(_("Repair Center:"), choices, action_map)
+    return _run_interactive_menu(_("Repair Center:"), choices, action_map)
 
 
 def launch_interactive_menu(ctx):
@@ -181,32 +255,115 @@ def launch_interactive_menu(ctx):
         )
         return ctx.invoke(start)
 
-    click.secho(_("\n=== PCLink Control Center ===\n"), fg="cyan", bold=True)
-    choices = [
-        questionary.Choice(_("Start PCLink Daemon"), value="start"),
-        questionary.Choice(_("Stop PCLink Daemon"), value="stop"),
-        questionary.Choice(_("Restart PCLink Daemon"), value="restart"),
-        questionary.Choice(_("Status"), value="status"),
-        questionary.Choice(_("Open Web UI"), value="ui"),
-        questionary.Choice(_("Manage Devices & Pairing"), value="devices"),
-        questionary.Choice(_("Configuration"), value="config"),
-        questionary.Choice(_("Repair Center"), value="repair"),
-        questionary.Choice(_("Check for Updates"), value="update"),
-        questionary.Choice(_("View Logs"), value="logs"),
-        questionary.Choice(_("Initial Admin Setup"), value="setup"),
-        questionary.Choice(_("Exit"), value="exit"),
-    ]
-    action_map = {
-        "start": lambda: ctx.invoke(start),
-        "stop": lambda: ctx.invoke(stop),
-        "restart": lambda: ctx.invoke(restart),
-        "status": lambda: ctx.invoke(status),
-        "ui": lambda: ctx.invoke(ui),
-        "logs": lambda: ctx.invoke(logs, follow=False),
-        "setup": lambda: ctx.invoke(setup),
-        "devices": lambda: _device_menu(ctx),
-        "config": lambda: _config_menu(ctx),
-        "repair": lambda: _repair_menu(ctx),
-        "update": lambda: ctx.invoke(update_command, force=False, yes=False),
-    }
-    _run_interactive_menu(_("Main Menu:"), choices, action_map)
+    is_advanced_mode = False
+
+    while True:
+        if is_advanced_mode:
+            choices = [
+                questionary.Choice(_("Start PCLink Daemon"), value="start"),
+                questionary.Choice(_("Stop PCLink Daemon"), value="stop"),
+                questionary.Choice(_("Restart PCLink Daemon"), value="restart"),
+                questionary.Choice(_("Status"), value="status"),
+                questionary.Choice(_("Open Web UI"), value="ui"),
+                questionary.Choice(_("Manage Devices & Pairing"), value="devices"),
+                questionary.Choice(
+                    _("Global Services / Kill Switches (Layer 1)"), value="services"
+                ),
+                questionary.Choice(_("Configuration"), value="config"),
+                questionary.Choice(_("Repair Center"), value="repair"),
+                questionary.Choice(_("View Logs"), value="logs"),
+                questionary.Choice(_("Check for Updates"), value="update"),
+                questionary.Choice(_("Initial Admin Setup"), value="setup"),
+                questionary.Choice(_("About PCLink"), value="about"),
+                questionary.Choice(_("Lock Advanced Mode"), value="lock_advanced"),
+                questionary.Choice(_("Exit"), value="exit"),
+            ]
+        else:
+            choices = [
+                questionary.Choice(_("Start PCLink Daemon"), value="start"),
+                questionary.Choice(_("Stop PCLink Daemon"), value="stop"),
+                questionary.Choice(_("Restart PCLink Daemon"), value="restart"),
+                questionary.Choice(_("Status"), value="status"),
+                questionary.Choice(_("Open Web UI"), value="ui"),
+                questionary.Choice(_("View Logs"), value="logs"),
+                questionary.Choice(_("Check for Updates"), value="update"),
+                questionary.Choice(_("About PCLink"), value="about"),
+                questionary.Choice(
+                    _("Unlock Advanced Mode (Password Required)"),
+                    value="unlock_advanced",
+                ),
+                questionary.Choice(_("Exit"), value="exit"),
+            ]
+
+        action_map = {
+            "start": lambda: ctx.invoke(start),
+            "stop": lambda: ctx.invoke(stop),
+            "restart": lambda: ctx.invoke(restart),
+            "status": lambda: ctx.invoke(status),
+            "ui": lambda: ctx.invoke(ui),
+            "logs": lambda: ctx.invoke(logs, follow=False),
+            "update": lambda: ctx.invoke(update_command, force=False, yes=False),
+            "about": lambda: ctx.invoke(about_command),
+            "setup": lambda: ctx.invoke(setup),
+            "devices": lambda: _device_menu(ctx),
+            "services": lambda: _service_menu(ctx),
+            "config": lambda: _config_menu(ctx),
+            "repair": lambda: _repair_menu(ctx),
+        }
+
+        _print_menu_header()
+        if is_advanced_mode:
+            click.secho(_("  [ADVANCED ADMIN MODE ACTIVE]\n"), fg="yellow", bold=True)
+        else:
+            click.secho(_("  [BASIC MODE ACTIVE]\n"), fg="cyan", bold=True)
+
+        action = questionary.select(
+            _("Main Menu:"), choices=choices, style=PCLINK_CLI_STYLE
+        ).ask()
+
+        if action in ("exit", None):
+            click.clear()
+            break
+
+        if action == "unlock_advanced":
+            click.clear()
+            if not web_auth_manager.is_setup_completed():
+                click.secho(
+                    _(
+                        "Administrator password setup is incomplete. Execute 'Initial Admin Setup' first."
+                    ),
+                    fg="yellow",
+                    bold=True,
+                )
+            else:
+                pwd = click.prompt(_("Enter Master Password"), hide_input=True)
+                if web_auth_manager.verify_password(pwd):
+                    is_advanced_mode = True
+                    click.secho(
+                        _("✓ Advanced Admin Mode Unlocked!"), fg="green", bold=True
+                    )
+                else:
+                    click.secho(
+                        _("✗ Authentication failed. Incorrect password."),
+                        fg="red",
+                        err=True,
+                    )
+            if sys.stdout.isatty():
+                click.pause(_("\nPress Any Key to Continue..."))
+            continue
+
+        if action == "lock_advanced":
+            is_advanced_mode = False
+            click.clear()
+            click.secho(
+                _("Advanced Mode Locked. Switched to Basic Mode."), fg="cyan", bold=True
+            )
+            if sys.stdout.isatty():
+                click.pause(_("\nPress Any Key to Continue..."))
+            continue
+
+        if action in action_map:
+            click.clear()
+            res = action_map[action]()
+            if res != "NO_PAUSE" and sys.stdout.isatty():
+                click.pause(_("\nPress Any Key to Return to Menu..."))

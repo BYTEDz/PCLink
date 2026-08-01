@@ -1,3 +1,4 @@
+# src/pclink/core/config.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -43,7 +44,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "macros",
         "processes",
     ],
-    # Services (API features that can be enabled/disabled)
+    # Services (13 Canonical API features that can be enabled/disabled)
     "services": {
         "files_read": True,
         "files_write": True,
@@ -79,7 +80,15 @@ def _deep_merge_and_sanitize(
             default_val = res[k]
             # Type safety check: Ensure user value matches expected type of default setting
             if isinstance(default_val, dict) and isinstance(v, dict):
-                res[k] = _deep_merge_and_sanitize(default_val, v)
+                if k == "services":
+                    # Strictly limit services to canonical keys defined in default["services"]
+                    res[k] = {
+                        s_key: v.get(s_key, default_val.get(s_key, True))
+                        for s_key in default_val.keys()
+                        if isinstance(v.get(s_key, default_val.get(s_key, True)), bool)
+                    }
+                else:
+                    res[k] = _deep_merge_and_sanitize(default_val, v)
             elif type(default_val) is type(v):
                 res[k] = v
             elif isinstance(default_val, int) and isinstance(v, str) and v.isdigit():
@@ -139,9 +148,17 @@ class ConfigManager:
             )
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Retrieve value from the active configuration set."""
+        """Retrieve value from active configuration, guaranteeing ONLY canonical keys for 'services'."""
         with self._lock:
-            return self._json_cache.get(key, default)
+            val = self._json_cache.get(key, default)
+            if key == "services" and isinstance(val, dict):
+                canonical_keys = DEFAULT_SETTINGS["services"].keys()
+                # Filter out any legacy non-canonical keys
+                return {
+                    k: val.get(k, DEFAULT_SETTINGS["services"][k])
+                    for k in canonical_keys
+                }
+            return val
 
     def set(self, key: str, value: Any):
         """Update configuration value and persist to disk."""
@@ -150,6 +167,14 @@ class ConfigManager:
                 log.warning(f"Setting an unknown configuration key: '{key}'")
 
             try:
+                if key == "services" and isinstance(value, dict):
+                    # Purge legacy non-canonical keys before saving
+                    canonical_keys = DEFAULT_SETTINGS["services"].keys()
+                    value = {
+                        k: value.get(k, DEFAULT_SETTINGS["services"][k])
+                        for k in canonical_keys
+                    }
+
                 self._json_cache[key] = value
                 self._save_to_file()
                 log.debug(f"Setting '{key}' saved to config file.")

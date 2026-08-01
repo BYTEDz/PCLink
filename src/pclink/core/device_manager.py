@@ -1,3 +1,4 @@
+# src/pclink/core/device_manager.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -8,13 +9,84 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from . import constants
 from .validators import ValidationError
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
+
+CANONICAL_PERMISSIONS = {
+    "files_read",
+    "files_write",
+    "processes",
+    "power",
+    "info",
+    "input",
+    "media",
+    "terminal",
+    "macros",
+    "extensions",
+    "apps",
+    "screenshot",
+    "desktop_streaming",
+}
+
+LEGACY_ROUTE_MAP = {
+    "/files/upload": "files_write",
+    "/files/delete": "files_write",
+    "/files/compress": "files_write",
+    "/files/extract": "files_write",
+    "/files/create-folder": "files_write",
+    "/files/rename": "files_write",
+    "/files/batch-rename": "files_write",
+    "/files/paste": "files_write",
+    "/files/browse": "files_read",
+    "/files/thumbnail": "files_read",
+    "/files/download": "files_read",
+    "/files/media-info": "files_read",
+    "/files/stream": "files_read",
+    "/files": "files_read",
+    "/phone/files": "files_read",
+    "/system/processes": "processes",
+    "/system/power": "power",
+    "/system/volume": "media",
+    "/system": "power",
+    "/info": "info",
+    "/input": "input",
+    "/media": "media",
+    "/terminal": "terminal",
+    "/macro": "macros",
+    "/applications": "apps",
+    "/utils/clipboard": "input",
+    "/utils/screenshot": "screenshot",
+    "/utils/command": "terminal",
+    "/utils": "input",
+    "/api/extensions": "extensions",
+    "/extensions": "extensions",
+    "/desktop-streaming": "desktop_streaming",
+}
+
+
+def normalize_permissions(
+    raw_permissions: Union[List[str], str, set, tuple],
+) -> List[str]:
+    """Converts legacy route paths or duplicate permission strings into unique canonical permissions."""
+    if isinstance(raw_permissions, str):
+        items = [p.strip() for p in raw_permissions.split(",") if p.strip()]
+    elif isinstance(raw_permissions, (list, set, tuple)):
+        items = [str(p).strip() for p in raw_permissions if str(p).strip()]
+    else:
+        items = []
+
+    normalized = []
+    for item in items:
+        target = LEGACY_ROUTE_MAP.get(item, item)
+        if target in CANONICAL_PERMISSIONS and target not in normalized:
+            normalized.append(target)
+
+    return normalized
 
 
 class Device:
@@ -46,7 +118,7 @@ class Device:
         self.created_at = created_at or datetime.now(timezone.utc)
         self.last_seen = last_seen or datetime.now(timezone.utc)
         self.hardware_id = hardware_id
-        self.permissions = permissions or []
+        self.permissions = normalize_permissions(permissions or [])
 
     def to_dict(self) -> Dict:
         return {
@@ -85,12 +157,7 @@ class Device:
             last_seen = datetime.now(timezone.utc)
 
         perms_raw = data.get("permissions", "")
-        if isinstance(perms_raw, list):
-            permissions = [str(p).strip() for p in perms_raw if str(p).strip()]
-        elif isinstance(perms_raw, str) and perms_raw.strip():
-            permissions = [p.strip() for p in perms_raw.split(",") if p.strip()]
-        else:
-            permissions = []
+        permissions = normalize_permissions(perms_raw)
 
         return cls(
             device_id=str(data.get("device_id") or ""),
@@ -265,7 +332,9 @@ class DeviceManager:
 
             from .config import config_manager
 
-            defaults = config_manager.get("default_device_permissions", [])
+            defaults = normalize_permissions(
+                config_manager.get("default_device_permissions", [])
+            )
 
             api_key = str(uuid.uuid4())
             device = Device(
@@ -438,6 +507,7 @@ class DeviceManager:
         return deleted
 
     def _save_device(self, device: Device):
+        device.permissions = normalize_permissions(device.permissions)
         data = device.to_dict()
         with self._get_connection() as conn:
             conn.execute(

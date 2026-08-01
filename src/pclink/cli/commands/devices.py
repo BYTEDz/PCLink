@@ -4,6 +4,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import gettext
+import shutil
 import click
 import requests
 
@@ -11,6 +12,7 @@ from ...core.config import config_manager
 from ...core.web_auth import web_auth_manager
 from ..helpers import (
     CONTROL_API_URL,
+    PCLINK_CLI_STYLE,
     _get_api_data,
     _post_api_data,
     _print_table,
@@ -30,6 +32,22 @@ except ImportError:
     questionary = None
 
 _ = gettext.gettext
+
+SERVICE_LABELS = {
+    "files_read": _("File Access (Read)"),
+    "files_write": _("File Access (Write)"),
+    "input": _("Remote Input & Clipboard"),
+    "media": _("Media & Volume Control"),
+    "apps": _("Applications"),
+    "processes": _("Processes"),
+    "power": _("Power Control"),
+    "info": _("System Status"),
+    "screenshot": _("Screen Capture"),
+    "macros": _("Macros"),
+    "extensions": _("Server Extensions"),
+    "desktop_streaming": _("Desktop Streaming"),
+    "terminal": _("Terminal & Shell (High Risk)"),
+}
 
 PERM_ROLES = {
     "admin": [
@@ -52,6 +70,32 @@ PERM_ROLES = {
     "remote": ["input", "screenshot", "info", "media"],
     "none": [],
 }
+
+
+def _print_compact_qr(matrix):
+    """Renders a compact terminal QR code using Unicode half-block characters (cuts height in half)."""
+    total_rows = len(matrix)
+    total_cols = len(matrix[0]) if total_rows > 0 else 0
+
+    lines = []
+    for y in range(0, total_rows, 2):
+        line = []
+        for x in range(total_cols):
+            top = matrix[y][x]
+            bottom = matrix[y + 1][x] if y + 1 < total_rows else False
+
+            if top and bottom:
+                line.append("█")
+            elif top and not bottom:
+                line.append("▀")
+            elif not top and bottom:
+                line.append("▄")
+            else:
+                line.append(" ")
+        lines.append("".join(line))
+
+    for line_str in lines:
+        click.secho(f"  {line_str}")
 
 
 def _get_pending_pairings(port: int):
@@ -97,6 +141,7 @@ def _process_pairing(id_or_idx, action, success_msg, error_msg):
             target_id = questionary.select(
                 _(f"Select pending device request to {action.upper()}:"),
                 choices=choices,
+                style=PCLINK_CLI_STYLE,
             ).ask()
             if not target_id:
                 return
@@ -141,7 +186,9 @@ def _process_pairing(id_or_idx, action, success_msg, error_msg):
 
 @click.group(
     name="device",
-    help=_("Manage devices (list, requests, approve, reject, get-qr, ban, etc)."),
+    help=_(
+        "Manage devices (list, requests, approve, reject, perm, policy, get-qr, ban, etc)."
+    ),
 )
 def device_group():
     pass
@@ -366,15 +413,63 @@ def list_blacklist():
     _print_table([_("ID"), _("Hardware ID"), _("Reason")], rows, [3, 40, 25])
 
 
+# --- Layer 3: Per-Device Permissions ---
+
+
 @device_group.command(
-    name="perm", help=_("Assign a permission role to a specific device.")
+    name="perm",
+    help=_(
+        "Layer 3: Assign permissions to a specific device (role or checkbox picker)."
+    ),
 )
 @click.argument("id_or_idx")
-@click.argument("role", type=click.Choice(list(PERM_ROLES.keys())))
-def update_perms(id_or_idx: str, role: str):
+@click.argument("role", type=click.Choice(list(PERM_ROLES.keys())), required=False)
+def update_perms(id_or_idx: str, role: str = None):
     port = config_manager.get("server_port", 38080)
     target_id = _resolve_target_id(id_or_idx, "devices", "devices", "id")
-    perms = PERM_ROLES.get(role, [])
+
+    if role:
+        perms = PERM_ROLES.get(role, [])
+    else:
+        if not questionary:
+            return click.secho(
+                _(
+                    "Error: Specify a role ({}) or install 'questionary' for interactive selection."
+                ).format(", ".join(PERM_ROLES.keys())),
+                fg="red",
+                err=True,
+            )
+
+        from ...core.device_manager import device_manager
+
+        device = device_manager.get_device_by_id(target_id)
+        current_perms = set(device.permissions) if device else set()
+        global_services = config_manager.get("services", {})
+
+        choices = []
+        for s_key, label in SERVICE_LABELS.items():
+            is_disabled_globally = not global_services.get(s_key, True)
+            display_title = f"{label} [{s_key}]"
+            if is_disabled_globally:
+                display_title += _(" (DISABLED GLOBALLY AT LAYER 1)")
+
+            choices.append(
+                questionary.Choice(
+                    title=display_title,
+                    value=s_key,
+                    checked=(s_key in current_perms),
+                )
+            )
+
+        selected = questionary.checkbox(
+            _("Select Layer 3 permissions for device {}:").format(target_id),
+            choices=choices,
+            style=PCLINK_CLI_STYLE,
+        ).ask()
+
+        if selected is None:
+            return
+        perms = selected
 
     success = (
         _post_api_data(
@@ -395,13 +490,103 @@ def update_perms(id_or_idx: str, role: str):
 
     if success:
         click.secho(
-            _("✓ Role '{}' applied successfully to device {}.").format(role, target_id),
+            _("✓ Permissions updated successfully for device {}.").format(target_id),
             fg="cyan",
             bold=True,
         )
     else:
         click.secho(
             _("Error: Failed to modify device permissions."), fg="red", err=True
+        )
+
+
+# --- Layer 2: Default Device Permission Policy ---
+
+
+@device_group.command(
+    name="policy",
+    help=_(
+        "Layer 2: View or edit default permissions assigned to newly paired devices."
+    ),
+)
+@click.option(
+    "--edit", "-e", is_flag=True, help=_("Interactively edit default device policy.")
+)
+def device_policy(edit: bool = False):
+    port = config_manager.get("server_port", 38080)
+    current_defaults = config_manager.get("default_device_permissions", [])
+
+    if not edit:
+        click.secho(
+            _("=== Layer 2: New Device Default Permission Policy ==="),
+            fg="cyan",
+            bold=True,
+        )
+        if not current_defaults:
+            click.secho(
+                _("No default permissions set (new devices will have 0 permissions)."),
+                fg="yellow",
+            )
+        else:
+            rows = [
+                [idx, perm, SERVICE_LABELS.get(perm, perm)]
+                for idx, perm in enumerate(current_defaults, 1)
+            ]
+            _print_table(
+                [_("ID"), _("Permission Key"), _("Description")], rows, [3, 20, 35]
+            )
+        click.echo(
+            _(
+                "\nRun 'pclink device policy --edit' to interactively modify default policy."
+            )
+        )
+        return
+
+    if not questionary:
+        return click.secho(
+            _("Interactive editing requires 'questionary' (pip install questionary)."),
+            fg="red",
+            err=True,
+        )
+
+    choices = [
+        questionary.Choice(
+            title=f"{label} [{s_key}]",
+            value=s_key,
+            checked=(s_key in current_defaults),
+        )
+        for s_key, label in SERVICE_LABELS.items()
+    ]
+
+    selected = questionary.checkbox(
+        _(
+            "Select default permissions assigned to newly paired devices (Layer 2 Policy):"
+        ),
+        choices=choices,
+        style=PCLINK_CLI_STYLE,
+    ).ask()
+
+    if selected is None:
+        return
+
+    success = False
+    if is_server_running():
+        success = _post_api_data(
+            f"https://127.0.0.1:{port}/settings/defaults/permissions",
+            json={"permissions": selected},
+        )
+
+    if not success:
+        config_manager.set("default_device_permissions", selected)
+        success = True
+
+    if success:
+        click.secho(
+            _("✓ Default new-device permission policy updated."), fg="green", bold=True
+        )
+    else:
+        click.secho(
+            _("Error: Failed to save default permission policy."), fg="red", err=True
         )
 
 
@@ -434,13 +619,6 @@ def get_qr():
             err=True,
         )
 
-    if not web_auth_manager.verify_password(
-        click.prompt(_("Enter Administrator Password"), hide_input=True)
-    ):
-        return click.secho(
-            _("Authentication failed. Incorrect password."), fg="red", err=True
-        )
-
     try:
         response = requests.get(f"{CONTROL_API_URL}/qr-data", timeout=5)
         response.raise_for_status()
@@ -457,20 +635,32 @@ def get_qr():
             _("\n=== PCLink Device Pairing Information ===\n"), fg="cyan", bold=True
         )
 
+        # Dynamic Quiet Zone & Compact Half-Block Rendering
+        term_size = shutil.get_terminal_size((80, 24))
+        border_size = 1 if term_size.lines < 30 or term_size.columns < 60 else 2
+
         qr_obj = qrcode.QRCode(
-            error_correction=qr_constants.ERROR_CORRECT_L, box_size=1, border=4
+            error_correction=qr_constants.ERROR_CORRECT_L,
+            box_size=1,
+            border=border_size,
         )
         qr_obj.add_data(qr_data)
         qr_obj.make(fit=True)
 
         try:
-            qr_obj.print_tty()
+            # Use compact Unicode half-block rendering (cuts line height in half)
+            matrix = qr_obj.get_matrix()
+            _print_compact_qr(matrix)
             click.echo("")
         except Exception:
-            click.secho(
-                _("(QR code display not available in this terminal environment)\n"),
-                fg="yellow",
-            )
+            try:
+                qr_obj.print_tty()
+                click.echo("")
+            except Exception:
+                click.secho(
+                    _("(QR code display not available in this terminal environment)\n"),
+                    fg="yellow",
+                )
 
         click.secho(_("Manual Pairing Code:"), bold=True)
         click.echo(f"{qr_data}\n")

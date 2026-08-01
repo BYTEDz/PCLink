@@ -5,7 +5,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from ...core.config import config_manager
-from ...core.device_manager import device_manager
+from ...core.device_manager import device_manager, normalize_permissions
 from ..ws_manager import mobile_manager
 from .dependencies import WEB_AUTH
 
@@ -23,7 +23,7 @@ async def get_connected_devices(
     """List all devices and their online/approval status."""
     devices = []
 
-    # 1. Fetch devices from DB
+    # 1. Fetch devices from DB (permissions are automatically normalized to canonical keys)
     for device in device_manager.get_all_devices():
         if device.is_approved or include_unapproved:
             devices.append(
@@ -146,13 +146,14 @@ async def unban_hardware_id(hardware_id: str = Query(...)):
 @router.get("/settings/defaults/permissions")
 async def get_default_permissions():
     """Retrieve the list of permissions assigned to new devices by default."""
-    return {"permissions": config_manager.get("default_device_permissions", [])}
+    defaults = config_manager.get("default_device_permissions", [])
+    return {"permissions": normalize_permissions(defaults)}
 
 
 @router.post("/settings/defaults/permissions")
 async def update_default_permissions(payload: Dict[str, Any]):
     """Update the global default permission set."""
-    perms = payload.get("permissions", [])
+    perms = normalize_permissions(payload.get("permissions", []))
     config_manager.set("default_device_permissions", perms)
     return {"status": "success"}
 
@@ -172,7 +173,7 @@ async def update_device_permissions(device_id: str, payload: Dict[str, Any]):
         current_perms.add(perm)
     else:
         current_perms.discard(perm)
-    device.permissions = list(current_perms)
+    device.permissions = normalize_permissions(list(current_perms))
     device_manager._save_device(device)
 
     # Notify device
@@ -190,7 +191,7 @@ async def update_device_permissions(device_id: str, payload: Dict[str, Any]):
 @router.post("/{device_id}/permissions/bulk")
 async def update_device_permissions_bulk(device_id: str, payload: Dict[str, Any]):
     """Update all permissions for a single device in bulk (CLI/Roles)."""
-    perms = payload.get("permissions", [])
+    perms = normalize_permissions(payload.get("permissions", []))
     device = device_manager.get_device_by_id(device_id)
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")

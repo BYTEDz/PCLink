@@ -18,9 +18,35 @@ from ..core import constants
 from ..core.config import config_manager
 
 try:
-    from prettytable import PrettyTable
+    from prettytable import PrettyTable, SINGLE_BORDER
 except ImportError:
     PrettyTable = None
+    SINGLE_BORDER = None
+
+try:
+    import questionary
+    from questionary import Style
+
+    PCLINK_CLI_STYLE = Style(
+        [
+            ("qmark", "fg:#00d7ff bold"),  # Prefix question icon
+            ("question", "bold"),  # Question text
+            ("answer", "fg:#00ff87 bold"),  # Submitted answer
+            ("pointer", "fg:#00d7ff bold"),  # Active hover arrow
+            ("highlighted", "fg:#00d7ff bold"),  # Active hover text
+            (
+                "selected",
+                "fg:#00ff87 bold",
+            ),  # Checked items (crisp green text, no inverted block background)
+            ("separator", "fg:#666666"),
+            ("instruction", "fg:#888888 italic"),
+            ("text", ""),
+            ("disabled", "fg:#666666 italic"),
+        ]
+    )
+except ImportError:
+    questionary = None
+    PCLINK_CLI_STYLE = None
 
 _ = gettext.gettext
 
@@ -75,20 +101,37 @@ def _post_api_data(url: str, params=None, json=None):
 
 
 def _print_table(headers, rows, widths):
-    """Unified table printer with PrettyTable fallback."""
+    """Unified table printer with solid connected box-drawing borders."""
     if PrettyTable:
         table = PrettyTable()
         table.field_names = headers
         table.align = "l"
+        if SINGLE_BORDER:
+            table.set_style(SINGLE_BORDER)
         for row in rows:
             table.add_row(row)
         click.echo(table)
     else:
-        fmt = " | ".join([f"{{{i}:<{w}}}" for i, w in enumerate(widths)])
-        click.secho(fmt.format(*headers), bold=True)
-        click.echo("-" * (sum(widths) + len(widths) * 3 - 3))
+        top_border = "┌" + "┬".join(["─" * (w + 2) for w in widths]) + "┐"
+        mid_border = "├" + "┼".join(["─" * (w + 2) for w in widths]) + "┤"
+        bot_border = "└" + "┴".join(["─" * (w + 2) for w in widths]) + "┘"
+
+        click.secho(top_border, fg="cyan")
+        header_line = (
+            "│ "
+            + " │ ".join([f"{h:<{widths[i]}}" for i, h in enumerate(headers)])
+            + " │"
+        )
+        click.secho(header_line, bold=True)
+        click.secho(mid_border, fg="cyan")
         for row in rows:
-            click.echo(fmt.format(*[str(x) for x in row]))
+            row_line = (
+                "│ "
+                + " │ ".join([f"{str(x):<{widths[i]}}" for i, x in enumerate(row)])
+                + " │"
+            )
+            click.echo(row_line)
+        click.secho(bot_border, fg="cyan")
 
 
 def _resolve_target_id(id_or_idx, api_endpoint, list_key, id_key="id"):

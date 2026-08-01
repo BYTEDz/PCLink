@@ -6,12 +6,14 @@
 import sys
 import time
 import subprocess
+import platform
 import gettext
 import click
 import requests
 
 from ...core import constants
-from ...core.version import __version__
+from ...core.version import __version__, version_info
+from ...core.config import config_manager
 from ...core.web_auth import web_auth_manager
 from ..helpers import (
     CONTROL_API_URL,
@@ -315,3 +317,46 @@ def update_command(force: bool, yes: bool):
         click.secho(
             _("✗ Failed to update PCLink automatically."), fg="red", bold=True, err=True
         )
+
+
+@click.command(
+    name="about",
+    help=_("Display PCLink application details, license, and environment paths."),
+)
+def about_command():
+    click.clear()
+    click.secho(
+        r"""
+  ____   ____ _     _       _
+ |  _ \ / ___| |   (_)_ __ | | __
+ | |_) | |   | |   | | '_ \| |/ /
+ |  __/| |___| |___| | | | |   <
+ |_|    \____|_____|_|_| |_|_|\_\
+""",
+        fg="cyan",
+        bold=True,
+    )
+
+    click.secho(
+        f"  {version_info.product_name} v{version_info.version}", fg="green", bold=True
+    )
+    click.echo(f"  {version_info.description}")
+    click.echo(f"  {version_info.copyright}")
+    click.echo(f"  License: {version_info.license_info}\n")
+
+    click.secho(_("=== Application Details & Environment ==="), fg="cyan", bold=True)
+    click.echo(
+        f"  • Operating System   : {platform.system()} {platform.release()} ({platform.machine()})"
+    )
+    click.echo(f"  • Python Version     : {platform.python_version()}")
+    click.echo(f"  • Web UI Server Port : {config_manager.get('server_port', 38080)}")
+    click.echo(f"  • App Data Directory : {constants.APP_DATA_PATH}")
+    click.echo(f"  • Config File Path   : {constants.CONFIG_FILE}")
+    click.echo(f"  • Devices DB Path    : {constants.APP_DATA_PATH / 'devices.db'}\n")
+
+    click.secho(_("=== Useful Links & Support ==="), fg="cyan", bold=True)
+    click.echo("  • GitHub Repo        : https://github.com/BYTEDz/PCLink")
+    click.echo("  • Website            : https://bytedz.com")
+    click.echo(
+        "  • Companion App      : https://play.google.com/store/apps/details?id=xyz.bytedz.pclink\n"
+    )
