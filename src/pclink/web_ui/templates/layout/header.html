@@ -1,29 +1,33 @@
-<header class="navbar bg-base-100 border-b border-base-300 px-4 shrink-0 shadow-sm z-10">
-  <div class="flex-none lg:hidden">
-    <label for="main-drawer" class="btn btn-square btn-ghost"><i data-feather="menu"></i></label>
-  </div>
-  <div class="flex-1 gap-3 items-center">
+<header class="navbar bg-base-100 border-b border-base-300 px-4 shrink-0 shadow-sm z-10 flex justify-between items-center">
+  <!-- Left: Logo & Mobile Drawer Toggle -->
+  <div class="flex-none flex items-center gap-3">
+    <div class="lg:hidden">
+      <label for="main-drawer" class="btn btn-square btn-ghost btn-sm"><i data-feather="menu"></i></label>
+    </div>
     <div class="bg-primary p-1.5 rounded-lg lg:hidden">
-      <img src="/ui/assets/pclink.svg" class="w-6 h-6 icon-white" alt="Logo" />
+      <img src="/ui/assets/pclink.svg" class="w-5 h-5 icon-white" alt="Logo" />
     </div>
     <div>
       <h1 class="text-xl font-black leading-none">PCLink</h1>
-      <span class="text-xs opacity-50 uppercase font-black tracking-widest">Control Panel</span>
-    </div>
-
-    <!-- Searchbar with Shortcut Badge Label (Ctrl + K) -->
-    <div class="hidden md:flex items-center ml-4 flex-1 max-w-xs">
-      <button class="btn btn-sm btn-ghost border border-base-300 bg-base-200/50 hover:bg-base-200 w-full justify-between font-bold text-xs opacity-70 hover:opacity-100 normal-case rounded-xl px-3" onclick="window.openCommandPalette()">
-        <span class="flex items-center gap-2">
-          <i data-feather="search" class="w-3.5 h-3.5 text-primary"></i>
-          <span>Search or jump to...</span>
-        </span>
-        <kbd class="kbd kbd-xs font-mono text-[9px] bg-base-100 border-base-300 shadow-none opacity-80">Ctrl K</kbd>
-      </button>
+      <span class="text-[10px] opacity-50 uppercase font-black tracking-widest">Control Panel</span>
     </div>
   </div>
 
-  <div class="flex-none gap-2 items-center">
+  <!-- Center: Prominent & Popping Command Palette Search Bar (Ctrl + K) -->
+  <div class="hidden md:flex flex-1 justify-center max-w-md mx-6">
+    <button class="btn btn-sm border-2 border-primary/40 hover:border-primary bg-primary/5 hover:bg-primary/10 w-full justify-between font-extrabold text-xs text-base-content normal-case rounded-2xl px-3.5 shadow-sm hover:shadow-md transition-all group" onclick="window.openCommandPalette()">
+      <span class="flex items-center gap-2.5">
+        <span class="bg-primary text-white p-1 rounded-lg group-hover:scale-110 transition-transform">
+          <i data-feather="search" class="w-3.5 h-3.5"></i>
+        </span>
+        <span class="tracking-tight">Search commands, tabs, or settings...</span>
+      </span>
+      <kbd class="kbd kbd-xs bg-primary text-white font-mono font-black border-none px-1.5 shadow-sm group-hover:bg-primary-focus">Ctrl K</kbd>
+    </button>
+  </div>
+
+  <!-- Right: Notifications & Status Badges -->
+  <div class="flex-none flex gap-2 items-center">
     <!-- Notification Center Bell Button (Reuses Side Panel) -->
     <button class="btn btn-ghost btn-circle btn-sm relative" onclick="window.openNotificationPanel()" title="Notification Center">
       <i data-feather="bell" class="w-4 h-4"></i>

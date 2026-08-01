@@ -1,25 +1,28 @@
 <!-- Command Palette Modal (Ctrl + K) -->
 <dialog id="commandPaletteModal" class="modal font-bold">
-  <div class="modal-box max-w-lg p-4 bg-base-100 border border-base-300 shadow-2xl">
-    <div class="flex items-center gap-3 border-b border-base-200 pb-3">
-      <i data-feather="search" class="w-5 h-5 text-primary shrink-0"></i>
-      <input type="text" id="cmdPaletteInput" class="input input-ghost w-full font-bold text-sm focus:outline-none focus:bg-transparent" placeholder="Type a command or tab name... (e.g. Devices, Logs, Phone, Restart)" oninput="window.filterCommandPalette(this.value)">
-      <kbd class="kbd kbd-sm text-[10px] opacity-40">ESC</kbd>
+  <div class="modal-box max-w-xl p-0 bg-[#16181d] text-base-content border border-base-300/40 shadow-2xl rounded-2xl overflow-hidden">
+    <!-- Search Header -->
+    <div class="flex items-center px-4 py-3.5 border-b border-base-300/30 bg-[#1a1d24]">
+      <i data-feather="search" class="w-4 h-4 text-primary shrink-0 mr-3"></i>
+      <input type="text" id="cmdPaletteInput" class="bg-transparent w-full font-medium text-sm text-base-content placeholder:text-base-content/40 focus:outline-none" placeholder="Run a command or search..." oninput="window.filterCommandPalette(this.value)">
+      <kbd class="kbd kbd-xs font-mono text-[9px] bg-base-200/50 border-base-300/50 text-base-content/60">ESC</kbd>
     </div>
 
-    <div id="cmdPaletteResults" class="max-h-72 overflow-y-auto space-y-1 my-3 pr-1">
-      <!-- Search items injected here -->
+    <!-- Grouped Search Results -->
+    <div id="cmdPaletteResults" class="max-h-[380px] overflow-y-auto p-3 space-y-4">
+      <!-- Dynamically rendered category groups -->
     </div>
 
-    <div class="flex justify-between items-center border-t border-base-200 pt-2 text-[10px] opacity-40">
-      <div class="flex items-center gap-2">
-        <span><kbd class="kbd kbd-xs">↑</kbd> <kbd class="kbd kbd-xs">↓</kbd> Navigate</span>
-        <span><kbd class="kbd kbd-xs">↵</kbd> Select</span>
+    <!-- Footer Hints -->
+    <div class="flex justify-between items-center px-4 py-2.5 bg-[#14161a] border-t border-base-300/30 text-[10px] text-base-content/40 font-mono">
+      <div class="flex items-center gap-3">
+        <span class="flex items-center gap-1"><kbd class="kbd kbd-xs bg-base-200/40 border-none">↑</kbd> <kbd class="kbd kbd-xs bg-base-200/40 border-none">↓</kbd> Navigate</span>
+        <span class="flex items-center gap-1"><kbd class="kbd kbd-xs bg-base-200/40 border-none">↵</kbd> Select</span>
       </div>
-      <span>Quick Command Center</span>
+      <span class="font-bold uppercase tracking-wider text-[9px] text-primary/60">Command Palette</span>
     </div>
   </div>
-  <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm">
+  <form method="dialog" class="modal-backdrop bg-black/70 backdrop-blur-sm">
     <button>close</button>
   </form>
 </dialog>

@@ -60,6 +60,27 @@ body {
   }
 }
 
+/* Deep Jump Highlight Pulse Animation for Command Palette (Ctrl+K) */
+.pclink-highlight-pulse {
+  animation: pclinkGlow 1.8s ease-in-out forwards;
+  border-radius: 0.75rem;
+}
+
+@keyframes pclinkGlow {
+  0% {
+    outline: 3px solid #2563eb;
+    box-shadow: 0 0 15px rgba(37, 99, 235, 0.6);
+  }
+  50% {
+    outline: 3px solid #2563eb;
+    box-shadow: 0 0 25px rgba(37, 99, 235, 0.9);
+  }
+  100% {
+    outline: 3px solid transparent;
+    box-shadow: none;
+  }
+}
+
 /* custom scrollbars for dark theme */
 ::-webkit-scrollbar {
   width: 6px;

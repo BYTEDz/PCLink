@@ -302,7 +302,7 @@ window.confirmDialog = function (message, { title = 'Confirm', danger = false, r
     });
 };
 
-// Command Palette Controller Logic
+// Grouped Deep Command Palette Controller Logic
 window.openCommandPalette = function () {
     const modal = document.getElementById('commandPaletteModal');
     const input = document.getElementById('cmdPaletteInput');
@@ -311,6 +311,31 @@ window.openCommandPalette = function () {
     if (input) {
         input.value = '';
         setTimeout(() => input.focus(), 100);
+
+        if (!input._hasNavListener) {
+            input._hasNavListener = true;
+            input.addEventListener('keydown', (e) => {
+                const items = window._paletteFilteredItems || [];
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (items.length > 0) {
+                        window._paletteSelectedIndex = (window._paletteSelectedIndex + 1) % items.length;
+                        window.highlightPaletteSelection();
+                    }
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (items.length > 0) {
+                        window._paletteSelectedIndex = (window._paletteSelectedIndex - 1 + items.length) % items.length;
+                        window.highlightPaletteSelection();
+                    }
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (items.length > 0 && window._paletteSelectedIndex >= 0) {
+                        window.executePaletteItem(window._paletteSelectedIndex);
+                    }
+                }
+            });
+        }
     }
     window.filterCommandPalette('');
 };
@@ -322,50 +347,145 @@ window.filterCommandPalette = function (query) {
     const q = (query || '').toLowerCase().trim();
 
     const items = [
-        { title: 'Dashboard', icon: 'home', action: () => window.pclinkUI.switchTab('dashboard') },
-        { title: 'Devices', icon: 'smartphone', action: () => window.pclinkUI.switchTab('devices') },
-        { title: 'Phone Files', icon: 'folder', action: () => window.pclinkUI.switchTab('phone-files') },
-        { title: 'Desktop Streaming', icon: 'monitor', action: () => window.pclinkUI.switchTab('desktop-streaming') },
-        { title: 'Access Control', icon: 'shield', action: () => window.pclinkUI.switchTab('services') },
-        { title: 'Share Links', icon: 'link', action: () => window.pclinkUI.switchTab('links-management') },
-        { title: 'Extensions', icon: 'package', action: () => window.pclinkUI.switchTab('extensions') },
-        { title: 'Settings', icon: 'settings', action: () => window.pclinkUI.switchTab('settings') },
-        { title: 'System Logs', icon: 'terminal', action: () => window.pclinkUI.switchTab('logs') },
-        { title: 'Macros', icon: 'zap', action: () => window.pclinkUI.switchTab('macros') },
-        { title: 'Repair Center', icon: 'tool', action: () => window.pclinkUI.switchTab('repairTab') },
-        { title: 'Pair New Device', icon: 'plus-circle', action: () => window.openPairingPanel() },
-        { title: 'Notification Center', icon: 'bell', action: () => window.openNotificationPanel() },
-        { title: 'Export Diagnostics Specs (JSON)', icon: 'download', action: () => window.downloadSystemSpecs() },
-        { title: 'Restart Server Daemon', icon: 'refresh-cw', action: () => window.restartRemoteServer() }
+        // Category: NAVIGATION
+        { title: 'Dashboard', category: 'NAVIGATION', icon: 'home', tab: 'dashboard' },
+        { title: 'Devices', category: 'NAVIGATION', icon: 'smartphone', tab: 'devices' },
+        { title: 'Phone Files', category: 'NAVIGATION', icon: 'folder', tab: 'phone-files' },
+        { title: 'Desktop Streaming', category: 'NAVIGATION', icon: 'monitor', tab: 'desktop-streaming' },
+        { title: 'Access Control / Firewall', category: 'NAVIGATION', icon: 'shield', tab: 'services' },
+        { title: 'Share Links', category: 'NAVIGATION', icon: 'link', tab: 'links-management' },
+        { title: 'Extensions', category: 'NAVIGATION', icon: 'package', tab: 'extensions' },
+        { title: 'Settings', category: 'NAVIGATION', icon: 'settings', tab: 'settings' },
+        { title: 'System Logs', category: 'NAVIGATION', icon: 'terminal', tab: 'logs' },
+        { title: 'Automation Macros', category: 'NAVIGATION', icon: 'zap', tab: 'macros' },
+        { title: 'Repair Center', category: 'NAVIGATION', icon: 'tool', tab: 'repairTab' },
+        { title: 'User Guide', category: 'NAVIGATION', icon: 'book-open', tab: 'guide' },
+        { title: 'About PCLink', category: 'NAVIGATION', icon: 'help-circle', tab: 'about' },
+
+        // Category: FIREWALL & ACCESS
+        { title: 'Toggle File Access (Read)', category: 'FIREWALL & ACCESS', icon: 'folder', tab: 'services', targetId: '[data-perm="files_read"]' },
+        { title: 'Toggle File Access (Write)', category: 'FIREWALL & ACCESS', icon: 'edit-3', tab: 'services', targetId: '[data-perm="files_write"]' },
+        { title: 'Toggle Remote Input & Clipboard', category: 'FIREWALL & ACCESS', icon: 'mouse-pointer', tab: 'services', targetId: '[data-perm="input"]' },
+        { title: 'Toggle Media Control', category: 'FIREWALL & ACCESS', icon: 'play-circle', tab: 'services', targetId: '[data-perm="media"]' },
+        { title: 'Toggle Applications Access', category: 'FIREWALL & ACCESS', icon: 'grid', tab: 'services', targetId: '[data-perm="apps"]' },
+        { title: 'Toggle Process Manager', category: 'FIREWALL & ACCESS', icon: 'activity', tab: 'services', targetId: '[data-perm="processes"]' },
+        { title: 'Toggle Power Control', category: 'FIREWALL & ACCESS', icon: 'power', tab: 'services', targetId: '[data-perm="power"]' },
+        { title: 'Toggle Screen Capture', category: 'FIREWALL & ACCESS', icon: 'camera', tab: 'services', targetId: '[data-perm="screenshot"]' },
+        { title: 'Toggle Automation Macros', category: 'FIREWALL & ACCESS', icon: 'zap', tab: 'services', targetId: '[data-perm="macros"]' },
+        { title: 'Toggle Server Extensions', category: 'FIREWALL & ACCESS', icon: 'package', tab: 'services', targetId: '[data-perm="extensions"]' },
+        { title: 'Toggle Desktop Streaming', category: 'FIREWALL & ACCESS', icon: 'monitor', tab: 'services', targetId: '[data-perm="desktop_streaming"]' },
+        { title: 'Toggle Terminal & Shell', category: 'FIREWALL & ACCESS', icon: 'terminal', tab: 'services', targetId: '[data-perm="terminal"]' },
+
+        // Category: SETTINGS & CONFIG
+        { title: 'Server Port Configuration', category: 'SETTINGS & CONFIG', icon: 'settings', tab: 'settings', targetId: 'serverPortInput' },
+        { title: 'Start with System Autostart', category: 'SETTINGS & CONFIG', icon: 'power', tab: 'settings', targetId: 'autoStartCheckbox' },
+        { title: 'Change Master Password', category: 'SETTINGS & CONFIG', icon: 'key', tab: 'settings', targetId: 'currentPassword' },
+        { title: 'Change UI Theme', category: 'SETTINGS & CONFIG', icon: 'monitor', tab: 'settings', targetId: 'themeSelector' },
+        { title: 'Transfer Cleanup Threshold', category: 'SETTINGS & CONFIG', icon: 'trash-2', tab: 'settings', targetId: 'cleanupThresholdInput' },
+        { title: 'Notification Preferences', category: 'SETTINGS & CONFIG', icon: 'bell', tab: 'settings', targetId: 'notifyDeviceConnect' },
+        { title: 'Open Host Config Location', category: 'SETTINGS & CONFIG', icon: 'folder', action: () => window.openConfigFolder() },
+        { title: 'Factory Reset Server', category: 'SETTINGS & CONFIG', icon: 'refresh-ccw', action: () => window.resetServerRequest() },
+
+        // Category: DAEMON CONTROLS
+        { title: 'Start Daemon Server', category: 'DAEMON CONTROLS', icon: 'play', action: () => window.startRemoteServer() },
+        { title: 'Stop Daemon Server', category: 'DAEMON CONTROLS', icon: 'pause', action: () => window.stopRemoteServer() },
+        { title: 'Restart Daemon Server', category: 'DAEMON CONTROLS', icon: 'refresh-cw', action: () => window.restartRemoteServer() },
+        { title: 'Shutdown Server Process', category: 'DAEMON CONTROLS', icon: 'power', action: () => window.shutdownServer() },
+
+        // Category: ACTIONS & UTILITIES
+        { title: 'Pair New Device', category: 'ACTIONS & UTILITIES', icon: 'plus-circle', action: () => window.openPairingPanel() },
+        { title: 'Notification Center', category: 'ACTIONS & UTILITIES', icon: 'bell', action: () => window.openNotificationPanel() },
+        { title: 'Export Diagnostics Specs (JSON)', category: 'ACTIONS & UTILITIES', icon: 'download', action: () => window.downloadSystemSpecs() },
+        { title: 'Run System Diagnostics', category: 'ACTIONS & UTILITIES', icon: 'tool', tab: 'repairTab', action: () => { window.pclinkUI.switchTab('repairTab'); if(window.repairModule) window.repairModule.runDiagnostics(); } },
+        { title: 'Auto-Heal Server', category: 'ACTIONS & UTILITIES', icon: 'cpu', tab: 'repairTab', action: () => { window.pclinkUI.switchTab('repairTab'); if(window.repairModule) window.repairModule.executeAutoHeal(); } },
+        { title: 'Clear System Logs', category: 'ACTIONS & UTILITIES', icon: 'trash-2', action: () => window.clearLogs() },
+        { title: 'Download System Logs', category: 'ACTIONS & UTILITIES', icon: 'download', action: () => window.downloadLogs() }
     ];
 
-    const filtered = items.filter(i => !q || i.title.toLowerCase().includes(q));
+    const filtered = items.filter(i => !q || i.title.toLowerCase().includes(q) || i.category.toLowerCase().includes(q));
 
     if (filtered.length === 0) {
-        container.innerHTML = `<div class="text-center py-6 opacity-40 text-xs font-bold">No matching commands</div>`;
+        container.innerHTML = `<div class="text-center py-10 opacity-40 text-xs font-bold">No commands found for "${window.pclinkUI ? window.pclinkUI.escapeHTML(q) : q}"</div>`;
         return;
     }
 
-    container.innerHTML = filtered.map((item, idx) => `
-        <div class="p-2.5 rounded-xl hover:bg-base-200 cursor-pointer flex items-center justify-between text-xs font-bold transition-all" onclick="window.executePaletteItem(${idx})">
-            <div class="flex items-center gap-2.5">
-                <i data-feather="${item.icon}" class="w-4 h-4 text-primary shrink-0"></i>
-                <span>${item.title}</span>
-            </div>
-            <span class="text-[10px] opacity-40 uppercase">Jump</span>
-        </div>
-    `).join('');
+    // Group items by category
+    const groups = {};
+    filtered.forEach((item, flatIdx) => {
+        if (!groups[item.category]) groups[item.category] = [];
+        groups[item.category].push({ ...item, flatIdx });
+    });
 
+    const escapeFn = (str) => (window.pclinkUI ? window.pclinkUI.escapeHTML(str) : str);
+
+    let html = '';
+    for (const [catName, groupItems] of Object.entries(groups)) {
+        html += `
+            <div class="cmd-group space-y-1">
+                <div class="px-2 pt-2 pb-1 text-[10px] font-black uppercase tracking-widest text-primary/70">${escapeFn(catName)}</div>
+                <div class="space-y-1">
+                    ${groupItems.map(item => `
+                        <div class="cmd-item p-2.5 rounded-xl hover:bg-base-200/80 cursor-pointer flex items-center justify-between text-xs font-semibold transition-all group/item" data-flat-idx="${item.flatIdx}" onclick="window.executePaletteItem(${item.flatIdx})">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <i data-feather="${item.icon}" class="w-4 h-4 text-base-content/60 group-hover/item:text-primary transition-colors shrink-0"></i>
+                                <span class="truncate text-base-content/90 group-hover/item:text-base-content">${escapeFn(item.title)}</span>
+                            </div>
+                            <span class="text-[9px] opacity-30 font-mono uppercase shrink-0 group-hover/item:opacity-80 group-hover/item:text-primary">Run</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
     window._paletteFilteredItems = filtered;
+    window._paletteSelectedIndex = 0;
+    window.highlightPaletteSelection();
+
     if (window.feather) feather.replace();
+};
+
+window.highlightPaletteSelection = function () {
+    const container = document.getElementById('cmdPaletteResults');
+    if (!container) return;
+    const items = container.querySelectorAll('.cmd-item');
+    items.forEach((el) => {
+        const flatIdx = parseInt(el.getAttribute('data-flat-idx'));
+        if (flatIdx === window._paletteSelectedIndex) {
+            el.classList.add('bg-base-200', 'border-l-2', 'border-l-primary', 'pl-3.5');
+            el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+            el.classList.remove('bg-base-200', 'border-l-2', 'border-l-primary', 'pl-3.5');
+        }
+    });
 };
 
 window.executePaletteItem = function (idx) {
     const items = window._paletteFilteredItems || [];
-    if (items[idx]) {
-        const modal = document.getElementById('commandPaletteModal');
-        if (modal && modal.close) modal.close();
-        items[idx].action();
+    const item = items[idx];
+    if (!item) return;
+
+    const modal = document.getElementById('commandPaletteModal');
+    if (modal && modal.close) modal.close();
+
+    if (item.action) {
+        item.action();
+    } else if (item.tab) {
+        window.pclinkUI.switchTab(item.tab);
+        if (item.targetId) {
+            setTimeout(() => {
+                const targetEl = document.getElementById(item.targetId) || document.querySelector(item.targetId);
+                if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    targetEl.classList.add('pclink-highlight-pulse');
+                    setTimeout(() => targetEl.classList.remove('pclink-highlight-pulse'), 1800);
+                    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(targetEl.tagName)) {
+                        targetEl.focus();
+                    }
+                }
+            }, 150);
+        }
     }
 };
 
