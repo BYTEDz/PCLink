@@ -286,14 +286,14 @@ async def web_ui_websocket_endpoint(websocket: WebSocket):
         ui_manager.disconnect(websocket)
 
 
-async def broadcast_updates_task(manager, state):
-    """Background task to push periodic system state updates to connected clients."""
+async def broadcast_updates_task(mobile_mgr, ui_mgr, state):
+    """Background task to push periodic system state updates to connected mobile and Web UI clients."""
     from ...services import media_service, system_service
     from ...services.discovery_service import DiscoveryService
 
     while True:
         try:
-            if not manager.active_connections:
+            if not mobile_mgr.active_connections and not ui_mgr.active_connections:
                 await asyncio.sleep(2)
                 continue
 
@@ -320,7 +320,11 @@ async def broadcast_updates_task(manager, state):
             if services.get("media", True):
                 update_data["media"] = await media_service.get_media_info()
 
-            await manager.broadcast({"type": "update", "data": update_data})
+            msg = {"type": "update", "data": update_data}
+            if mobile_mgr.active_connections:
+                await mobile_mgr.broadcast(msg)
+            if ui_mgr.active_connections:
+                await ui_mgr.broadcast(msg)
         except Exception as e:
             log.error(f"Broadcast task error: {e}")
 

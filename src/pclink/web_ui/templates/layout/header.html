@@ -11,12 +11,18 @@
       <span class="text-xs opacity-50 uppercase font-black tracking-widest">Control Panel</span>
     </div>
   </div>
-  <div class="flex-none gap-2">
+  <div class="flex-none gap-2 items-center">
+    <!-- Notification Center Bell Button (Reuses Side Panel) -->
+    <button class="btn btn-ghost btn-circle btn-sm relative" onclick="window.openNotificationPanel()" title="Notification Center">
+      <i data-feather="bell" class="w-4 h-4"></i>
+      <span id="notificationBadgeCount" class="badge badge-error badge-xs absolute -top-1 -right-1 font-bold text-[9px] hidden">0</span>
+    </button>
+
+    <!-- Server Status Badge -->
     <div class="badge badge-outline gap-2 py-3 px-3 border-base-300" id="serverStatusBadge">
       <span class="status-dot online w-2 h-2 rounded-full bg-success"></span>
       <span id="serverStatusText" class="text-sm font-black uppercase tracking-wider">Online</span>
     </div>
-    <button class="btn btn-ghost btn-sm text-error ml-2" onclick="logout()" title="Logout"><i
-        data-feather="log-out"></i></button>
+    <button class="btn btn-ghost btn-sm text-error ml-1" onclick="logout()" title="Logout"><i data-feather="log-out"></i></button>
   </div>
 </header>

@@ -1,52 +1,201 @@
 <!-- Dashboard -->
 <div class="tab-content active" id="dashboard">
-  <div class="grid grid-cols-1 gap-6">
-    <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
-      <div class="card-body p-6">
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="card-title text-sm opacity-60 uppercase"><i data-feather="link" class="w-5 text-primary"></i>
-            Connectivity</h2>
-          <button class="btn btn-sm btn-primary text-white font-bold" onclick="window.openPairingPanel()"><i
-              data-feather="plus" class="w-3"></i> Pair Device</button>
+  <!-- Master Grid: 3/4 (75%) vs 1/4 (25%) on LG screens -->
+  <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start w-full">
+
+    <!-- MAIN SECTION: 3/4 Width (lg:col-span-3) -->
+    <div class="lg:col-span-3 space-y-6">
+
+      <!-- Section 1: Real-Time Telemetry Grid -->
+      <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+        <div class="card-body p-5">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="card-title text-xs font-black uppercase opacity-50 tracking-wider flex items-center gap-2">
+              <i data-feather="activity" class="w-4 text-primary"></i> Real-Time Telemetry
+            </h2>
+            <span class="badge badge-success badge-xs font-bold text-[9px] uppercase tracking-wider">Live Stream</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 items-stretch">
+            <!-- CPU Gauge Tile -->
+            <div class="p-3.5 bg-base-200/50 rounded-xl border border-base-300/50 space-y-2 flex flex-col justify-between h-full">
+              <div class="flex justify-between items-center">
+                <span class="text-[10px] font-black uppercase opacity-50">CPU Usage</span>
+                <i data-feather="cpu" class="w-4 h-4 text-primary"></i>
+              </div>
+              <div class="text-2xl font-black" id="dashCpuVal">0%</div>
+              <progress id="dashCpuBar" class="progress progress-primary w-full h-1.5" value="0" max="100"></progress>
+              <span class="text-[9px] opacity-40 font-bold block truncate" id="dashCpuSub">Probing...</span>
+            </div>
+
+            <!-- RAM Gauge Tile -->
+            <div class="p-3.5 bg-base-200/50 rounded-xl border border-base-300/50 space-y-2 flex flex-col justify-between h-full">
+              <div class="flex justify-between items-center">
+                <span class="text-[10px] font-black uppercase opacity-50">RAM Memory</span>
+                <i data-feather="hard-drive" class="w-4 h-4 text-secondary"></i>
+              </div>
+              <div class="text-2xl font-black" id="dashRamVal">0%</div>
+              <progress id="dashRamBar" class="progress progress-secondary w-full h-1.5" value="0" max="100"></progress>
+              <span class="text-[9px] opacity-40 font-bold block truncate" id="dashRamSub">0 GB / 0 GB</span>
+            </div>
+
+            <!-- Network Throughput Tile -->
+            <div class="p-3.5 bg-base-200/50 rounded-xl border border-base-300/50 space-y-2 flex flex-col justify-between h-full">
+              <div class="flex justify-between items-center">
+                <span class="text-[10px] font-black uppercase opacity-50">Network I/O</span>
+                <i data-feather="wifi" class="w-4 h-4 text-accent"></i>
+              </div>
+              <div class="text-xs font-black flex flex-col gap-1 py-0.5">
+                <span class="text-success flex items-center gap-1.5"><i data-feather="arrow-down" class="w-3.5"></i> <span id="dashNetDown">0.00 Mbps</span></span>
+                <span class="text-info flex items-center gap-1.5"><i data-feather="arrow-up" class="w-3.5"></i> <span id="dashNetUp">0.00 Mbps</span></span>
+              </div>
+              <span class="text-[9px] opacity-40 font-bold block">Live Throughput</span>
+            </div>
+
+            <!-- Thermals & Power Tile (Full Height Stretch) -->
+            <div class="p-3.5 bg-base-200/50 rounded-xl border border-base-300/50 space-y-2 flex flex-col justify-between h-full">
+              <div class="flex justify-between items-center">
+                <span class="text-[10px] font-black uppercase opacity-50">Thermals & Power</span>
+                <i data-feather="thermometer" class="w-4 h-4 text-warning"></i>
+              </div>
+              <div class="text-2xl font-black" id="dashTempVal">N/A</div>
+              <span class="text-[9px] opacity-40 font-bold block truncate" id="dashPowerSub">AC Power</span>
+            </div>
+          </div>
         </div>
-        <p class="text-xs opacity-50">Link a mobile device to start controlling your computer remotely. Scan the QR code
-          in the PCLink mobile app to get started.</p>
       </div>
-    </div>
-    <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
-      <div class="card-body p-6">
-        <h2 class="card-title text-sm opacity-60 uppercase mb-4"><i data-feather="power" class="w-5 text-primary"></i>
-          Server Control</h2>
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <button class="btn btn-success text-white font-bold" onclick="startRemoteServer()"><i data-feather="play"></i>
-            Start</button>
-          <button class="btn btn-warning text-black font-bold" onclick="stopRemoteServer()"><i data-feather="pause"></i>
-            Stop</button>
-          <button class="btn btn-primary text-white font-bold" onclick="restartRemoteServer()"><i
-              data-feather="refresh-cw"></i> Restart</button>
-          <button class="btn btn-error text-white font-bold" onclick="shutdownServer()"><i data-feather="power"></i>
-            Shutdown</button>
+
+      <!-- Sub-Grid inside 3/4 Main Section (Storage vs Fleet & Admin Sessions) -->
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start w-full">
+        <!-- Sub-Col 1: System Storage Overview -->
+        <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+          <div class="card-body p-5">
+            <div class="flex justify-between items-center mb-3">
+              <h2 class="card-title text-xs font-black uppercase opacity-50 tracking-wider flex items-center gap-2">
+                <i data-feather="hard-drive" class="w-4 text-primary"></i> System Storage
+              </h2>
+              <button class="btn btn-xs btn-ghost border-base-300 font-bold" onclick="window.pclinkUI.loadServerStatus()">
+                <i data-feather="refresh-cw" class="w-3"></i>
+              </button>
+            </div>
+            <div id="dashDisksContainer" class="space-y-3">
+              <div class="text-center py-6 opacity-40 text-xs font-bold">Probing storage volumes...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sub-Col 2: Live Connected Fleet + Security & Admin Sessions -->
+        <div class="space-y-6">
+          <!-- Live Connected Fleet -->
+          <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+            <div class="card-body p-5">
+              <div class="flex justify-between items-center mb-3">
+                <div class="flex items-center gap-2">
+                  <h2 class="card-title text-xs font-black uppercase opacity-50 tracking-wider flex items-center gap-2">
+                    <i data-feather="smartphone" class="w-4 text-primary"></i> Live Connected Fleet
+                  </h2>
+                  <span class="badge badge-primary badge-xs font-bold" id="dashboardDeviceCount">0</span>
+                </div>
+                <button class="btn btn-xs btn-primary text-white font-bold" onclick="window.openPairingPanel()">
+                  <i data-feather="plus" class="w-3"></i> Pair Device
+                </button>
+              </div>
+              <div id="dashFleetContainer" class="space-y-2">
+                <div class="text-center py-6 opacity-40 text-xs font-bold">Loading paired devices...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Security & Admin Sessions -->
+          <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+            <div class="card-body p-5 space-y-4">
+              <div>
+                <h2 class="card-title text-xs font-black uppercase opacity-50 tracking-wider mb-2 flex items-center gap-2">
+                  <i data-feather="shield" class="w-4 text-success"></i> Admin Sessions
+                </h2>
+                <div id="dashSecurityContainer" class="grid grid-cols-2 gap-2 text-center">
+                  <div class="p-2.5 bg-base-200/50 rounded-xl border border-base-300/50">
+                    <span class="text-[8px] font-black uppercase opacity-40 block">Active</span>
+                    <span id="dashActiveSessionsVal" class="text-sm font-black text-primary">1</span>
+                  </div>
+                  <div class="p-2.5 bg-base-200/50 rounded-xl border border-base-300/50">
+                    <span class="text-[8px] font-black uppercase opacity-40 block">Expiry</span>
+                    <span id="dashSessionTimeoutVal" class="text-sm font-black">24h</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h2 class="card-title text-xs font-black uppercase opacity-50 tracking-wider mb-2 flex items-center gap-2">
+                  <i data-feather="corner-down-right" class="w-4 text-info"></i> Transfer Pipeline
+                </h2>
+                <div id="dashTransfersContainer" class="grid grid-cols-2 gap-2 text-center">
+                  <div class="p-2.5 bg-base-200/50 rounded-xl border border-base-300/50">
+                    <span class="text-[8px] font-black uppercase opacity-40 block">Uploads</span>
+                    <span id="dashActiveUploadsVal" class="text-sm font-black">0</span>
+                  </div>
+                  <div class="p-2.5 bg-base-200/50 rounded-xl border border-base-300/50">
+                    <span class="text-[8px] font-black uppercase opacity-40 block">Downloads</span>
+                    <span id="dashActiveDownloadsVal" class="text-sm font-black">0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
+
     </div>
-    <div class="stats stats-vertical lg:stats-horizontal shadow bg-base-100 border border-base-300 w-full">
-      <div class="stat">
-        <div class="stat-figure text-primary"><i data-feather="globe" class="w-8 h-8"></i></div>
-        <div class="stat-title text-xs font-bold uppercase">Address</div>
-        <div class="stat-value text-lg break-all" id="hostIP">Loading...</div>
+
+    <!-- SIDE SECTION: 1/4 Width (lg:col-span-1) -->
+    <div class="lg:col-span-1 space-y-6">
+
+      <!-- Daemon Controls (Moved on Top) -->
+      <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+        <div class="card-body p-4">
+          <h2 class="card-title text-xs font-black uppercase opacity-50 tracking-wider mb-3 flex items-center gap-2">
+            <i data-feather="power" class="w-3.5 text-primary"></i> Daemon Controls
+          </h2>
+          <div class="grid grid-cols-2 gap-2">
+            <button class="btn btn-xs btn-success text-white font-bold" onclick="startRemoteServer()"><i data-feather="play" class="w-3"></i> Start</button>
+            <button class="btn btn-xs btn-warning text-black font-bold" onclick="stopRemoteServer()"><i data-feather="pause" class="w-3"></i> Stop</button>
+            <button class="btn btn-xs btn-primary text-white font-bold" onclick="restartRemoteServer()"><i data-feather="refresh-cw" class="w-3"></i> Restart</button>
+            <button class="btn btn-xs btn-error text-white font-bold" onclick="shutdownServer()"><i data-feather="power" class="w-3"></i> Quit</button>
+          </div>
+        </div>
       </div>
-      <div class="stat">
-        <div class="stat-figure text-secondary"><i data-feather="smartphone" class="w-8 h-8"></i></div>
-        <div class="stat-title text-xs font-bold uppercase">Devices</div>
-        <div class="stat-value text-lg" id="dashboardDeviceCount">0</div>
-        <div class="stat-desc font-mono" id="serverPort">Port: 38080</div>
+
+      <!-- Server Identity Stats -->
+      <div class="stats stats-vertical shadow-sm bg-base-100 border border-base-300 w-full">
+        <div class="stat p-4">
+          <div class="stat-figure text-primary"><i data-feather="globe" class="w-5 h-5"></i></div>
+          <div class="stat-title text-[9px] font-black uppercase opacity-40 tracking-wider">Host Address</div>
+          <div class="stat-value text-sm font-bold truncate mt-0.5" id="hostIP">Loading...</div>
+        </div>
+        <div class="stat p-4">
+          <div class="stat-figure text-accent"><i data-feather="clock" class="w-5 h-5"></i></div>
+          <div class="stat-title text-[9px] font-black uppercase opacity-40 tracking-wider">Uptime</div>
+          <div class="stat-value text-sm font-bold mt-0.5" id="serverUptime">Just now</div>
+          <div class="stat-desc font-bold text-success text-[9px] mt-0.5" id="serverVersion">vLoading</div>
+        </div>
       </div>
-      <div class="stat">
-        <div class="stat-figure text-accent"><i data-feather="clock" class="w-8 h-8"></i></div>
-        <div class="stat-title text-xs font-bold uppercase">Uptime</div>
-        <div class="stat-value text-lg" id="serverUptime">Just now</div>
-        <div class="stat-desc font-bold text-success" id="serverVersion">vLoading</div>
+
+      <!-- Network Adapters & IPs -->
+      <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
+        <div class="card-body p-5">
+          <div class="flex justify-between items-center mb-3">
+            <h2 class="card-title text-xs font-black uppercase opacity-50 tracking-wider flex items-center gap-2">
+              <i data-feather="share-2" class="w-4 text-primary"></i> Network Adapters
+            </h2>
+            <span class="text-[9px] font-black uppercase opacity-40">LAN / VPN</span>
+          </div>
+          <div id="dashAdaptersContainer" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+            <div class="text-center py-6 opacity-40 text-xs font-bold">Reading interfaces...</div>
+          </div>
+        </div>
       </div>
+
     </div>
+
   </div>
 </div>

@@ -37,6 +37,7 @@ class PCLinkWebUI {
         this.lastActivity = Date.now();
         this.macros = [];
         this.macroActions = [];
+        this._featherTimeout = null;
     }
 
     async init() {
@@ -72,15 +73,22 @@ class PCLinkWebUI {
         setTimeout(() => window.loadNotificationSettings(), 1000);
         setTimeout(() => window.renderCustomTemplates(), 500);
 
-        if (window.feather) feather.replace();
+        this.renderIcons();
 
         setTimeout(() => {
             const loader = document.getElementById('fullScreenLoader');
             if (loader) {
                 loader.style.opacity = '0';
-                setTimeout(() => { if (loader) loader.classList.add('hidden'); }, 500);
+                setTimeout(() => { loader.classList.add('hidden'); }, 500);
             }
         }, 400);
+    }
+
+    renderIcons() {
+        if (window.feather) {
+            if (this._featherTimeout) clearTimeout(this._featherTimeout);
+            this._featherTimeout = setTimeout(() => feather.replace(), 10);
+        }
     }
 
     setupEventListeners() {
@@ -145,13 +153,20 @@ class PCLinkWebUI {
             case 'macros': await this.loadMacros(); break;
             case 'links-management': if (window.refreshLinks) await window.refreshLinks(); break;
         }
-        if (window.feather) feather.replace();
+        this.renderIcons();
     }
 
     getHeaders() { return { 'Content-Type': 'application/json', ...(this.apiKey && { 'X-API-Key': this.apiKey }) }; }
     getWebHeaders() { return { 'Content-Type': 'application/json' }; }
     async webUICall(endpoint, options = {}) { return fetch(`${this.baseUrl}${endpoint}`, { ...options, headers: { ...this.getWebHeaders(), ...options.headers }, credentials: 'include' }); }
-    async apiCall(endpoint, options = {}) { const r = await fetch(`${this.baseUrl}${endpoint}`, { ...options, headers: { ...this.getHeaders(), ...options.headers } }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); }
+    async apiCall(endpoint, options = {}) {
+        const r = await fetch(`${this.baseUrl}${endpoint}`, {
+            ...options,
+            headers: { ...this.getHeaders(), ...options.headers }
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return await r.json();
+    }
 
     updateConnectionStatus() {
         const dot = document.querySelector('.status-dot');
@@ -172,7 +187,7 @@ class PCLinkWebUI {
         let container = document.getElementById('toast-container');
         if (!container) { container = document.createElement('div'); container.id = 'toast-container'; document.body.appendChild(container); }
         container.appendChild(toast);
-        if (window.feather) feather.replace();
+        this.renderIcons();
         setTimeout(() => { toast.classList.add('hiding'); setTimeout(() => toast.remove(), 300); }, 4000);
     }
 
@@ -201,7 +216,7 @@ class PCLinkWebUI {
     }
 }
 
-// Foundation UI Helpers
+// Foundation UI & Centralized Modal Helpers
 window.confirmDialog = function (message, { title = 'Confirm', danger = false, requiredWord = null } = {}) {
     return new Promise(resolve => {
         const modal = document.getElementById('confirmModal');
@@ -212,6 +227,8 @@ window.confirmDialog = function (message, { title = 'Confirm', danger = false, r
         const cancelBtn = document.getElementById('confirmModalCancel');
         const inputWrapper = document.getElementById('confirmModalInputWrapper');
         const input = document.getElementById('confirmModalInput');
+
+        if (!modal) return resolve(false);
 
         titleEl.textContent = title;
         msgEl.textContent = message;
@@ -236,7 +253,7 @@ window.confirmDialog = function (message, { title = 'Confirm', danger = false, r
             cancelBtn.removeEventListener('click', onCancel);
             modal.removeEventListener('cancel', onCancel);
             input.oninput = null;
-            modal.close();
+            if (modal.close) modal.close();
             resolve(result);
         };
         const onOk = () => cleanup(true);
@@ -245,10 +262,112 @@ window.confirmDialog = function (message, { title = 'Confirm', danger = false, r
         okBtn.addEventListener('click', onOk, { once: true });
         cancelBtn.addEventListener('click', onCancel, { once: true });
         modal.addEventListener('cancel', onCancel, { once: true });
-        modal.showModal();
+        if (modal.showModal) modal.showModal();
         if (requiredWord) setTimeout(() => input.focus(), 100);
     });
 };
+
+window.toggleResetModalCore = function (show) {
+    const modal = document.getElementById('resetModal');
+    if (!modal) return;
+    if (show) {
+        modal.showModal ? modal.showModal() : modal.classList.add('modal-open');
+        window.fetchConfigPathCore();
+    } else {
+        modal.close ? modal.close() : modal.classList.remove('modal-open');
+    }
+};
+window.toggleResetModal = window.toggleResetModalCore;
+
+window.fetchConfigPathCore = async function () {
+    try {
+        const response = await fetch('/auth/status');
+        if (response.ok) {
+            const data = await response.json();
+            const el = document.getElementById('p_dataDir');
+            if (el) el.innerText = data.data_path || "~/.config/pclink";
+        }
+    } catch (e) {
+        const el = document.getElementById('p_dataDir');
+        if (el) el.innerText = "Check ~/.config/pclink";
+    }
+};
+window.fetchConfigPath = window.fetchConfigPathCore;
+
+window.copyPathCore = function () {
+    const el = document.getElementById('p_dataDir');
+    if (!el) return;
+    navigator.clipboard.writeText(el.innerText).then(() => {
+        const originalText = el.innerText;
+        el.innerText = "COPIED TO CLIPBOARD!";
+        setTimeout(() => el.innerText = originalText, 2000);
+    });
+};
+window.copyPath = window.copyPathCore;
+
+window.openConfigFolderCore = async function () {
+    try {
+        const response = await fetch('/open-data-dir', { method: 'POST', credentials: 'include' });
+        if (!response.ok) {
+            if (response.status === 403) alert("Opening folder only works if you are on the host machine (localhost).");
+            else alert("Failed to open folder.");
+        }
+    } catch (e) {
+        alert("Error connecting to server.");
+    }
+};
+window.openConfigFolder = window.openConfigFolderCore;
+
+window.handleFactoryResetCore = async function (event) {
+    if (event) event.preventDefault();
+    const password = document.getElementById('resetPassword')?.value || '';
+    const wipeAuth = document.getElementById('wipeAuthCheckbox')?.checked || false;
+    const wipeExtensions = document.getElementById('wipeExtensionsCheckbox')?.checked || false;
+
+    if (!await window.confirmDialog("FINAL WARNING: This is IRREVERSIBLE. Are you sure you want to PERMANENTLY delete server data? Type 'YES' to confirm.", { title: 'Factory Reset Security Check', danger: true, requiredWord: 'YES' })) {
+        return;
+    }
+
+    const btn = document.getElementById('resetButton');
+    const originalText = btn ? btn.innerText : 'Resetting...';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = "Resetting...";
+    }
+
+    try {
+        const response = await fetch('/auth/factory-reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password, wipe_auth: wipeAuth, wipe_extensions: wipeExtensions }),
+            credentials: 'include'
+        });
+
+        if (response.ok) {
+            localStorage.clear();
+            const overlay = document.getElementById('resetSuccessOverlay');
+            if (overlay) overlay.classList.remove('hidden');
+            if (window.feather) feather.replace();
+            window.toggleResetModalCore(false);
+        } else {
+            const data = await response.json();
+            if (btn) {
+                btn.innerText = "Error: " + (data.detail || "Unknown error");
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                }, 3000);
+            }
+        }
+    } catch (e) {
+        localStorage.clear();
+        const overlay = document.getElementById('resetSuccessOverlay');
+        if (overlay) overlay.classList.remove('hidden');
+        if (window.feather) feather.replace();
+        window.toggleResetModalCore(false);
+    }
+};
+window.handleFactoryReset = window.handleFactoryResetCore;
 
 window.openSidePanel = function (title, body, footer = '') {
     const panel = document.getElementById('sidePanel');

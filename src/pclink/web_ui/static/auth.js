@@ -10,12 +10,9 @@ class PCLinkAuth {
 
     async checkAuthStatus() {
         try {
-            // First check if we're already authenticated
+            // Check active session
             try {
-                const sessionCheck = await fetch('/auth/check', {
-                    credentials: 'include'
-                });
-
+                const sessionCheck = await fetch('/auth/check', { credentials: 'include' });
                 if (sessionCheck.ok) {
                     const sessionData = await sessionCheck.json();
                     if (sessionData.authenticated) {
@@ -29,17 +26,14 @@ class PCLinkAuth {
 
             // Check setup status
             const response = await fetch('/auth/status');
-
             if (response.ok) {
                 const data = await response.json();
-
                 if (data.setup_completed) {
                     this.showLoginForm();
                 } else {
                     this.showSetupForm();
                 }
             } else {
-                console.warn('Auth status check failed, defaulting to login form');
                 this.showLoginForm();
             }
         } catch (error) {
@@ -52,7 +46,6 @@ class PCLinkAuth {
     showSetupForm() {
         const setupForm = document.getElementById('setupForm');
         const loginForm = document.getElementById('loginForm');
-
         if (setupForm) setupForm.style.display = 'block';
         if (loginForm) loginForm.style.display = 'none';
         this.hideMessages();
@@ -61,7 +54,6 @@ class PCLinkAuth {
     showLoginForm() {
         const setupForm = document.getElementById('setupForm');
         const loginForm = document.getElementById('loginForm');
-
         if (setupForm) setupForm.style.display = 'none';
         if (loginForm) loginForm.style.display = 'block';
         this.hideMessages();
@@ -69,21 +61,29 @@ class PCLinkAuth {
 
     showError(message) {
         const errorDiv = document.getElementById('errorMessage');
-        errorDiv.textContent = message;
-        errorDiv.style.display = 'block';
-        document.getElementById('successMessage').style.display = 'none';
+        if (errorDiv) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        const successDiv = document.getElementById('successMessage');
+        if (successDiv) successDiv.style.display = 'none';
     }
 
     showSuccess(message) {
         const successDiv = document.getElementById('successMessage');
-        successDiv.textContent = message;
-        successDiv.style.display = 'block';
-        document.getElementById('errorMessage').style.display = 'none';
+        if (successDiv) {
+            successDiv.textContent = message;
+            successDiv.style.display = 'block';
+        }
+        const errorDiv = document.getElementById('errorMessage');
+        if (errorDiv) errorDiv.style.display = 'none';
     }
 
     hideMessages() {
-        document.getElementById('errorMessage').style.display = 'none';
-        document.getElementById('successMessage').style.display = 'none';
+        const errorDiv = document.getElementById('errorMessage');
+        const successDiv = document.getElementById('successMessage');
+        if (errorDiv) errorDiv.style.display = 'none';
+        if (successDiv) successDiv.style.display = 'none';
     }
 
     setLoading(buttonId, loading) {
@@ -98,7 +98,7 @@ class PCLinkAuth {
         } else {
             button.disabled = false;
             button.innerHTML = `<span class="button-text">${originalText}</span>`;
-            button.style.background = ''; // Reset background color
+            button.style.background = '';
         }
     }
 
@@ -116,29 +116,19 @@ class PCLinkAuth {
 
             if (response.ok) {
                 this.hideMessages();
-
-                // Show success state on button
                 setupButton.innerHTML = '<span>✔</span> <span class="button-text">Success!</span>';
                 setupButton.style.background = 'var(--success-color)';
 
-                // Animate out the setup card
-                setTimeout(() => {
-                    if (authCard) authCard.classList.add('transition-out');
-                }, 800); // Wait to show success message
-
-                // Switch to login form after animation
+                setTimeout(() => { if (authCard) authCard.classList.add('transition-out'); }, 800);
                 setTimeout(() => {
                     this.showLoginForm();
-                    document.getElementById('loginPassword').focus();
-                    if (authCard) {
-                        // Reset card for login view
-                        authCard.classList.remove('transition-out');
-                    }
-                }, 1200); // 800ms + 400ms animation time
-
+                    const pwdInput = document.getElementById('loginPassword');
+                    if (pwdInput) pwdInput.focus();
+                    if (authCard) authCard.classList.remove('transition-out');
+                }, 1200);
             } else {
                 this.showError(data.detail || 'Setup failed');
-                this.setLoading('setupButton', false); // Reset button on failure
+                this.setLoading('setupButton', false);
             }
         } catch (error) {
             console.error('Setup error:', error);
@@ -160,9 +150,7 @@ class PCLinkAuth {
 
             if (response.ok) {
                 this.showSuccess('Login successful! Redirecting...');
-                setTimeout(() => {
-                    window.location.reload();
-                }, 500);
+                setTimeout(() => { window.location.reload(); }, 500);
             } else {
                 this.showError(data.detail || 'Login failed');
                 this.setLoading('loginButton', false);
@@ -175,10 +163,9 @@ class PCLinkAuth {
     }
 }
 
-// Global functions for form handling
+// Global Form Submit Handlers
 async function handleSetup(event) {
     event.preventDefault();
-
     const password = document.getElementById('setupPassword').value;
     const confirmPassword = document.getElementById('confirmPassword').value;
 
@@ -186,7 +173,6 @@ async function handleSetup(event) {
         window.pclinkAuth.showError('Password must be at least 8 characters long');
         return;
     }
-
     if (password !== confirmPassword) {
         window.pclinkAuth.showError('Passwords do not match');
         return;
@@ -198,7 +184,6 @@ async function handleSetup(event) {
 
 async function handleLogin(event) {
     event.preventDefault();
-
     const password = document.getElementById('loginPassword').value;
 
     if (!password) {
@@ -210,177 +195,29 @@ async function handleLogin(event) {
     await window.pclinkAuth.handleLogin(password);
 }
 
-// --- Factory Reset & Path Help ---
+// Global Shared Modal Wrappers
+window.toggleResetModal = (show) => { if (window.toggleResetModalCore) window.toggleResetModalCore(show); };
+window.fetchConfigPath = () => { if (window.fetchConfigPathCore) window.fetchConfigPathCore(); };
+window.copyPath = () => { if (window.copyPathCore) window.copyPathCore(); };
+window.openConfigFolder = () => { if (window.openConfigFolderCore) window.openConfigFolderCore(); };
+window.handleFactoryReset = (e) => { if (window.handleFactoryResetCore) window.handleFactoryResetCore(e); };
 
-function toggleResetModal(show) {
-    const modal = document.getElementById('resetModal');
-    if (show) {
-        modal.classList.add('modal-open');
-        fetchConfigPath();
-    } else {
-        modal.classList.remove('modal-open');
-    }
-}
-
-function confirmDialog(message, { title = 'Confirm', danger = false, requiredWord = null } = {}) {
-    return new Promise(resolve => {
-        const modal = document.getElementById('confirmModal');
-        const titleEl = document.getElementById('confirmModalTitle');
-        const msgEl = document.getElementById('confirmModalMessage');
-        const iconEl = document.getElementById('confirmModalIcon');
-        const okBtn = document.getElementById('confirmModalOk');
-        const cancelBtn = document.getElementById('confirmModalCancel');
-        const inputWrapper = document.getElementById('confirmModalInputWrapper');
-        const input = document.getElementById('confirmModalInput');
-
-        titleEl.textContent = title;
-        msgEl.textContent = message;
-        const iconName = danger ? 'alert-triangle' : 'help-circle';
-        const iconColor = danger ? 'text-error' : 'text-primary';
-        iconEl.innerHTML = `<i data-feather="${iconName}" class="w-8 h-8 ${iconColor}"></i>`;
-        okBtn.className = `btn btn-sm font-bold text-white ${danger ? 'btn-error' : 'btn-primary'}`;
-        if (window.feather) feather.replace();
-
-        if (requiredWord) {
-            inputWrapper.classList.remove('hidden');
-            input.value = "";
-            okBtn.disabled = true;
-            input.oninput = () => { okBtn.disabled = input.value.trim().toUpperCase() !== requiredWord.toUpperCase(); };
-        } else {
-            inputWrapper.classList.add('hidden');
-            okBtn.disabled = false;
-        }
-
-        const cleanup = (result) => {
-            okBtn.removeEventListener('click', onOk);
-            cancelBtn.removeEventListener('click', onCancel);
-            modal.close();
-            resolve(result);
-        };
-        const onOk = () => cleanup(true);
-        const onCancel = () => cleanup(false);
-
-        okBtn.addEventListener('click', onOk, { once: true });
-        cancelBtn.addEventListener('click', onCancel, { once: true });
-        modal.showModal();
-        if (requiredWord) setTimeout(() => input.focus(), 100);
-    });
-}
-
-async function fetchConfigPath() {
-    try {
-        const response = await fetch('/auth/status');
-        if (response.ok) {
-            const data = await response.json();
-            document.getElementById('p_dataDir').innerText = data.data_path || "~/.config/pclink";
-        }
-    } catch (e) {
-        document.getElementById('p_dataDir').innerText = "Unable to fetch path.";
-    }
-}
-
-function copyPath() {
-    const path = document.getElementById('p_dataDir').innerText;
-    navigator.clipboard.writeText(path).then(() => {
-        // Quick visual feedback instead of alert
-        const btn = document.getElementById('p_dataDir');
-        const originalText = btn.innerText;
-        btn.innerText = "COPIED TO CLIPBOARD!";
-        setTimeout(() => btn.innerText = originalText, 2000);
-    });
-}
-
-async function openConfigFolder() {
-    const btn = document.getElementById('btnOpenFolder');
-    if (btn) {
-        btn.disabled = true;
-        btn.innerText = "Opening...";
-    }
-
-    try {
-        const response = await fetch('/open-data-dir', { method: 'POST' });
-        if (!response.ok) {
-            if (btn) {
-                btn.innerText = response.status === 403 ? "Restricted (Localhost Only)" : "Error Opening Folder";
-                btn.classList.add("btn-error");
-            }
-        } else {
-            if (btn) btn.innerText = "Opened Folder";
-        }
-    } catch (e) {
-        if (btn) {
-            btn.innerText = "Connection Error";
-            btn.classList.add("btn-error");
-        }
-    } finally {
-        setTimeout(() => {
-            if (btn) {
-                btn.disabled = false;
-                btn.innerText = "Host Folder";
-                btn.classList.remove("btn-error");
-            }
-        }, 3000);
-    }
-}
-
-async function handleFactoryReset(event) {
-    event.preventDefault();
-    const password = document.getElementById('resetPassword').value;
-    const wipeAuth = document.getElementById('wipeAuthCheckbox').checked;
-    const wipeExtensions = document.getElementById('wipeExtensionsCheckbox')?.checked || false;
-
-    if (!await confirmDialog("FINAL WARNING: This is IRREVERSIBLE. Are you sure you want to PERMANENTLY delete server data? Type 'YES' to confirm.", { title: 'Factory Reset Security Check', danger: true, requiredWord: 'YES' })) {
-        return;
-    }
-
-    const btn = document.getElementById('resetButton');
-    const originalText = btn.innerText;
-    btn.disabled = true;
-    btn.innerText = "Resetting...";
-
-    try {
-        const response = await fetch('/auth/factory-reset', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password, wipe_auth: wipeAuth, wipe_extensions: wipeExtensions })
-        });
-
-        if (response.ok) {
-            localStorage.clear();
-            document.getElementById('resetSuccessOverlay').classList.remove('hidden');
-            if (window.feather) feather.replace();
-            toggleResetModal(false);
-        } else {
-            const data = await response.json();
-            btn.innerText = "Error: " + (data.detail || "Unknown error");
-            setTimeout(() => {
-                btn.disabled = false;
-                btn.innerText = originalText;
-            }, 3000);
-        }
-    } catch (e) {
-        localStorage.clear();
-        document.getElementById('resetSuccessOverlay').classList.remove('hidden');
-        if (window.feather) feather.replace();
-        toggleResetModal(false);
-    }
-}
-
-// Initialize authentication when page loads
 document.addEventListener('DOMContentLoaded', () => {
     try {
         window.pclinkAuth = new PCLinkAuth();
     } catch (error) {
         console.error('Failed to initialize auth system:', error);
-        document.getElementById('loginForm').style.display = 'block';
-        document.getElementById('setupForm').style.display = 'none';
+        const login = document.getElementById('loginForm');
+        const setup = document.getElementById('setupForm');
+        if (login) login.style.display = 'block';
+        if (setup) setup.style.display = 'none';
     }
 
     setTimeout(() => {
         const loader = document.getElementById('fullScreenLoader');
         if (loader) {
             loader.style.opacity = '0';
-            setTimeout(() => { if (loader) loader.classList.add('hidden'); }, 500);
+            setTimeout(() => { loader.classList.add('hidden'); }, 500);
         }
     }, 400);
 });
