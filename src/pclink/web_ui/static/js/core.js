@@ -103,6 +103,41 @@ class PCLinkWebUI {
             document.addEventListener(type, () => { this.lastActivity = Date.now(); }, { passive: true });
         });
 
+        // Web UI Global Keyboard Navigation Shortcuts & Ctrl+K Command Palette
+        document.addEventListener('keydown', (e) => {
+            const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable;
+
+            // Ctrl + K or Cmd + K: Toggle Command Palette
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                window.openCommandPalette();
+                return;
+            }
+
+            // Esc: Close Side Panel or Open Modals
+            if (e.key === 'Escape') {
+                window.closeSidePanel();
+                const cmdModal = document.getElementById('commandPaletteModal');
+                if (cmdModal && cmdModal.open) cmdModal.close();
+                return;
+            }
+
+            // Alt + 1..9: Jump directly to tabs
+            if (e.altKey && !isNaN(e.key) && parseInt(e.key) >= 1 && parseInt(e.key) <= 9) {
+                e.preventDefault();
+                const tabList = ['dashboard', 'devices', 'phone-files', 'desktop-streaming', 'services', 'links-management', 'extensions', 'settings', 'logs'];
+                const targetTab = tabList[parseInt(e.key) - 1];
+                if (targetTab) this.switchTab(targetTab);
+                return;
+            }
+
+            // R: Refresh Active Tab (if not typing in input)
+            if (!isInput && e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.loadTabData(this.getCurrentTab());
+            }
+        });
+
         setInterval(async () => {
             if (Date.now() - this.lastActivity > 900000) { // 15 Minutes
                 await fetch('/auth/logout', { method: 'POST' });
@@ -265,6 +300,73 @@ window.confirmDialog = function (message, { title = 'Confirm', danger = false, r
         if (modal.showModal) modal.showModal();
         if (requiredWord) setTimeout(() => input.focus(), 100);
     });
+};
+
+// Command Palette Controller Logic
+window.openCommandPalette = function () {
+    const modal = document.getElementById('commandPaletteModal');
+    const input = document.getElementById('cmdPaletteInput');
+    if (!modal) return;
+    if (modal.showModal) modal.showModal();
+    if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 100);
+    }
+    window.filterCommandPalette('');
+};
+
+window.filterCommandPalette = function (query) {
+    const container = document.getElementById('cmdPaletteResults');
+    if (!container) return;
+
+    const q = (query || '').toLowerCase().trim();
+
+    const items = [
+        { title: 'Dashboard', icon: 'home', action: () => window.pclinkUI.switchTab('dashboard') },
+        { title: 'Devices', icon: 'smartphone', action: () => window.pclinkUI.switchTab('devices') },
+        { title: 'Phone Files', icon: 'folder', action: () => window.pclinkUI.switchTab('phone-files') },
+        { title: 'Desktop Streaming', icon: 'monitor', action: () => window.pclinkUI.switchTab('desktop-streaming') },
+        { title: 'Access Control', icon: 'shield', action: () => window.pclinkUI.switchTab('services') },
+        { title: 'Share Links', icon: 'link', action: () => window.pclinkUI.switchTab('links-management') },
+        { title: 'Extensions', icon: 'package', action: () => window.pclinkUI.switchTab('extensions') },
+        { title: 'Settings', icon: 'settings', action: () => window.pclinkUI.switchTab('settings') },
+        { title: 'System Logs', icon: 'terminal', action: () => window.pclinkUI.switchTab('logs') },
+        { title: 'Macros', icon: 'zap', action: () => window.pclinkUI.switchTab('macros') },
+        { title: 'Repair Center', icon: 'tool', action: () => window.pclinkUI.switchTab('repairTab') },
+        { title: 'Pair New Device', icon: 'plus-circle', action: () => window.openPairingPanel() },
+        { title: 'Notification Center', icon: 'bell', action: () => window.openNotificationPanel() },
+        { title: 'Export Diagnostics Specs (JSON)', icon: 'download', action: () => window.downloadSystemSpecs() },
+        { title: 'Restart Server Daemon', icon: 'refresh-cw', action: () => window.restartRemoteServer() }
+    ];
+
+    const filtered = items.filter(i => !q || i.title.toLowerCase().includes(q));
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="text-center py-6 opacity-40 text-xs font-bold">No matching commands</div>`;
+        return;
+    }
+
+    container.innerHTML = filtered.map((item, idx) => `
+        <div class="p-2.5 rounded-xl hover:bg-base-200 cursor-pointer flex items-center justify-between text-xs font-bold transition-all" onclick="window.executePaletteItem(${idx})">
+            <div class="flex items-center gap-2.5">
+                <i data-feather="${item.icon}" class="w-4 h-4 text-primary shrink-0"></i>
+                <span>${item.title}</span>
+            </div>
+            <span class="text-[10px] opacity-40 uppercase">Jump</span>
+        </div>
+    `).join('');
+
+    window._paletteFilteredItems = filtered;
+    if (window.feather) feather.replace();
+};
+
+window.executePaletteItem = function (idx) {
+    const items = window._paletteFilteredItems || [];
+    if (items[idx]) {
+        const modal = document.getElementById('commandPaletteModal');
+        if (modal && modal.close) modal.close();
+        items[idx].action();
+    }
 };
 
 window.toggleResetModalCore = function (show) {

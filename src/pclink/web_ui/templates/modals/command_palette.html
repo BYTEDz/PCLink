@@ -1,0 +1,25 @@
+<!-- Command Palette Modal (Ctrl + K) -->
+<dialog id="commandPaletteModal" class="modal font-bold">
+  <div class="modal-box max-w-lg p-4 bg-base-100 border border-base-300 shadow-2xl">
+    <div class="flex items-center gap-3 border-b border-base-200 pb-3">
+      <i data-feather="search" class="w-5 h-5 text-primary shrink-0"></i>
+      <input type="text" id="cmdPaletteInput" class="input input-ghost w-full font-bold text-sm focus:outline-none focus:bg-transparent" placeholder="Type a command or tab name... (e.g. Devices, Logs, Phone, Restart)" oninput="window.filterCommandPalette(this.value)">
+      <kbd class="kbd kbd-sm text-[10px] opacity-40">ESC</kbd>
+    </div>
+
+    <div id="cmdPaletteResults" class="max-h-72 overflow-y-auto space-y-1 my-3 pr-1">
+      <!-- Search items injected here -->
+    </div>
+
+    <div class="flex justify-between items-center border-t border-base-200 pt-2 text-[10px] opacity-40">
+      <div class="flex items-center gap-2">
+        <span><kbd class="kbd kbd-xs">↑</kbd> <kbd class="kbd kbd-xs">↓</kbd> Navigate</span>
+        <span><kbd class="kbd kbd-xs">↵</kbd> Select</span>
+      </div>
+      <span>Quick Command Center</span>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop bg-black/60 backdrop-blur-sm">
+    <button>close</button>
+  </form>
+</dialog>
