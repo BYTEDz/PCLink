@@ -5,11 +5,13 @@
 import asyncio
 import gettext
 import logging
+import shutil
 import time
 from typing import Any, Dict
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -32,6 +34,7 @@ from .routers.transfers import (
 )
 from .routers.utils import router as utils_router
 from ..services.pairing_service import pairing_service
+from ..core.validators import PCLinkError, SecurityError
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
@@ -78,7 +81,7 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         # Reset extension crash counter
         app.state.extension_manager.mark_startup_success()
 
-        # Non-blocking extension loader: loads extensions in parallel in background so Web UI opens immediately
+        # Non-blocking extension loader
         async def background_extension_loader():
             log.info(_("Initiating background loading for server extensions..."))
             start_t = time.time()
@@ -92,7 +95,7 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
 
     app = FastAPI(
         title="PCLink API",
-        version="8.9.5",
+        version="4.6.1",
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -100,6 +103,42 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
             f"{route.tags[0]}-{route.name}" if route.tags else route.name
         ),
     )
+
+    # --- Global Exception Handlers ---
+    @app.exception_handler(ValueError)
+    async def value_error_handler(request: Request, exc: ValueError):
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(FileNotFoundError)
+    async def not_found_error_handler(request: Request, exc: FileNotFoundError):
+        return JSONResponse(
+            status_code=404, content={"detail": _("File or directory not found")}
+        )
+
+    @app.exception_handler(PermissionError)
+    async def permission_error_handler(request: Request, exc: PermissionError):
+        return JSONResponse(status_code=403, content={"detail": _("Permission denied")})
+
+    @app.exception_handler(FileExistsError)
+    async def file_exists_error_handler(request: Request, exc: FileExistsError):
+        return JSONResponse(
+            status_code=409, content={"detail": _("Target already exists")}
+        )
+
+    @app.exception_handler(NotADirectoryError)
+    async def not_a_dir_error_handler(request: Request, exc: NotADirectoryError):
+        return JSONResponse(
+            status_code=400, content={"detail": _("Target is not a directory")}
+        )
+
+    @app.exception_handler(shutil.SameFileError)
+    async def same_file_error_handler(request: Request, exc: shutil.SameFileError):
+        return JSONResponse(status_code=409, content={"detail": "SOURCE_IS_DEST"})
+
+    @app.exception_handler(PCLinkError)
+    async def pclink_error_handler(request: Request, exc: PCLinkError):
+        status_code = 403 if isinstance(exc, SecurityError) else 400
+        return JSONResponse(status_code=status_code, content={"detail": str(exc)})
 
     from .ws_manager import mobile_manager, ui_manager
     from ..core.device_manager import device_manager

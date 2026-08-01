@@ -1,3 +1,4 @@
+# src/pclink/api_server/routers/system.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -5,7 +6,7 @@ import gettext
 import logging
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ...services import media_service, process_service, system_service
@@ -49,30 +50,14 @@ async def get_media_info() -> Dict[str, Any]:
 @system_router.get("/processes", response_model=List[ProcessInfo])
 async def get_running_processes() -> List[ProcessInfo]:
     """List active processes with system metrics."""
-    try:
-        return await process_service.get_processes()
-    except Exception as e:
-        log.error(f"Failed to fetch processes: {e}")
-        raise HTTPException(
-            status_code=500, detail=_("Failed to fetch processes: {}").format(e)
-        )
+    return await process_service.get_processes()
 
 
 @system_router.post("/processes/kill")
 async def kill_process(payload: KillPayload) -> Dict[str, str]:
     """Kill process by PID."""
-    try:
-        msg = await process_service.kill_process(payload.pid)
-        return {"status": "success", "message": msg}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except Exception as e:
-        log.error(f"Failed to kill process {payload.pid}: {e}")
-        raise HTTPException(
-            status_code=500, detail=_("Failed to kill process: {}").format(e)
-        )
+    msg = await process_service.kill_process(payload.pid)
+    return {"status": "success", "message": msg}
 
 
 # --- Power, Volume, and WOL Endpoints ---
@@ -81,41 +66,21 @@ async def kill_process(payload: KillPayload) -> Dict[str, str]:
 @system_router.post("/power/{command}")
 async def power_command(command: str, hybrid: bool = True):
     """Handles power commands via SystemService."""
-    try:
-        await system_service.power_command(command, hybrid)
-        return {"status": "command sent"}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        log.error(f"Power command error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    await system_service.power_command(command, hybrid)
+    return {"status": "command sent"}
 
 
 @system_router.get("/volume")
 async def get_volume():
     """Gets the current master volume level and mute status."""
-    try:
-        return await system_service.get_volume()
-    except Exception as e:
-        log.error(f"Failed to get volume: {e}")
-        raise HTTPException(
-            status_code=500, detail=_("Failed to get volume: {}").format(e)
-        )
+    return await system_service.get_volume()
 
 
 @system_router.post("/volume/set/{level}")
 async def set_volume(level: int):
     """Sets the master volume level (0-100)."""
-    try:
-        await system_service.set_volume(level)
-        return {"status": "volume set"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        log.error(f"Failed to set volume: {e}")
-        raise HTTPException(
-            status_code=500, detail=_("Failed to set volume: {}").format(e)
-        )
+    await system_service.set_volume(level)
+    return {"status": "volume set"}
 
 
 @system_router.get("/wake-on-lan/info")

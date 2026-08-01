@@ -1,4 +1,4 @@
-# src/pclink/api_server/macro_router.py
+# src/pclink/api_server/routers/macros.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -251,11 +251,7 @@ async def get_macros():
 
 @router.post("/")
 async def save_macro(macro: Dict[str, Any]):
-    try:
-        saved = macro_service.save_macro(macro)
-        return saved
-    except Exception as e:
-        raise HTTPException(500, detail=str(e))
+    return macro_service.save_macro(macro)
 
 
 @router.delete("/{macro_id}")
@@ -277,14 +273,10 @@ async def execute_macro(request: Request, macro: Macro):
     if tray_manager:
         macro_service.set_notification_handler(tray_manager.show_notification)
 
-    try:
-        await macro_service.execute_macro(
-            macro.name, [a.model_dump() for a in macro.actions]
-        )
-        return {"status": "success"}
-    except Exception as e:
-        log.error(f"Macro failed: {e}")
-        raise HTTPException(500, detail=str(e))
+    await macro_service.execute_macro(
+        macro.name, [a.model_dump() for a in macro.actions]
+    )
+    return {"status": "success"}
 
 
 @router.post("/{macro_id}/run")

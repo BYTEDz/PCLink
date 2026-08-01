@@ -89,12 +89,12 @@ class UpdateChecker:
             return None
 
     def _is_newer_version(self, latest: str, current: str) -> bool:
-        """Compare version strings using semantic versioning (built-in)."""
+        """Compare version strings using standard Python tuples."""
         try:
-            # Strip 'v', ignore pre-release tags, convert to integer tuples
-            # e.g., "4.6.1-beta" -> (4, 6, 1)
+
             def parse_v(v_str):
-                clean = v_str.lower().lstrip("v").split("-")[0]
+                # e.g., "v4.6.1-beta" -> "4.6.1" -> (4, 6, 1)
+                clean = v_str.lower().lstrip("v").split("-")[0].split("+")[0]
                 return tuple(int(x) for x in clean.split(".") if x.isdigit())
 
             return parse_v(latest) > parse_v(current)

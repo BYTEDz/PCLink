@@ -32,8 +32,8 @@ const repairModule = {
 
         try {
             const [diagRes, causeRes] = await Promise.all([
-                fetch('/ui/repair/diagnose'),
-                fetch('/ui/repair/causes')
+                window.pclinkUI.webUICall('/ui/repair/diagnose'),
+                window.pclinkUI.webUICall('/ui/repair/causes')
             ]);
 
             if (!diagRes.ok) throw new Error("Failed to fetch diagnostics");
@@ -42,7 +42,8 @@ const repairModule = {
 
             this.renderDiagnostics(data, causeData);
         } catch (e) {
-            if (container) container.innerHTML = `<div class="alert alert-error">Failed to run diagnostics: ${e.message}</div>`;
+            if (container) container.innerHTML = `<div class="alert alert-error font-bold text-xs">Failed to run diagnostics: ${e.message}</div>`;
+            window.pclinkUI.showToast('Diagnostics Error', e.message, 'error');
         } finally {
             if (loader) {
                 loader.classList.add('hidden');
@@ -130,16 +131,18 @@ const repairModule = {
     },
 
     executeAutoHeal: async function () {
-        if (typeof showToast === 'function') showToast('Running auto-heal sequence...', 'info');
+        window.pclinkUI.showToast('Auto-Heal', 'Running auto-heal sequence...', 'info');
         try {
-            const res = await fetch('/ui/repair/auto-heal', { method: 'POST' });
+            const res = await window.pclinkUI.webUICall('/ui/repair/auto-heal', { method: 'POST' });
             const data = await res.json();
-            if (data.status === 'ok') {
-                if (typeof showToast === 'function') showToast(data.message, 'success');
+            if (res.ok && data.status === 'ok') {
+                window.pclinkUI.showToast('Resolved', data.message, 'success');
                 this.runDiagnostics();
+            } else {
+                window.pclinkUI.showToast('Error', data.message || 'Auto-heal failed', 'error');
             }
         } catch (e) {
-            if (typeof showToast === 'function') showToast('Auto-heal failed: ' + e.message, 'error');
+            window.pclinkUI.showToast('Error', 'Auto-heal failed: ' + e.message, 'error');
         }
     },
 
@@ -170,12 +173,11 @@ const repairModule = {
     },
 
     executeFix: async function (issueId, payload = {}) {
-        if (typeof showToast === 'function') showToast(`Attempting to fix ${issueId}...`, 'info');
+        window.pclinkUI.showToast('Repair', `Attempting to fix ${issueId}...`, 'info');
 
         try {
-            const res = await fetch(`/ui/repair/run/${issueId}`, {
+            const res = await window.pclinkUI.webUICall(`/ui/repair/run/${issueId}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
@@ -186,37 +188,40 @@ const repairModule = {
                 return;
             }
 
-            if (data.status === 'ok') {
-                if (typeof showToast === 'function') showToast(data.message, 'success');
+            if (res.ok && data.status === 'ok') {
+                window.pclinkUI.showToast('Success', data.message, 'success');
             } else {
-                if (typeof showToast === 'function') showToast(data.message, 'error');
+                window.pclinkUI.showToast('Fix Failed', data.message, 'error');
             }
 
             this.runDiagnostics();
 
         } catch (e) {
-            if (typeof showToast === 'function') showToast(`Fix failed: ${e.message}`, 'error');
+            window.pclinkUI.showToast('Error', `Fix failed: ${e.message}`, 'error');
         }
     },
 
     forceRepair: async function() {
-        if (!confirm("⚠️ WARNING: This will factory reset PCLink!\n\nThis will permanently delete your database, paired devices, configuration, and transfer history.\n\nAre you sure you want to proceed?")) {
-            return;
-        }
+        const confirmed = await window.confirmDialog(
+            "This will permanently delete your database, paired devices, configuration, and transfer history.\n\nAre you sure you want to proceed?",
+            { title: 'Factory Reset Warning', danger: true }
+        );
 
-        if (typeof showToast === 'function') showToast("Starting force repair...", "info");
+        if (!confirmed) return;
+
+        window.pclinkUI.showToast('Force Repair', "Starting force repair...", "info");
         try {
-            const res = await fetch('/ui/repair/force', { method: 'POST' });
+            const res = await window.pclinkUI.webUICall('/ui/repair/force', { method: 'POST' });
             const data = await res.json();
 
-            if (data.status === 'ok') {
-                if (typeof showToast === 'function') showToast(data.message, 'success');
+            if (res.ok && data.status === 'ok') {
+                window.pclinkUI.showToast('Success', data.message, 'success');
                 setTimeout(() => window.location.reload(), 1500);
             } else {
-                if (typeof showToast === 'function') showToast(`Force repair failed: ${data.message}`, 'error');
+                window.pclinkUI.showToast('Error', `Force repair failed: ${data.message}`, 'error');
             }
         } catch (e) {
-            if (typeof showToast === 'function') showToast(`Force repair failed: ${e.message}`, 'error');
+            window.pclinkUI.showToast('Error', `Force repair failed: ${e.message}`, 'error');
         }
     }
 };

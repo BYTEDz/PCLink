@@ -194,9 +194,7 @@ async function handleSetup(event) {
 
     window.pclinkAuth.setLoading('setupButton', true);
     await window.pclinkAuth.handleSetup(password);
-    // Note: setLoading(false) is now handled inside the class method on failure/success
 }
-
 
 async function handleLogin(event) {
     event.preventDefault();
@@ -224,7 +222,6 @@ function toggleResetModal(show) {
     }
 }
 
-// confirmDialog: DaisyUI version of native confirm
 function confirmDialog(message, { title = 'Confirm', danger = false, requiredWord = null } = {}) {
     return new Promise(resolve => {
         const modal = document.getElementById('confirmModal');
@@ -285,23 +282,44 @@ async function fetchConfigPath() {
 function copyPath() {
     const path = document.getElementById('p_dataDir').innerText;
     navigator.clipboard.writeText(path).then(() => {
-        alert("Path copied to clipboard!");
+        // Quick visual feedback instead of alert
+        const btn = document.getElementById('p_dataDir');
+        const originalText = btn.innerText;
+        btn.innerText = "COPIED TO CLIPBOARD!";
+        setTimeout(() => btn.innerText = originalText, 2000);
     });
 }
 
 async function openConfigFolder() {
     const btn = document.getElementById('btnOpenFolder');
-    if (btn) btn.disabled = true;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = "Opening...";
+    }
+
     try {
         const response = await fetch('/open-data-dir', { method: 'POST' });
         if (!response.ok) {
-            if (response.status === 403) alert("Opening folder only works if you are on the host machine (localhost).");
-            else alert("Failed to open folder (404/500).");
+            if (btn) {
+                btn.innerText = response.status === 403 ? "Restricted (Localhost Only)" : "Error Opening Folder";
+                btn.classList.add("btn-error");
+            }
+        } else {
+            if (btn) btn.innerText = "Opened Folder";
         }
     } catch (e) {
-        alert("Error connecting to server.");
+        if (btn) {
+            btn.innerText = "Connection Error";
+            btn.classList.add("btn-error");
+        }
     } finally {
-        if (btn) btn.disabled = false;
+        setTimeout(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = "Host Folder";
+                btn.classList.remove("btn-error");
+            }
+        }, 3000);
     }
 }
 
@@ -334,9 +352,11 @@ async function handleFactoryReset(event) {
             toggleResetModal(false);
         } else {
             const data = await response.json();
-            alert("Reset failed: " + (data.detail || "Unknown error"));
-            btn.disabled = false;
-            btn.innerText = originalText;
+            btn.innerText = "Error: " + (data.detail || "Unknown error");
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.innerText = originalText;
+            }, 3000);
         }
     } catch (e) {
         localStorage.clear();
@@ -345,7 +365,6 @@ async function handleFactoryReset(event) {
         toggleResetModal(false);
     }
 }
-
 
 // Initialize authentication when page loads
 document.addEventListener('DOMContentLoaded', () => {

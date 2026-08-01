@@ -1,3 +1,4 @@
+# src/pclink/api_server/routers/input.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -25,7 +26,6 @@ def verify_input_available():
         )
 
 
-# NOTE: Ensure you add your authentication dependency here (e.g., dependencies=[Depends(verify_token), Depends(verify_input_available)])
 router = APIRouter(dependencies=[Depends(verify_input_available)])
 
 
@@ -51,7 +51,7 @@ class MouseMoveModel(BaseModel):
 
 class MouseClickModel(BaseModel):
     button: str = Field(default="left", pattern="^(left|right|middle)$")
-    clicks: int = Field(default=1, ge=1, le=50)  # Stop arbitrary high-click freezing
+    clicks: int = Field(default=1, ge=1, le=50)
 
 
 class MouseScrollModel(BaseModel):
@@ -67,8 +67,7 @@ class RateLimiter:
         self.calls = deque()
 
     def allow(self) -> bool:
-        now = time.monotonic()  # Safe from system clock changes
-        # O(1) removals from the left side instead of O(N) list rebuilds
+        now = time.monotonic()
         while self.calls and now - self.calls[0] >= self.period:
             self.calls.popleft()
 
@@ -86,20 +85,12 @@ mouse_scroll_limiter = RateLimiter(max_calls=60, period=1.0)
 # --- Endpoints ---
 @router.post("/keyboard")
 async def send_keyboard_input(payload: KeyboardInputModel):
-    try:
-        if payload.text:
-            await asyncio.to_thread(input_service.keyboard_type, payload.text)
-        elif payload.key:
-            await asyncio.to_thread(
-                input_service.keyboard_press_key, payload.key, payload.modifiers
-            )
-    except Exception as e:
-        log.error(f"Keyboard input failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Input execution failed",
+    if payload.text:
+        await asyncio.to_thread(input_service.keyboard_type, payload.text)
+    elif payload.key:
+        await asyncio.to_thread(
+            input_service.keyboard_press_key, payload.key, payload.modifiers
         )
-
     return {"status": "input sent"}
 
 
@@ -109,31 +100,14 @@ async def move_mouse(payload: MouseMoveModel):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded"
         )
-
-    try:
-        await asyncio.to_thread(input_service.mouse_move, payload.dx, payload.dy)
-        return {"status": "moved"}
-    except Exception as e:
-        log.error(f"Mouse move failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Move execution failed",
-        )
+    await asyncio.to_thread(input_service.mouse_move, payload.dx, payload.dy)
+    return {"status": "moved"}
 
 
 @router.post("/mouse/click")
 async def click_mouse(payload: MouseClickModel):
-    try:
-        await asyncio.to_thread(
-            input_service.mouse_click, payload.button, payload.clicks
-        )
-        return {"status": "clicked"}
-    except Exception as e:
-        log.error(f"Mouse click failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Click execution failed",
-        )
+    await asyncio.to_thread(input_service.mouse_click, payload.button, payload.clicks)
+    return {"status": "clicked"}
 
 
 @router.post("/mouse/scroll")
@@ -142,13 +116,5 @@ async def scroll_mouse(payload: MouseScrollModel):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded"
         )
-
-    try:
-        await asyncio.to_thread(input_service.mouse_scroll, payload.dx, payload.dy)
-        return {"status": "scrolled"}
-    except Exception as e:
-        log.error(f"Mouse scroll failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Scroll execution failed",
-        )
+    await asyncio.to_thread(input_service.mouse_scroll, payload.dx, payload.dy)
+    return {"status": "scrolled"}

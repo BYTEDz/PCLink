@@ -1,3 +1,4 @@
+# src/pclink/api_server/routers/file_browser.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -7,7 +8,6 @@ import json
 import logging
 import mimetypes
 import os
-import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -98,26 +98,6 @@ class ExtractPayload(BaseModel):
 
 
 # --- Helpers ---
-def _map_error(e: Exception):
-    if isinstance(e, HTTPException):
-        raise e
-    if isinstance(e, FileNotFoundError):
-        raise HTTPException(status_code=404, detail=_("File or directory not found"))
-    if isinstance(e, PermissionError):
-        raise HTTPException(status_code=403, detail=_("Permission denied"))
-    if isinstance(e, FileExistsError):
-        raise HTTPException(status_code=409, detail=_("Target already exists"))
-    if isinstance(e, ValueError):
-        raise HTTPException(status_code=400, detail=str(e))
-    if isinstance(e, shutil.SameFileError):
-        raise HTTPException(status_code=409, detail="SOURCE_IS_DEST")
-    if isinstance(e, NotADirectoryError):
-        raise HTTPException(status_code=400, detail=_("Target is not a directory"))
-
-    log.error(f"Internal file error: {e}", exc_info=True)
-    raise HTTPException(status_code=500, detail=_("Internal server error"))
-
-
 async def verify_download_access(
     path: str = Query(...),
     token: str = Query(None),
@@ -185,110 +165,94 @@ async def browse_directory(path: str | None = Query(None)):
             current_path=ROOT_IDENTIFIER, parent_path=None, items=items
         )
 
+    p = file_service.validate_path(path)
+    items = await file_service.scan_directory(p)
+
+    is_root = any(str(p) == str(r) for r in file_service.get_system_roots())
+    parent = str(p.parent) if not is_root else ROOT_IDENTIFIER
+
     try:
-        p = file_service.validate_path(path)
-        items = await file_service.scan_directory(p)
+        if HOME_DIR.exists() and p.samefile(HOME_DIR):
+            parent = ROOT_IDENTIFIER
+    except Exception:
+        if p == HOME_DIR:
+            parent = ROOT_IDENTIFIER
 
-        is_root = any(str(p) == str(r) for r in file_service.get_system_roots())
-        parent = str(p.parent) if not is_root else ROOT_IDENTIFIER
-
-        try:
-            if HOME_DIR.exists() and p.samefile(HOME_DIR):
-                parent = ROOT_IDENTIFIER
-        except Exception:
-            if p == HOME_DIR:
-                parent = ROOT_IDENTIFIER
-
-        return DirectoryListing(
-            current_path=str(p),
-            parent_path=parent,
-            items=[FileItem(**i) for i in items],
-        )
-    except Exception as e:
-        _map_error(e)
+    return DirectoryListing(
+        current_path=str(p),
+        parent_path=parent,
+        items=[FileItem(**i) for i in items],
+    )
 
 
 @router.get("/thumbnail", dependencies=[Depends(verify_api_key)])
 async def get_thumbnail(path: str = Query(...)):
-    try:
-        p = file_service.validate_path(path)
-        data = await file_service.get_thumbnail(p)
-        if not data:
-            raise HTTPException(404, _("Thumbnail not available"))
-        return Response(
-            content=data,
-            media_type="image/png",
-            headers={
-                "Cache-Control": "public, max-age=604800, stale-while-revalidate=86400"
-            },
-        )
-    except Exception as e:
-        _map_error(e)
+    p = file_service.validate_path(path)
+    data = await file_service.get_thumbnail(p)
+    if not data:
+        raise FileNotFoundError(_("Thumbnail not available"))
+    return Response(
+        content=data,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=604800, stale-while-revalidate=86400"
+        },
+    )
 
 
 @router.get("/stream", dependencies=[Depends(verify_api_key)])
 async def stream_media(request: Request, path: str = Query(...)):
     """Streams a media file with HTTP Range headers for seeking."""
-    try:
-        p = file_service.validate_path(path)
-        if not p.is_file():
-            raise HTTPException(404, _("File or directory not found"))
+    p = file_service.validate_path(path)
+    if not p.is_file():
+        raise FileNotFoundError(_("File or directory not found"))
 
-        stat = p.stat()
-        file_size = stat.st_size
-        mime, _encoding = mimetypes.guess_type(p)
-        content_type = mime or "application/octet-stream"
+    stat = p.stat()
+    file_size = stat.st_size
+    mime, _encoding = mimetypes.guess_type(p)
+    content_type = mime or "application/octet-stream"
 
-        range_header = request.headers.get("Range")
-        start, end = 0, file_size - 1
-        status_code = 200
-        headers = {
-            "Content-Type": content_type,
-            "Accept-Ranges": "bytes",
-            "Content-Length": str(file_size),
-            "Content-Disposition": f'inline; filename="{urllib.parse.quote(p.name)}"',
-        }
+    range_header = request.headers.get("Range")
+    start, end = 0, file_size - 1
+    status_code = 200
+    headers = {
+        "Content-Type": content_type,
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(file_size),
+        "Content-Disposition": f'inline; filename="{urllib.parse.quote(p.name)}"',
+    }
 
-        if range_header:
-            try:
-                range_bytes = range_header.replace("bytes=", "").split("-")
-                start = int(range_bytes[0])
-                if range_bytes[1]:
-                    end = int(range_bytes[1])
+    if range_header:
+        try:
+            range_bytes = range_header.replace("bytes=", "").split("-")
+            start = int(range_bytes[0])
+            if range_bytes[1]:
+                end = int(range_bytes[1])
 
-                if start >= file_size or end >= file_size or start > end:
-                    raise HTTPException(416, _("Range Not Satisfiable"))
+            if start >= file_size or end >= file_size or start > end:
+                raise HTTPException(416, _("Range Not Satisfiable"))
 
-                status_code = 206
-                chunk_size = (end - start) + 1
-                headers["Content-Length"] = str(chunk_size)
-                headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
-            except (ValueError, IndexError):
-                raise HTTPException(400, _("Invalid Range header"))
+            status_code = 206
+            chunk_size = (end - start) + 1
+            headers["Content-Length"] = str(chunk_size)
+            headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+        except (ValueError, IndexError):
+            raise HTTPException(400, _("Invalid Range header"))
 
-        log.debug(f"Streaming {p.name}: {start}-{end} (status {status_code})")
-        return StreamingResponse(
-            file_service.get_file_iterator(p, start, end),
-            status_code=status_code,
-            headers=headers,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        log.error(f"Stream failed for {path}: {e}")
-        raise HTTPException(500, _("Streaming failed"))
+    return StreamingResponse(
+        file_service.get_file_iterator(p, start, end),
+        status_code=status_code,
+        headers=headers,
+    )
 
 
 @router.get("/media-info", dependencies=[Depends(verify_api_key)])
 async def get_media_info(path: str = Query(...)):
-    try:
-        p = file_service.validate_path(path)
-        info = await file_service.get_media_info(p)
-        if not info:
-            raise HTTPException(404, _("Media info not available"))
-        return info
-    except Exception as e:
-        _map_error(e)
+    p = file_service.validate_path(path)
+    info = await file_service.get_media_info(p)
+    if not info:
+        raise FileNotFoundError(_("Media info not available"))
+    return info
 
 
 @router.post("/compress", dependencies=[Depends(verify_api_key)])
@@ -325,28 +289,19 @@ async def extract(payload: ExtractPayload):
 
 @router.post("/create-folder", dependencies=[Depends(verify_api_key)])
 async def create_folder(payload: CreateFolderPayload):
-    try:
-        await file_service.create_folder(payload.parent_path, payload.folder_name)
-        return {"status": "success"}
-    except Exception as e:
-        _map_error(e)
+    await file_service.create_folder(payload.parent_path, payload.folder_name)
+    return {"status": "success"}
 
 
 @router.patch("/rename", dependencies=[Depends(verify_api_key)])
 async def rename(payload: RenamePayload):
-    try:
-        await file_service.rename_item(payload.path, payload.new_name)
-        return {"status": "success"}
-    except Exception as e:
-        _map_error(e)
+    await file_service.rename_item(payload.path, payload.new_name)
+    return {"status": "success"}
 
 
 @router.post("/batch-rename", dependencies=[Depends(verify_api_key)])
 async def batch_rename(payload: BatchRenamePayload):
-    try:
-        return await file_service.batch_rename_items(payload.items)
-    except Exception as e:
-        _map_error(e)
+    return await file_service.batch_rename_items(payload.items)
 
 
 @router.post("/delete", dependencies=[Depends(verify_api_key)])
@@ -360,43 +315,37 @@ async def delete(payload: PathsPayload):
 
 @router.post("/open", dependencies=[Depends(verify_api_key)])
 async def open_file(payload: PathPayload):
-    try:
-        p = file_service.validate_path(payload.path)
-        if sys.platform == "win32":
-            await asyncio.to_thread(os.startfile, p)
-        elif sys.platform == "darwin":
-            subprocess.Popen(
-                ["open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-        else:
-            subprocess.Popen(
-                ["xdg-open", str(p)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-        return {"status": "success"}
-    except Exception as e:
-        _map_error(e)
+    p = file_service.validate_path(payload.path)
+    if sys.platform == "win32":
+        await asyncio.to_thread(os.startfile, p)
+    elif sys.platform == "darwin":
+        subprocess.Popen(
+            ["open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+    else:
+        subprocess.Popen(
+            ["xdg-open", str(p)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    return {"status": "success"}
 
 
 @router.post("/paste", dependencies=[Depends(verify_api_key)])
 async def paste(payload: PastePayload):
-    try:
-        dest = file_service.validate_path(payload.destination_path)
-        if not dest.is_dir():
-            raise HTTPException(400, _("Destination path must be a directory"))
+    dest = file_service.validate_path(payload.destination_path)
+    if not dest.is_dir():
+        raise NotADirectoryError(_("Destination path must be a directory"))
 
-        res = await file_service.move_copy(
-            payload.source_paths, dest, payload.action, payload.conflict_resolution
+    res = await file_service.move_copy(
+        payload.source_paths, dest, payload.action, payload.conflict_resolution
+    )
+    if res["conflicts"]:
+        raise HTTPException(
+            409, {"message": "Conflicts", "conflicting_items": res["conflicts"]}
         )
-        if res["conflicts"]:
-            raise HTTPException(
-                409, {"message": "Conflicts", "conflicting_items": res["conflicts"]}
-            )
-        return res
-    except Exception as e:
-        _map_error(e)
+    return res
 
 
 @router.get("/shares", dependencies=[Depends(verify_api_key)])
@@ -475,43 +424,37 @@ async def revoke_share(share_token: str, request: Request):
 
 @router.post("/share", response_model=dict, dependencies=[Depends(verify_api_key)])
 async def share_file(payload: SharePayload, request: Request):
-    try:
-        from ...core.device_manager import device_manager
+    from ...core.device_manager import device_manager
 
-        file_service.validate_path(payload.path)
-        key = extract_token(request)
+    file_service.validate_path(payload.path)
+    key = extract_token(request)
 
-        device_id = "unknown_device"
-        if key:
-            device = device_manager.get_device_by_api_key(key)
-            if device:
-                device_id = device.device_id
+    device_id = "unknown_device"
+    if key:
+        device = device_manager.get_device_by_api_key(key)
+        if device:
+            device_id = device.device_id
 
-        token = share_manager.create_share_link(
-            path=payload.path, device_id=device_id, expires_in=payload.expires_in
-        )
+    token = share_manager.create_share_link(
+        path=payload.path, device_id=device_id, expires_in=payload.expires_in
+    )
 
-        base_url = str(request.base_url).rstrip("/")
-        download_url = f"{base_url}/files/download?path={payload.path}&token={token}"
+    base_url = str(request.base_url).rstrip("/")
+    download_url = f"{base_url}/files/download?path={payload.path}&token={token}"
 
-        return {
-            "token": token,
-            "download_url": download_url,
-            "expires_in": payload.expires_in,
-        }
-    except Exception as e:
-        _map_error(e)
+    return {
+        "token": token,
+        "download_url": download_url,
+        "expires_in": payload.expires_in,
+    }
 
 
 @router.get("/download", dependencies=[Depends(verify_download_access)])
 async def download(path: str = Query(...)):
-    try:
-        p = file_service.validate_path(path)
-        if not p.is_file():
-            raise HTTPException(400, _("Requested path is not a file"))
+    p = file_service.validate_path(path)
+    if not p.is_file():
+        raise ValueError(_("Requested path is not a file"))
 
-        return FileResponse(
-            path=str(p), filename=p.name, content_disposition_type="attachment"
-        )
-    except Exception as e:
-        _map_error(e)
+    return FileResponse(
+        path=str(p), filename=p.name, content_disposition_type="attachment"
+    )

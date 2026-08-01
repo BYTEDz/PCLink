@@ -103,9 +103,19 @@ class SystemService:
 
     def __init__(self):
         self._network_monitor = NetworkMonitor()
+
+        # Fast Cache (0.5s TTL)
         self._system_info_cache = None
         self._system_info_cache_time = 0
-        self._SYSTEM_INFO_TTL = 0.5  # 500ms cache
+        self._SYSTEM_INFO_TTL = 0.5
+
+        # Slow Cache (5s TTL) for WMI, Sysfs, Disk IO, Battery
+        self._slow_metrics_cache = {}
+        self._slow_metrics_time = 0
+        self._SLOW_METRICS_TTL = 5.0
+
+        # Static Cache (Never expires per process life)
+        self._static_os_info = None
 
         self._thermals_cache: Dict[str, float] = {}
         self._thermals_cache_time = 0
@@ -234,8 +244,68 @@ class SystemService:
                 continue
         return {"disks": disks_info}
 
+    def _get_static_os_info(self) -> Dict[str, str]:
+        """Fetches OS metadata that never changes (cached indefinitely)."""
+        if self._static_os_info:
+            return self._static_os_info
+
+        os_family = platform.system()
+        os_release = platform.release()
+        os_name = f"{os_family} {os_release}"
+        os_distro = "unknown"
+        machine_arch = platform.machine()
+
+        if os_family == "Linux":
+            try:
+                import distro
+
+                os_distro = distro.id()
+                os_name = f"{distro.name()} {distro.version()}"
+            except ImportError:
+                if os.path.exists("/etc/os-release"):
+                    with open("/etc/os-release", "r") as f:
+                        content = f.read()
+                        name_match = re.search(
+                            r'^NAME=["\']?(.+?)["\']?$', content, re.M
+                        )
+                        version_match = re.search(
+                            r'^VERSION_ID=["\']?(.+?)["\']?$', content, re.M
+                        )
+                        id_match = re.search(r'^ID=["\']?(.+?)["\']?$', content, re.M)
+                        if id_match:
+                            os_distro = id_match.group(1).lower()
+                        if name_match:
+                            os_name = name_match.group(1)
+                            if version_match:
+                                os_name += f" {version_match.group(1)}"
+            except Exception as e:
+                log.debug(f"Failed to determine Linux distribution: {e}")
+
+        if os_family == "Windows":
+            os_distro = "windows"
+            try:
+                ver = sys.getwindowsversion()
+                if ver.major == 10 and ver.build >= 22000:
+                    os_name = "Windows 11"
+            except Exception as e:
+                log.debug(f"Failed to refine Windows version: {e}")
+
+        from .discovery_service import DiscoveryService
+
+        self._static_os_info = {
+            "os": os_name,
+            "os_family": os_family.lower(),
+            "os_distro": os_distro,
+            "os_kernel": os_release,
+            "arch": machine_arch,
+            "python_version": platform.python_version(),
+            "hostname": socket.gethostname(),
+            "server_id": DiscoveryService.generate_server_id(),
+        }
+        return self._static_os_info
+
     async def get_system_info(self) -> Dict[str, Any]:
-        """Aggregates system telemetry with 500ms caching."""
+        """Aggregates system telemetry with tiered caching."""
         now = time.time()
         if (
             self._system_info_cache
@@ -404,86 +474,51 @@ class SystemService:
         return safe_probe(_probe, default={}, name="unix_thermals")
 
     def _get_sync_system_info(self) -> Dict[str, Any]:
-        """Synchronous CPU/RAM/Disk/Network telemetry."""
+        """Synchronous CPU/RAM/Disk/Network telemetry with tiered caching."""
+        now = time.time()
+
+        # Fast Path (0.5s updates)
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
         freq = psutil.cpu_freq()
         boot = psutil.boot_time()
-        uptime = time.time() - boot
+        uptime = now - boot
         speed = self._network_monitor.get_speed()
 
-        temps = (
-            self._get_windows_thermals()
-            if sys.platform == "win32"
-            else self._safe_get_unix_thermals()
+        # Slow Path (5.0s updates) to prevent CPU spikes from WMI/SysFS
+        if now - self._slow_metrics_time > self._SLOW_METRICS_TTL:
+            temps = (
+                self._get_windows_thermals()
+                if sys.platform == "win32"
+                else self._safe_get_unix_thermals()
+            )
+            self._slow_metrics_cache = {
+                "users": self._safe_get_active_users(),
+                "load_avg": self._safe_get_load_avg(),
+                "battery": self._safe_get_battery(),
+                "disk_io": self._safe_get_disk_io_metrics(),
+                "sensors": temps,
+                "fans": self._safe_get_fans(),
+                "procs": len(psutil.pids()),
+            }
+            self._slow_metrics_time = now
+
+        # Construct final payload
+        payload = self._get_static_os_info().copy()
+
+        payload.update(
+            {
+                "uptime_seconds": int(uptime),
+                "boot_time": int(boot),
+                "cpu": self._safe_get_cpu_metrics(freq),
+                "ram": self._safe_get_ram_metrics(mem),
+                "swap": self._safe_get_swap_metrics(swap),
+                "network": self._safe_get_network_metrics(speed),
+            }
         )
 
-        os_family = platform.system()
-        os_release = platform.release()
-        os_name = f"{os_family} {os_release}"
-        os_distro = "unknown"
-        machine_arch = platform.machine()
-
-        if os_family == "Linux":
-            try:
-                import distro
-
-                os_distro = distro.id()
-                os_name = f"{distro.name()} {distro.version()}"
-            except ImportError:
-                if os.path.exists("/etc/os-release"):
-                    with open("/etc/os-release", "r") as f:
-                        content = f.read()
-                        name_match = re.search(
-                            r'^NAME=["\']?(.+?)["\']?$', content, re.M
-                        )
-                        version_match = re.search(
-                            r'^VERSION_ID=["\']?(.+?)["\']?$', content, re.M
-                        )
-                        id_match = re.search(r'^ID=["\']?(.+?)["\']?$', content, re.M)
-                        if id_match:
-                            os_distro = id_match.group(1).lower()
-                        if name_match:
-                            os_name = name_match.group(1)
-                            if version_match:
-                                os_name += f" {version_match.group(1)}"
-            except Exception as e:
-                log.debug(f"Failed to determine Linux distribution: {e}")
-
-        if os_family == "Windows":
-            os_distro = "windows"
-            try:
-                ver = sys.getwindowsversion()
-                if ver.major == 10 and ver.build >= 22000:
-                    os_name = "Windows 11"
-            except Exception as e:
-                log.debug(f"Failed to refine Windows version: {e}")
-
-        from .discovery_service import DiscoveryService
-
-        return {
-            "os": os_name,
-            "os_family": os_family.lower(),
-            "os_distro": os_distro,
-            "os_kernel": os_release,
-            "arch": machine_arch,
-            "python_version": platform.python_version(),
-            "hostname": socket.gethostname(),
-            "server_id": DiscoveryService.generate_server_id(),
-            "uptime_seconds": int(uptime),
-            "boot_time": int(boot),
-            "procs": len(psutil.pids()),
-            "users": self._safe_get_active_users(),
-            "load_avg": self._safe_get_load_avg(),
-            "battery": self._safe_get_battery(),
-            "cpu": self._safe_get_cpu_metrics(freq),
-            "ram": self._safe_get_ram_metrics(mem),
-            "swap": self._safe_get_swap_metrics(swap),
-            "disk_io": self._safe_get_disk_io_metrics(),
-            "network": self._safe_get_network_metrics(speed),
-            "sensors": temps,
-            "fans": self._safe_get_fans(),
-        }
+        payload.update(self._slow_metrics_cache)
+        return payload
 
     def _get_windows_thermals(self) -> Dict[str, float]:
         """Provides CPU temperature using native WMI."""

@@ -1,3 +1,4 @@
+# src/pclink/api_server/routers/utils.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -24,13 +25,9 @@ class CommandModel(BaseModel):
 async def run_command(payload: CommandModel):
     """Executes a shell command on the server."""
     if not payload.command:
-        raise HTTPException(status_code=400, detail="Command cannot be empty.")
-    try:
-        await utility_service.run_command_detached(payload.command)
-        return {"status": "command sent"}
-    except Exception as e:
-        log.error(f"Command execution failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise ValueError("Command cannot be empty.")
+    await utility_service.run_command_detached(payload.command)
+    return {"status": "command sent"}
 
 
 @router.post("/clipboard")
@@ -56,6 +53,3 @@ async def get_screenshot():
         raise HTTPException(
             status_code=500, detail="Required libraries (PIL) not available."
         )
-    except Exception as e:
-        log.error(f"Screenshot failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

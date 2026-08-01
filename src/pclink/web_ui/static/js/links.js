@@ -10,10 +10,7 @@ async function refreshLinks() {
     if (!tableBody) return;
 
     try {
-        const response = window.pclinkUI
-            ? await window.pclinkUI.apiCall('/files/shares')
-            : await fetch('/files/shares').then(r => r.json());
-
+        const response = await window.pclinkUI.apiCall('/files/shares');
         const shares = response.shares || [];
 
         if (shares.length === 0) {
@@ -88,9 +85,7 @@ async function refreshLinks() {
         if (window.feather) feather.replace();
     } catch (error) {
         console.error('Failed to fetch share links:', error);
-        if (window.pclinkUI) {
-            window.pclinkUI.showToast('Error', 'Failed to load share links', 'error');
-        }
+        window.pclinkUI.showToast('Error', 'Failed to load share links', 'error');
     }
 }
 
@@ -143,9 +138,7 @@ async function copyShareLink(filePath, token) {
     const downloadUrl = `${window.location.origin}/files/download?path=${encodeURIComponent(filePath)}&token=${token}`;
     try {
         await navigator.clipboard.writeText(downloadUrl);
-        if (window.pclinkUI) {
-            window.pclinkUI.showToast('Copied', 'Download URL copied to clipboard', 'success');
-        }
+        window.pclinkUI.showToast('Copied', 'Download URL copied to clipboard', 'success');
     } catch (err) {
         console.error('Failed to copy share link:', err);
         // Fallback for non-secure contexts
@@ -155,11 +148,9 @@ async function copyShareLink(filePath, token) {
         input.select();
         try {
             document.execCommand('copy');
-            if (window.pclinkUI) {
-                window.pclinkUI.showToast('Copied', 'Download URL copied to clipboard', 'success');
-            }
+            window.pclinkUI.showToast('Copied', 'Download URL copied to clipboard', 'success');
         } catch (e) {
-            alert('Could not copy link automatically. Please copy manually:\n' + downloadUrl);
+            window.pclinkUI.showToast('Info', 'Could not copy link automatically. Please copy manually.', 'info');
         }
         document.body.removeChild(input);
     }
@@ -173,23 +164,17 @@ async function revokeLink(token) {
     if (!confirmed) return;
 
     try {
-        const response = window.pclinkUI
-            ? await window.pclinkUI.apiCall(`/files/shares/${token}`, { method: 'DELETE' })
-            : await fetch(`/files/shares/${token}`, { method: 'DELETE' }).then(r => r.json());
+        const response = await window.pclinkUI.apiCall(`/files/shares/${token}`, { method: 'DELETE' });
 
         if (response.status === 'revoked') {
-            if (window.pclinkUI) {
-                window.pclinkUI.showToast('Success', 'Share link revoked successfully', 'success');
-            }
+            window.pclinkUI.showToast('Success', 'Share link revoked successfully', 'success');
             await refreshLinks();
         } else {
             throw new Error('Unexpected response from server');
         }
     } catch (error) {
         console.error('Failed to revoke share link:', error);
-        if (window.pclinkUI) {
-            window.pclinkUI.showToast('Error', 'Failed to revoke share link', 'error');
-        }
+        window.pclinkUI.showToast('Error', 'Failed to revoke share link', 'error');
     }
 }
 
