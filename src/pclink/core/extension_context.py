@@ -56,6 +56,56 @@ class ExtensionAPI:
             return None
 
 
+class InputAPI(ExtensionAPI):
+    """Provides extension access to PCLink's zero-prompt kernel uinput input engine."""
+
+    def mouse_move(self, dx: int, dy: int):
+        self._check_permission("input.inject")
+        if self.ipc_conn:
+            return self._call_ipc("input", "mouse_move", {"dx": dx, "dy": dy})
+        from ..services.input_service import input_service
+
+        input_service.mouse_move(dx, dy)
+
+    def mouse_click(self, button: str = "left", clicks: int = 1):
+        self._check_permission("input.inject")
+        if self.ipc_conn:
+            return self._call_ipc(
+                "input", "mouse_click", {"button": button, "clicks": clicks}
+            )
+        from ..services.input_service import input_service
+
+        input_service.mouse_click(button, clicks)
+
+    def mouse_scroll(self, dx: int, dy: int):
+        self._check_permission("input.inject")
+        if self.ipc_conn:
+            return self._call_ipc("input", "mouse_scroll", {"dx": dx, "dy": dy})
+        from ..services.input_service import input_service
+
+        input_service.mouse_scroll(dx, dy)
+
+    def keyboard_type(self, text: str):
+        self._check_permission("input.inject")
+        if self.ipc_conn:
+            return self._call_ipc("input", "keyboard_type", {"text": text})
+        from ..services.input_service import input_service
+
+        input_service.keyboard_type(text)
+
+    def keyboard_press_key(self, key_str: str, modifiers: List[str] = None):
+        self._check_permission("input.inject")
+        if self.ipc_conn:
+            return self._call_ipc(
+                "input",
+                "keyboard_press_key",
+                {"key_str": key_str, "modifiers": modifiers or []},
+            )
+        from ..services.input_service import input_service
+
+        input_service.keyboard_press_key(key_str, modifiers or [])
+
+
 class ThemeAPI(ExtensionAPI):
     def get_system_theme(self) -> str:
         """Returns 'dark' or 'light'."""
@@ -169,6 +219,7 @@ class ExtensionContext:
 
         self.metadata = metadata
         self.ipc_conn = ipc_conn
+        self.input = InputAPI(metadata, ipc_conn=ipc_conn)
         self.theme = ThemeAPI(metadata, ipc_conn=ipc_conn)
         self.dialog = DialogAPI(metadata, ipc_conn=ipc_conn)
         self.notification = NotificationAPI(metadata, ipc_conn=ipc_conn)
