@@ -2,13 +2,16 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import gettext
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+_ = gettext.gettext
 
 
 class ExtensionWidgetModel(BaseModel):
@@ -37,7 +40,7 @@ class ExtensionMetadata(BaseModel):
     description: str
     author: str
     pclink_version: str
-    entry_point: str
+    entry_point: Optional[str] = None
     ui_entry: Optional[str] = None
     permissions: List[str] = []
     enabled: bool = True
@@ -97,22 +100,26 @@ class ExtensionBase(ABC):
         ):
             raise HTTPException(
                 status_code=410,
-                detail=f"Extension '{self.metadata.name}' has been unloaded.",
+                detail=_("Extension '{name}' has been unloaded.").format(
+                    name=self.metadata.name
+                ),
             )
 
         if not self.metadata.enabled:
             raise HTTPException(
                 status_code=403,
-                detail=f"Extension '{self.metadata.name}' is currently disabled.",
+                detail=_("Extension '{name}' is currently disabled.").format(
+                    name=self.metadata.name
+                ),
             )
 
-    @abstractmethod
     def initialize(self) -> Union[bool, "CoroutineType"]:
-        """Called when the extension is enabled. Can be sync or async."""
+        """Called when the extension is enabled. Optional for extensions."""
+        return True
 
-    @abstractmethod
     def cleanup(self) -> Union[None, "CoroutineType"]:
-        """Called when the extension is disabled or removed. Can be sync or async."""
+        """Called when the extension is disabled or removed. Optional for extensions."""
+        pass
 
     def get_routes(self) -> APIRouter:
         """Returns the APIRouter for the extension."""
@@ -135,6 +142,16 @@ class ExtensionBase(ABC):
     def has_venv(self) -> bool:
         """Returns True if this extension has a virtual environment."""
         return self._venv_path is not None and self._venv_path.exists()
+
+
+class StaticExtension(ExtensionBase):
+    """Extension type for HTML/JS/CSS-only extensions with no Python backend logic."""
+
+    def initialize(self) -> bool:
+        return True
+
+    def cleanup(self) -> None:
+        pass
 
 
 CoroutineType = "Coroutine"

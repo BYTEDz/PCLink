@@ -33,6 +33,12 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
         const needsConsent = ext.has_dangerous_perms && !ext.user_approved;
         const isLoaded = ext.is_loaded;
         const iconUrl = ext.icon ? `/ui/extensions/${id}/icon` : null;
+
+        // Telemetry badges (PID, CPU %, Memory MB)
+        const pidBadge = isLoaded && ext.pid ? `<span class="badge badge-ghost badge-xs font-mono">PID ${ext.pid}</span>` : '';
+        const cpuBadge = isLoaded && ext.cpu_percent !== undefined ? `<span class="badge badge-outline badge-xs font-mono font-bold">${ext.cpu_percent}% CPU</span>` : '';
+        const memBadge = isLoaded && ext.memory_mb !== undefined ? `<span class="badge badge-outline badge-xs font-mono font-bold">${ext.memory_mb} MB</span>` : '';
+
         return `
         <div class="card bg-base-100 border border-base-300 shadow-sm transition-all hover:border-primary group">
             <div class="card-body p-4">
@@ -47,9 +53,12 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
                                 <span class="text-[9px] font-black uppercase opacity-40">v${ext.version || '0.0.1'}</span>
                             </div>
                             <p class="text-[10px] font-bold opacity-50 truncate mt-1">${ext.description || 'No description'}</p>
+                            <div class="flex items-center gap-1.5 mt-2">
+                                ${pidBadge} ${cpuBadge} ${memBadge}
+                            </div>
                         </div>
                     </div>
-                    <input type="checkbox" class="toggle toggle-sm toggle-primary" ${isLoaded ? 'checked' : ''} ${needsConsent ? 'disabled' : ''} onchange="window.toggleExtension('${id}', this.checked, this)" />
+                    <input type="checkbox" class="toggle toggle-sm toggle-primary shrink-0" ${isLoaded ? 'checked' : ''} ${needsConsent ? 'disabled' : ''} onchange="window.toggleExtension('${id}', this.checked, this)" />
                 </div>
                 <div class="flex items-center gap-2 mt-4 pt-4 border-t border-base-200">
                     <button class="btn btn-xs btn-ghost font-bold opacity-50 hover:opacity-100" onclick="window.openExtLogs('${id}', '${ext.display_name || id}')">
@@ -67,7 +76,7 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
             </div>
         </div>`;
     }).join('');
-    if (window.feather) feather.replace();
+    this.renderIcons();
 };
 
 window.loadExtensions = () => { if (window.pclinkUI) window.pclinkUI.loadExtensions(); };

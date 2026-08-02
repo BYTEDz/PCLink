@@ -4,7 +4,7 @@
 
 """
 Isolated Extension Process Worker.
-Executes extension initialization, lifecycle tasks, and route handlers in
+Executes extension initialization, lifecycle tasks, route handlers, and event dispatching in
 a dedicated, supervised subprocess with IPC HTTP route dispatching.
 """
 
@@ -33,7 +33,7 @@ def run_extension_process(
 ):
     """
     Entry point for the isolated extension subprocess.
-    Traps exceptions, serves route execution requests via IPC, and prevents host crashes.
+    Traps exceptions, serves route execution requests via IPC, dispatches system events, and prevents host crashes.
     """
     import gettext
 
@@ -60,91 +60,113 @@ def run_extension_process(
         entry_point = metadata.entry_point
         module_name = f"pclink_isolated_ext_{extension_id}"
 
-        if ":" in entry_point:
-            file_part, class_name = entry_point.split(":", 1)
+        if entry_point:
+            if ":" in entry_point:
+                file_part, class_name = entry_point.split(":", 1)
+            else:
+                file_part, class_name = entry_point, "Extension"
+
+            module_path = ext_path / file_part
+            if not module_path.suffix:
+                module_path = module_path.with_suffix(".py")
+
+            if not module_path.exists():
+                ipc_conn.send(
+                    {
+                        "status": "error",
+                        "error": _("Entry file missing: {}").format(module_path.name),
+                    }
+                )
+                return
+
+            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            if not spec or not spec.loader:
+                ipc_conn.send(
+                    {"status": "error", "error": _("Failed to create module spec")}
+                )
+                return
+
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = mod
+            spec.loader.exec_module(mod)
+
+            cls = getattr(mod, class_name, None)
+            if not cls:
+                ipc_conn.send(
+                    {
+                        "status": "error",
+                        "error": _("Class '{}' not found in {}").format(
+                            class_name, module_path.name
+                        ),
+                    }
+                )
+                return
+
+            # 3. Inspect __init__ signature for legacy compatibility
+            params = inspect.signature(cls.__init__).parameters
+            supports_context = "context" in params or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+
+            if supports_context:
+                instance = cls(
+                    metadata=metadata,
+                    extension_path=ext_path,
+                    config=config_data,
+                    context=context,
+                )
+            else:
+                instance = cls(
+                    metadata=metadata,
+                    extension_path=ext_path,
+                    config=config_data,
+                )
+                instance.context = context
         else:
-            file_part, class_name = entry_point, "Extension"
+            # Fallback if entry_point is omitted
+            from .extension_base import StaticExtension
 
-        module_path = ext_path / file_part
-        if not module_path.suffix:
-            module_path = module_path.with_suffix(".py")
-
-        if not module_path.exists():
-            ipc_conn.send(
-                {
-                    "status": "error",
-                    "error": _("Entry file missing: {}").format(module_path.name),
-                }
-            )
-            return
-
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
-        if not spec or not spec.loader:
-            ipc_conn.send(
-                {"status": "error", "error": _("Failed to create module spec")}
-            )
-            return
-
-        mod = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = mod
-        spec.loader.exec_module(mod)
-
-        cls = getattr(mod, class_name, None)
-        if not cls:
-            ipc_conn.send(
-                {
-                    "status": "error",
-                    "error": _("Class '{}' not found in {}").format(
-                        class_name, module_path.name
-                    ),
-                }
-            )
-            return
-
-        # 3. Inspect __init__ signature for legacy compatibility
-        params = inspect.signature(cls.__init__).parameters
-        supports_context = "context" in params or any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
-        )
-
-        if supports_context:
-            instance = cls(
+            instance = StaticExtension(
                 metadata=metadata,
                 extension_path=ext_path,
                 config=config_data,
                 context=context,
             )
+
+        # 4. Get router instance safely
+        get_routes_fn = getattr(instance, "get_routes", None)
+        if callable(get_routes_fn):
+            router = get_routes_fn()
         else:
-            instance = cls(
-                metadata=metadata,
-                extension_path=ext_path,
-                config=config_data,
-            )
-            instance.context = context
+            router = getattr(instance, "router", None)
 
-        # 4. Get router instance
-        router = instance.get_routes()
+        from fastapi import APIRouter
 
-        # 5. Initialize extension
-        init_res = instance.initialize()
-        if asyncio.iscoroutine(init_res):
-            init_res = asyncio.run(init_res)
+        if not router:
+            router = APIRouter()
 
-        if init_res is False:
-            ipc_conn.send(
-                {
-                    "status": "error",
-                    "error": _("Extension '{}' initialize() returned False").format(
-                        extension_id
-                    ),
-                }
-            )
-            return
+        # 5. Initialize extension safely (optional lifecycle hook)
+        init_fn = getattr(instance, "initialize", None)
+        if callable(init_fn):
+            init_res = init_fn()
+            if asyncio.iscoroutine(init_res):
+                init_res = asyncio.run(init_res)
+
+            if init_res is False:
+                ipc_conn.send(
+                    {
+                        "status": "error",
+                        "error": _("Extension '{}' initialize() returned False").format(
+                            extension_id
+                        ),
+                    }
+                )
+                return
 
         # Signal successful initialization to host process
         ipc_conn.send({"status": "ready", "pid": os.getpid()})
 
-        # 6. Enter IPC Command & HTTP Route Dispatcher Loop
+        # 6. Enter IPC Command, Event Dispatch & HTTP Route Dispatcher Loop
         cleaned_up = False
         try:
             while True:
@@ -152,7 +174,6 @@ def run_extension_process(
                     if not ipc_conn.poll(0.1):
                         continue
                 except KeyboardInterrupt:
-                    # Graceful shutdown on SIGINT
                     log.info(
                         _("Extension '{}' received interrupt signal").format(
                             extension_id
@@ -166,6 +187,24 @@ def run_extension_process(
                 if cmd_type == "PING":
                     ipc_conn.send({"status": "pong", "pid": os.getpid()})
 
+                elif cmd_type == "EVENT_DISPATCH":
+                    event_name = cmd.get("event")
+                    event_data = cmd.get("data", {})
+                    listeners = getattr(context, "_event_listeners", {}).get(
+                        event_name, []
+                    )
+
+                    for handler in listeners:
+                        try:
+                            if inspect.iscoroutinefunction(handler):
+                                asyncio.run(handler(event_data))
+                            else:
+                                handler(event_data)
+                        except Exception as e:
+                            log.error(
+                                f"Error executing event handler for '{event_name}' in extension '{extension_id}': {e}"
+                            )
+
                 elif cmd_type == "HTTP_REQUEST":
                     req_id = cmd.get("req_id")
                     method = cmd.get("method", "GET").upper()
@@ -175,7 +214,6 @@ def run_extension_process(
 
                     body_data = cmd.get("body")
 
-                    # Match route handler using router routes (supporting path parameters like {action})
                     matched_handler = None
                     path_params = {}
 
@@ -197,12 +235,10 @@ def run_extension_process(
                             sig = inspect.signature(matched_handler)
                             kwargs = {}
 
-                            # Bind path parameters
                             for param_name in sig.parameters:
                                 if param_name in path_params:
                                     kwargs[param_name] = path_params[param_name]
 
-                            # Bind body parameter if expected and not satisfied by path_params
                             if body_data is not None:
                                 for param_name, param in sig.parameters.items():
                                     if param_name not in kwargs:
@@ -214,7 +250,6 @@ def run_extension_process(
                                         elif len(sig.parameters) == 1:
                                             kwargs[param_name] = body_data
 
-                            # Execute handler
                             if inspect.iscoroutinefunction(matched_handler):
                                 res = asyncio.run(matched_handler(**kwargs))
                             else:
@@ -257,9 +292,11 @@ def run_extension_process(
 
                 elif cmd_type == "CLEANUP":
                     try:
-                        clean_res = instance.cleanup()
-                        if asyncio.iscoroutine(clean_res):
-                            asyncio.run(clean_res)
+                        cleanup_fn = getattr(instance, "cleanup", None)
+                        if callable(cleanup_fn):
+                            clean_res = cleanup_fn()
+                            if asyncio.iscoroutine(clean_res):
+                                asyncio.run(clean_res)
                         cleaned_up = True
                         ipc_conn.send({"status": "cleaned"})
                     except Exception as e:
@@ -272,12 +309,13 @@ def run_extension_process(
         except KeyboardInterrupt:
             log.info(_("Extension '{}' shutdown by signal").format(extension_id))
 
-        # Cleanup before exit (only if not already cleaned up)
         if not cleaned_up:
             try:
-                clean_res = instance.cleanup()
-                if asyncio.iscoroutine(clean_res):
-                    asyncio.run(clean_res)
+                cleanup_fn = getattr(instance, "cleanup", None)
+                if callable(cleanup_fn):
+                    clean_res = cleanup_fn()
+                    if asyncio.iscoroutine(clean_res):
+                        asyncio.run(clean_res)
             except Exception as e:
                 log.error(
                     _("Cleanup error in extension '{}': {}").format(extension_id, e)

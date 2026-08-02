@@ -3,6 +3,7 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import gettext
 import importlib.util
 import inspect
 import logging
@@ -21,14 +22,20 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Type
 
+import psutil
 import yaml
 
-from pclink.core.extension_base import ExtensionBase, ExtensionMetadata
+from pclink.core.extension_base import (
+    ExtensionBase,
+    ExtensionMetadata,
+    StaticExtension,
+)
 from pclink.core.extension_context import ExtensionContext
 from pclink.core.extension_runner import run_extension_process
 from pclink.core.version import __version__ as PCLINK_VERSION
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 
 # --- Security Configuration ---
@@ -457,6 +464,38 @@ class ExtensionManager:
                 discovered.append(entry.name)
         return discovered
 
+    def get_extension_telemetry(self, extension_id: str) -> Dict[str, Any]:
+        """Retrieves process telemetry (PID, CPU %, Memory MB) for an isolated extension process."""
+        info = self.isolated_processes.get(extension_id)
+        if not info:
+            return {}
+
+        pid = info.get("pid")
+        if not pid:
+            return {}
+
+        try:
+            proc = psutil.Process(pid)
+            mem_mb = round(proc.memory_info().rss / (1024 * 1024), 1)
+            cpu_pct = round(proc.cpu_percent(interval=None), 1)
+            return {"pid": pid, "cpu_percent": cpu_pct, "memory_mb": mem_mb}
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return {"pid": pid, "cpu_percent": 0.0, "memory_mb": 0.0}
+
+    def dispatch_event(self, event_name: str, data: Dict[str, Any]):
+        """Dispatches an event hook asynchronously to all active isolated extension processes."""
+        for extension_id, info in list(self.isolated_processes.items()):
+            pipe = info.get("pipe")
+            if pipe:
+                try:
+                    pipe.send(
+                        {"type": "EVENT_DISPATCH", "event": event_name, "data": data}
+                    )
+                except Exception as e:
+                    log.error(
+                        f"Failed to dispatch event '{event_name}' to extension '{extension_id}': {e}"
+                    )
+
     def dispatch_ipc_http_request(
         self,
         extension_id: str,
@@ -509,7 +548,7 @@ class ExtensionManager:
         """
         Listens on IPC pipe from child process and handles host context calls and HTTP responses.
         """
-        temp_context = ExtensionContext(metadata)
+        temp_context = ExtensionContext(metadata, ipc_conn=host_pipe)
 
         while extension_id in self.isolated_processes:
             try:
@@ -725,6 +764,48 @@ class ExtensionManager:
                 return False
 
             extension_dir = self.extensions_path / extension_id
+
+            # --- Pure JS/HTML/CSS Extension Handling ---
+            if not metadata.entry_point:
+                ui_entry = metadata.ui_entry or "index.html"
+                ui_entry_path = extension_dir / ui_entry
+                if metadata.ui_entry and not ui_entry_path.exists():
+                    log.error(
+                        _(
+                            "UI entry point '{ui_entry}' not found for static extension '{extension_id}'"
+                        ).format(ui_entry=ui_entry, extension_id=extension_id)
+                    )
+                    self.failed_extensions[extension_id] = time.time()
+                    return False
+
+                context = ExtensionContext(metadata)
+                extension_instance = StaticExtension(
+                    metadata=metadata,
+                    extension_path=extension_dir,
+                    config=manifest,
+                    context=context,
+                )
+                self.extensions[extension_id] = extension_instance
+                if self.app:
+                    try:
+                        self.app.include_router(
+                            extension_instance.get_routes(),
+                            prefix=f"/extensions/{extension_id}",
+                            tags=[f"extension-{extension_id}"],
+                        )
+                        self._mounted_extensions.add(extension_id)
+                    except Exception as e:
+                        log.error(f"Failed to mount router for {extension_id}: {e}")
+
+                log.info(
+                    f"Successfully loaded static JS/HTML extension: {metadata.display_name} ({metadata.version})"
+                )
+                self._update_install_state(
+                    extension_id, "completed", 100, task_id=task_id
+                )
+                self.failed_extensions.pop(extension_id, None)
+                return True
+
             entry_point_path = extension_dir / metadata.entry_point
             lib_path = extension_dir / "lib"
 

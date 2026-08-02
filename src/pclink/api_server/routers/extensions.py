@@ -78,6 +78,12 @@ async def list_extensions():
             response_meta["id"] = eid
             response_meta["is_loaded"] = is_loaded
 
+            # Add process telemetry (PID, CPU %, Memory MB)
+            telemetry = extension_manager.get_extension_telemetry(eid)
+            response_meta["pid"] = telemetry.get("pid")
+            response_meta["cpu_percent"] = telemetry.get("cpu_percent", 0.0)
+            response_meta["memory_mb"] = telemetry.get("memory_mb", 0.0)
+
             if ext and getattr(ext, "has_venv", False):
                 response_meta["has_venv"] = True
                 response_meta["venv_path"] = str(getattr(ext, "venv_path", ""))

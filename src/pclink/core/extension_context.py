@@ -5,7 +5,7 @@
 import logging
 import platform
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .extension_base import ExtensionMetadata
 
@@ -127,9 +127,51 @@ class DialogAPI(ExtensionAPI):
         return None
 
 
+class NotificationAPI(ExtensionAPI):
+    def show(self, title: str, message: str, type: str = "info") -> bool:
+        """Pushes a notification directly into PCLink's Notification Center & Web UI toasts."""
+        if self.ipc_conn:
+            return bool(
+                self._call_ipc(
+                    "notification",
+                    "show",
+                    {"title": title, "message": message, "type": type},
+                )
+            )
+
+        try:
+            from ..api_server.ws_manager import ui_manager
+
+            asyncio = __import__("asyncio")
+            asyncio.create_task(
+                ui_manager.broadcast(
+                    {
+                        "type": "notification",
+                        "data": {"title": title, "message": message, "type": type},
+                    }
+                )
+            )
+            return True
+        except Exception as e:
+            log.error(f"Failed to dispatch extension notification: {e}")
+            return False
+
+
 class ExtensionContext:
     def __init__(self, metadata: ExtensionMetadata, ipc_conn=None):
         self.metadata = metadata
         self.ipc_conn = ipc_conn
         self.theme = ThemeAPI(metadata, ipc_conn=ipc_conn)
         self.dialog = DialogAPI(metadata, ipc_conn=ipc_conn)
+        self.notification = NotificationAPI(metadata, ipc_conn=ipc_conn)
+        self._event_listeners: Dict[str, List[Callable]] = {}
+
+    def notify(self, title: str, message: str, type: str = "info") -> bool:
+        """Convenience method for extension developers to trigger PCLink notifications."""
+        return self.notification.show(title, message, type)
+
+    def on(self, event_name: str, handler: Callable):
+        """Register an event listener for PCLink system events."""
+        if event_name not in self._event_listeners:
+            self._event_listeners[event_name] = []
+        self._event_listeners[event_name].append(handler)
