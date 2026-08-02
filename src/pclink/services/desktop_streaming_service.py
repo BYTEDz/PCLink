@@ -35,9 +35,10 @@ if OS_TYPE == "windows":
 else:
     BIN_NAME = "ferrumcast"
     IPC_PATH = "/tmp/ferrumcast.sock"
-    TOKEN_FILE = "/tmp/ferrumcast.token"
-
-# Compute the absolute paths for the native engine binary, supporting structured system directories with legacy fallbacks.
+    TOKEN_FILE = str(
+        Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+        / "ferrumcast.token"
+    )
 
 STRUCTURED_PATH = resource_path(
     f"src/pclink/assets/bin/{OS_TYPE}_{ARCH_NAME}/{BIN_NAME}"
@@ -459,7 +460,6 @@ class DesktopStreamingService:
 
         args = [str(ENGINE_PATH)]
 
-        # Map snake_case config keys to CLI flags e.g. speed_preset -> --speed-preset
         cli_key_map = {
             "speed_preset": "--speed-preset",
             "nvenc_preset": "--nvenc-preset",
@@ -478,7 +478,6 @@ class DesktopStreamingService:
             "show_cursor": "--show-cursor",
         }
 
-        # Keys handled specifically outside this generic loop
         ignored_keys = {
             "srtp",
             "srtp_key",
@@ -515,7 +514,9 @@ class DesktopStreamingService:
                 if token:
                     args += ["--token", token]
                     logger.info(
-                        _("Using cached portal token from {}").format(TOKEN_FILE)
+                        _("Using cached persistent portal token from {}").format(
+                            TOKEN_FILE
+                        )
                     )
             except Exception:
                 pass
@@ -533,7 +534,6 @@ class DesktopStreamingService:
         if OS_TYPE == "windows":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-        # Sanitize sensitive CLI arguments before logging
         sanitized_args = []
         skip_next = False
         for arg in args:
