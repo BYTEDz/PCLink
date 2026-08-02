@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from ...core.config import config_manager
 from ...core.extension_manager import DANGEROUS_PERMISSIONS, ExtensionManager
+from ...core.utils import resource_path
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
@@ -244,13 +245,22 @@ async def clear_logs(extension_id: str):
     return {"status": "success"}
 
 
+@runtime_router.get("/sdk/pclink-sdk.js")
+async def get_pclink_sdk():
+    """Serves the unified extension SDK JS library."""
+    sdk_path = resource_path("src/pclink/web_ui/static/pclink-sdk.js")
+    if not sdk_path.exists():
+        raise HTTPException(404, _("SDK file missing"))
+    return FileResponse(sdk_path, media_type="application/javascript")
+
+
 @runtime_router.get("/{extension_id}/ui")
 async def get_ui(extension_id: str, token: str = Query(None)):
     ext_dir, manifest = _resolve_extension_path_and_manifest(extension_id)
     if not manifest:
         raise HTTPException(404, _("Extension manifest not found"))
 
-    ui_entry = manifest.get("ui_entry")
+    ui_entry = manifest.get("ui_entry", "index.html")
     if not ui_entry:
         raise HTTPException(404, _("UI entry point not specified"))
 

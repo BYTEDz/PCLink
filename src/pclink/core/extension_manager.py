@@ -4,6 +4,7 @@
 
 import asyncio
 import gettext
+import hashlib
 import importlib.util
 import inspect
 import logging
@@ -202,6 +203,74 @@ class ExtensionManager:
             self.install_states[extension_id] = state
         if task_id:
             self.install_states[task_id] = state
+
+    def save_integrity_hashes(self, extension_id: str):
+        """Generates SHA-256 hashes for all extension files to detect tampering."""
+        ext_dir = self.extensions_path / extension_id
+        if not ext_dir.exists():
+            return
+
+        import json
+
+        hashes = {}
+        for root, _, files in os.walk(ext_dir):
+            for file in files:
+                if file == ".integrity.json":
+                    continue
+                file_path = Path(root) / file
+                rel_path = file_path.relative_to(ext_dir).as_posix()
+                try:
+                    hasher = hashlib.sha256()
+                    with open(file_path, "rb") as f:
+                        for chunk in iter(lambda: f.read(65536), b""):
+                            hasher.update(chunk)
+                    hashes[rel_path] = hasher.hexdigest()
+                except Exception as e:
+                    log.error(f"Failed to calculate hash for {file_path}: {e}")
+
+        try:
+            integrity_file = ext_dir / ".integrity.json"
+            integrity_file.write_text(json.dumps(hashes, indent=2), encoding="utf-8")
+        except Exception as e:
+            log.error(f"Failed to save integrity manifest for {extension_id}: {e}")
+
+    def verify_integrity(self, extension_id: str) -> bool:
+        """Verifies extension files against the stored SHA-256 checksums."""
+        ext_dir = self.extensions_path / extension_id
+        integrity_file = ext_dir / ".integrity.json"
+        if not integrity_file.exists():
+            return True  # If no integrity file exists, bypass check
+
+        import json
+
+        try:
+            hashes = json.loads(integrity_file.read_text(encoding="utf-8"))
+            for rel_path, expected_hash in hashes.items():
+                file_path = ext_dir / rel_path
+                if not file_path.exists():
+                    log.error(
+                        _(
+                            "Integrity check failed: Missing file '{path}' in extension '{id}'"
+                        ).format(path=rel_path, id=extension_id)
+                    )
+                    return False
+
+                hasher = hashlib.sha256()
+                with open(file_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(65536), b""):
+                        hasher.update(chunk)
+
+                if hasher.hexdigest() != expected_hash:
+                    log.error(
+                        _(
+                            "Integrity check failed: File '{path}' tampered in extension '{id}'"
+                        ).format(path=rel_path, id=extension_id)
+                    )
+                    return False
+            return True
+        except Exception as e:
+            log.error(f"Integrity verification error for {extension_id}: {e}")
+            return False
 
     def _create_venv(
         self, extension_id: str, requirements_path: Path, task_id: Optional[str] = None
@@ -483,7 +552,7 @@ class ExtensionManager:
             return {"pid": pid, "cpu_percent": 0.0, "memory_mb": 0.0}
 
     def dispatch_event(self, event_name: str, data: Dict[str, Any]):
-        """Dispatches an event hook asynchronously to all active isolated extension processes."""
+        """Dispatches an event hook asynchronously to all active isolated extension processes and local listeners."""
         for extension_id, info in list(self.isolated_processes.items()):
             pipe = info.get("pipe")
             if pipe:
@@ -495,6 +564,21 @@ class ExtensionManager:
                     log.error(
                         f"Failed to dispatch event '{event_name}' to extension '{extension_id}': {e}"
                     )
+
+        # Dispatch locally for in-process or static extensions
+        for extension_id, ext in list(self.extensions.items()):
+            if hasattr(ext, "context") and ext.context:
+                listeners = ext.context._event_listeners.get(event_name, [])
+                for handler in listeners:
+                    try:
+                        if inspect.iscoroutinefunction(handler):
+                            asyncio.create_task(handler(data))
+                        else:
+                            handler(data)
+                    except Exception as e:
+                        log.error(
+                            f"Error executing event handler for '{event_name}' in extension '{extension_id}': {e}"
+                        )
 
     def dispatch_ipc_http_request(
         self,
@@ -569,6 +653,13 @@ class ExtensionManager:
                     kwargs = msg.get("kwargs", {})
 
                     try:
+                        if api_name == "context" and method_name == "publish_event":
+                            event_name = kwargs.get("event_name")
+                            data = kwargs.get("data", {})
+                            self.dispatch_event(event_name, data)
+                            host_pipe.send({"status": "success", "result": True})
+                            continue
+
                         api_obj = getattr(temp_context, api_name, None)
                         if not api_obj:
                             raise AttributeError(f"API '{api_name}' not found")
@@ -759,6 +850,15 @@ class ExtensionManager:
             if not self._is_compatible(metadata):
                 log.warning(
                     f"Extension '{extension_id}' is incompatible with this system. Skipping."
+                )
+                self.failed_extensions[extension_id] = time.time()
+                return False
+
+            if not self.verify_integrity(extension_id):
+                log.error(
+                    _(
+                        "Security Violation: Extension '{extension_id}' failed integrity check (tampered files). Disabling."
+                    ).format(extension_id=extension_id)
                 )
                 self.failed_extensions[extension_id] = time.time()
                 return False
@@ -1125,7 +1225,7 @@ class ExtensionManager:
     def install_extension(
         self, bundle_path: Path, task_id: Optional[str] = None
     ) -> bool:
-        """Installs an extension from a zip bundle."""
+        """Installs an extension from a zip bundle and generates integrity checksums."""
         from ..core.config import config_manager
 
         if not config_manager.get("allow_extensions", False):
@@ -1160,6 +1260,9 @@ class ExtensionManager:
                         return False
                 zip_ref.extractall(target_dir)
 
+            # Generate SHA-256 integrity checksum manifest upon installation
+            self.save_integrity_hashes(metadata.name)
+
             has_dangerous = any(
                 p in DANGEROUS_PERMISSIONS for p in metadata.permissions
             )
@@ -1181,6 +1284,9 @@ class ExtensionManager:
 
                     with open(manifest_path, "w", encoding="utf-8") as f:
                         yaml.safe_dump(config, f)
+
+                    # Re-calculate integrity after updating manifest
+                    self.save_integrity_hashes(metadata.name)
                 except Exception as e:
                     log.error(f"Failed to apply security lock to extension: {e}")
                     return False
@@ -1265,6 +1371,9 @@ class ExtensionManager:
 
             with open(manifest_path, "w", encoding="utf-8") as f:
                 yaml.safe_dump(config, f)
+
+            # Re-calculate checksums after manifest toggle
+            self.save_integrity_hashes(extension_id)
 
             log.info(f"Extension {extension_id} {'enabled' if enabled else 'disabled'}")
 
