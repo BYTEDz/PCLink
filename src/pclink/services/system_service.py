@@ -226,9 +226,59 @@ class SystemService:
 
     def _get_sync_disks_info(self) -> Dict[str, List[Dict[str, Any]]]:
         disks_info = []
-        for part in psutil.disk_partitions():
-            if "cdrom" in part.opts or part.fstype == "":
+        ignored_fstypes = {
+            "",
+            "overlay",
+            "aufs",
+            "squashfs",
+            "tmpfs",
+            "devtmpfs",
+            "proc",
+            "sysfs",
+            "cgroup",
+            "cgroup2",
+            "nsfs",
+            "ramfs",
+            "rpc_pipefs",
+            "devpts",
+            "vfat",  # Usually boot/EFI FAT partitions on Linux
+        }
+        ignored_mount_prefixes = (
+            "/var/lib/docker",
+            "/var/lib/containerd",
+            "/snap",
+            "/var/snap",
+            "/flatpak",
+            "/dev",
+            "/proc",
+            "/sys",
+            "/run",
+            "/docker",
+            "/containers",
+            "/boot",
+            "/efi",
+        )
+
+        for part in psutil.disk_partitions(all=False):
+            if "cdrom" in part.opts or part.fstype.lower() in ignored_fstypes:
                 continue
+
+            mountpoint = part.mountpoint
+            mountpoint_lower = mountpoint.lower()
+            device_lower = part.device.lower()
+
+            # Filter out Docker, Snap, Flatpak, Boot/EFI, and virtual/pseudo mountpoints
+            if any(mountpoint_lower.startswith(p) for p in ignored_mount_prefixes):
+                continue
+            if "docker" in mountpoint_lower or "docker" in device_lower:
+                continue
+            if "containerd" in mountpoint_lower or "containerd" in device_lower:
+                continue
+            if device_lower.startswith("/dev/loop") or device_lower.startswith(
+                "overlay"
+            ):
+                continue
+
             try:
                 usage = psutil.disk_usage(part.mountpoint)
                 disks_info.append(
