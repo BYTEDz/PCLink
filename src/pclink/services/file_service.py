@@ -9,6 +9,7 @@ import mimetypes
 import os
 import platform
 import shutil
+import sys
 import tempfile
 import time
 import zipfile
@@ -642,16 +643,85 @@ class FileService:
 
         return _gen()
 
-    async def delete_items(self, paths: List[str]) -> List[Dict[str, Any]]:
+    def _trash_item_fallback(self, path: Path):
+        """Fallback method to move an item to OS Trash / Recycle Bin if send2trash is missing."""
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            class SHFILEOPSTRUCTW(ctypes.Structure):
+                _fields_ = [
+                    ("hwnd", wintypes.HWND),
+                    ("wFunc", wintypes.UINT),
+                    ("pFrom", wintypes.LPCWSTR),
+                    ("pTo", wintypes.LPCWSTR),
+                    ("fFlags", wintypes.WORD),
+                    ("fAnyOperationsAborted", wintypes.BOOL),
+                    ("hNameMappings", wintypes.LPVOID),
+                    ("lpszProgressTitle", wintypes.LPCWSTR),
+                ]
+
+            FO_DELETE = 0x0003
+            FOF_ALLOWUNDO = 0x0040
+            FOF_NOCONFIRMATION = 0x0010
+            FOF_SILENT = 0x0004
+
+            p_from = str(path.resolve()) + "\0\0"
+            fileop = SHFILEOPSTRUCTW(
+                hwnd=None,
+                wFunc=FO_DELETE,
+                pFrom=p_from,
+                pTo=None,
+                fFlags=FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT,
+            )
+            res = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(fileop))
+            if res != 0:
+                raise OSError(
+                    _("Failed to move item to Recycle Bin (code {})").format(res)
+                )
+        elif sys.platform.startswith("linux"):
+            trash_files = Path.home() / ".local" / "share" / "Trash" / "files"
+            trash_info = Path.home() / ".local" / "share" / "Trash" / "info"
+            trash_files.mkdir(parents=True, exist_ok=True)
+            trash_info.mkdir(parents=True, exist_ok=True)
+
+            dest_name = self.get_unique_path(trash_files / path.name).name
+            shutil.move(str(path), str(trash_files / dest_name))
+
+            info_content = (
+                "[Trash Info]\n"
+                f"Path={path.resolve()}\n"
+                f"DeletionDate={time.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+            )
+            (trash_info / f"{dest_name}.trashinfo").write_text(
+                info_content, encoding="utf-8"
+            )
+        else:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+
+    async def delete_items(
+        self, paths: List[str], use_trash: bool = False
+    ) -> List[Dict[str, Any]]:
         results = []
 
         async def _do_delete(p_str: str) -> Dict[str, Any]:
             try:
                 p = self.validate_path(p_str)
-                if p.is_dir():
-                    await asyncio.to_thread(shutil.rmtree, p)
+                if use_trash:
+                    try:
+                        import send2trash
+
+                        await asyncio.to_thread(send2trash.send2trash, str(p))
+                    except Exception:
+                        await asyncio.to_thread(self._trash_item_fallback, p)
                 else:
-                    await asyncio.to_thread(p.unlink)
+                    if p.is_dir():
+                        await asyncio.to_thread(shutil.rmtree, p)
+                    else:
+                        await asyncio.to_thread(p.unlink)
                 return {"path": p_str, "success": True}
             except Exception as e:
                 return {"path": p_str, "success": False, "reason": str(e)}

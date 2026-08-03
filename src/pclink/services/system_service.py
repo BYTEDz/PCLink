@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 from collections import deque
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 import psutil
@@ -41,6 +42,50 @@ def safe_probe(
     except Exception as e:
         log.debug(f"Telemetry probe '{name}' failed: {e}")
         return default if default is not None else {}
+
+
+def _get_volume_label(mountpoint: str, device: str) -> str:
+    """Retrieves friendly volume label for Windows, Linux, or macOS partitions."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            vol_buffer = ctypes.create_unicode_buffer(1024)
+            fs_buffer = ctypes.create_unicode_buffer(1024)
+            ctypes.windll.kernel32.GetVolumeInformationW(
+                ctypes.c_wchar_p(mountpoint),
+                vol_buffer,
+                ctypes.sizeof(vol_buffer),
+                None,
+                None,
+                None,
+                fs_buffer,
+                ctypes.sizeof(fs_buffer),
+            )
+            return vol_buffer.value or ""
+
+        elif sys.platform.startswith("linux"):
+            if "/media/" in mountpoint or "/run/media/" in mountpoint:
+                return os.path.basename(mountpoint.rstrip("/"))
+            by_label = Path("/dev/disk/by-label")
+            if by_label.exists() and device:
+                dev_name = os.path.basename(device)
+                for link in by_label.iterdir():
+                    try:
+                        if (
+                            link.is_symlink()
+                            and os.path.basename(os.readlink(link)) == dev_name
+                        ):
+                            return link.name
+                    except Exception:
+                        continue
+
+        elif sys.platform == "darwin":
+            if mountpoint.startswith("/Volumes/"):
+                return os.path.basename(mountpoint)
+    except Exception:
+        pass
+    return ""
 
 
 class NetworkMonitor:
@@ -124,6 +169,7 @@ class SystemService:
         self._telemetry_history = deque(maxlen=20)
         self._last_light_snapshot = None
         self._background_task = None
+        self._previous_disks = None
 
         try:
             psutil.cpu_percent(interval=None)
@@ -241,7 +287,7 @@ class SystemService:
             "ramfs",
             "rpc_pipefs",
             "devpts",
-            "vfat",  # Usually boot/EFI FAT partitions on Linux
+            "vfat",
         }
         ignored_mount_prefixes = (
             "/var/lib/docker",
@@ -259,6 +305,8 @@ class SystemService:
             "/efi",
         )
 
+        current_disk_set = set()
+
         for part in psutil.disk_partitions(all=False):
             if "cdrom" in part.opts or part.fstype.lower() in ignored_fstypes:
                 continue
@@ -267,7 +315,6 @@ class SystemService:
             mountpoint_lower = mountpoint.lower()
             device_lower = part.device.lower()
 
-            # Filter out Docker, Snap, Flatpak, Boot/EFI, and virtual/pseudo mountpoints
             if any(mountpoint_lower.startswith(p) for p in ignored_mount_prefixes):
                 continue
             if "docker" in mountpoint_lower or "docker" in device_lower:
@@ -279,11 +326,15 @@ class SystemService:
             ):
                 continue
 
+            label = _get_volume_label(part.mountpoint, part.device)
+            current_disk_set.add(part.mountpoint)
+
             try:
                 usage = psutil.disk_usage(part.mountpoint)
                 disks_info.append(
                     {
                         "device": part.mountpoint,
+                        "label": label,
                         "total": self._format_bytes(usage.total),
                         "used": self._format_bytes(usage.used),
                         "free": self._format_bytes(usage.free),
@@ -292,6 +343,39 @@ class SystemService:
                 )
             except (PermissionError, FileNotFoundError):
                 continue
+
+        # USB / External Drive Hotplug Detection & WebSocket Notification
+        if hasattr(self, "_previous_disks") and self._previous_disks is not None:
+            new_disks = current_disk_set - self._previous_disks
+            removed_disks = self._previous_disks - current_disk_set
+
+            if new_disks or removed_disks:
+                from ..api_server.ws_manager import mobile_manager, ui_manager
+
+                for mount in new_disks:
+                    matching_disk = next(
+                        (d for d in disks_info if d["device"] == mount), None
+                    )
+                    label_name = (
+                        matching_disk["label"]
+                        if matching_disk and matching_disk.get("label")
+                        else mount
+                    )
+                    msg = {
+                        "type": "notification",
+                        "data": {
+                            "title": _("Drive Connected"),
+                            "message": _(
+                                "Storage device '{drive}' is now available."
+                            ).format(drive=label_name),
+                            "type": "info",
+                        },
+                    }
+                    asyncio.create_task(mobile_manager.broadcast(msg))
+                    asyncio.create_task(ui_manager.broadcast(msg))
+
+        self._previous_disks = current_disk_set
+
         return {"disks": disks_info}
 
     def _get_static_os_info(self) -> Dict[str, str]:

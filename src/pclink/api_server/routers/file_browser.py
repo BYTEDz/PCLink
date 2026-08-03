@@ -84,6 +84,7 @@ class PastePayload(BaseModel):
 
 class PathsPayload(BaseModel):
     paths: List[str] = Field(..., min_length=1, max_length=5_000)
+    use_trash: bool = False
 
 
 class CompressPayload(BaseModel):
@@ -306,7 +307,9 @@ async def batch_rename(payload: BatchRenamePayload):
 
 @router.post("/delete", dependencies=[Depends(verify_api_key)])
 async def delete(payload: PathsPayload):
-    results = await file_service.delete_items(payload.paths)
+    results = await file_service.delete_items(
+        payload.paths, use_trash=payload.use_trash
+    )
     return {
         "succeeded": [r for r in results if r["success"]],
         "failed": [r for r in results if not r["success"]],
