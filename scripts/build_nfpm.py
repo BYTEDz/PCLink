@@ -13,7 +13,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 # Add src to path for version info
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
@@ -87,8 +86,8 @@ class NFPMBuilder:
             dir_path.mkdir(parents=True, exist_ok=True)
 
     def create_wheel(self):
-        """Create a wheel of the current package."""
-        print("[WHEEL] Creating Python wheel...")
+        """Create wheels for the package and its dependencies."""
+        print("[WHEEL] Creating Python wheels for package and dependencies...")
 
         wheel_dir = self.build_dir / "wheels"
         wheel_dir.mkdir(parents=True, exist_ok=True)
@@ -96,13 +95,12 @@ class NFPMBuilder:
         for old_wheel in wheel_dir.glob("*.whl"):
             old_wheel.unlink()
 
-        # Use sys.executable to ensure we use the same Python interpreter
+        # Use sys.executable to build wheels including dependencies for offline install
         cmd = [
             sys.executable,
             "-m",
             "pip",
             "wheel",
-            "--no-deps",
             "-w",
             str(wheel_dir),
             ".",
@@ -120,34 +118,31 @@ class NFPMBuilder:
 
         wheel_files = list(wheel_dir.glob("*.whl"))
         if not wheel_files:
-            raise RuntimeError("No wheel file was created")
+            raise RuntimeError("No wheel files were created")
 
-        wheel_path = wheel_files[0]
-        print(f"[OK] Created wheel: {wheel_path.name}")
-        return wheel_path
+        print(f"[OK] Created {len(wheel_files)} wheels (package + dependencies)")
+        return wheel_dir
 
     def install_application_files(self, existing_wheel_path=None):
-        """Install the application files to staging directory."""
+        """Install application files and wheels to staging directory."""
         print("[FILES] Installing application files to staging...")
 
         if existing_wheel_path:
-            wheel_path = Path(existing_wheel_path)
-            if not wheel_path.exists():
-                raise RuntimeError(f"Provided wheel path does not exist: {wheel_path}")
-            print(f"[WHEEL] Using existing wheel: {wheel_path.name}")
+            wheel_dir = Path(existing_wheel_path).parent
         else:
-            wheel_path = self.create_wheel()
+            wheel_dir = self.create_wheel()
 
-        wheel_dest = self.staging_dir / "usr" / "lib" / "pclink" / wheel_path.name
-        wheel_dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(wheel_path, wheel_dest)
+        pclink_dest_dir = self.staging_dir / "usr" / "lib" / "pclink"
+        pclink_dest_dir.mkdir(parents=True, exist_ok=True)
+
+        for whl in wheel_dir.glob("*.whl"):
+            shutil.copy2(whl, pclink_dest_dir / whl.name)
 
         # --- Launcher Script ---
         launcher_content = """#!/bin/bash
 # PCLink Launcher Script
 INSTALL_DIR="/usr/lib/pclink"
 VENV_DIR="$INSTALL_DIR/venv"
-# Simple log for debugging
 LOG_FILE="/tmp/pclink-launcher.log"
 
 if [ ! -d "$VENV_DIR" ]; then
@@ -215,7 +210,6 @@ exit $EXIT_CODE
                 if "bin" in dst_rel:
                     dst.chmod(0o755)
 
-                # Fix line endings and placeholders
                 if dst_rel.endswith(
                     (
                         ".desktop",
@@ -225,18 +219,14 @@ exit $EXIT_CODE
                     )
                 ):
                     content = dst.read_text(encoding="utf-8")
-                    # ENFORCE Unix line endings
                     content = content.replace("\r\n", "\n").replace("\r", "\n")
 
-                    # Fix Service File Placeholders
                     if dst_rel.endswith("pclink.service"):
                         print("[FIX] Replacing placeholders in service file...")
                         content = content.replace("__EXEC_PATH__", "/usr/bin/pclink")
                         content = content.replace("__WORKING_DIR__", "%h")
-                        # Remove User/Group from user service as they are invalid
                         content = content.replace("User=%i\n", "")
                         content = content.replace("Group=%i\n", "")
-                        # Relax ProtectHome for file management
                         content = content.replace(
                             "ProtectHome=read-only", "ProtectHome=false"
                         )
@@ -284,21 +274,16 @@ Azhar Zouhir <support@bytedz.com>
         scripts_dir = self.build_dir / "scripts"
         scripts_dir.mkdir(exist_ok=True)
 
-        # --- postinst content ---
-        # SAFE: No dnf install, no set -e, strict error handling
         postinst_content = """#!/bin/bash
-# Note: Removed 'set -e' to prevent package manager corruption on non-fatal errors
 
 INSTALL_DIR="/usr/lib/pclink"
 VENV_DIR="$INSTALL_DIR/venv"
 LOG_FILE="/tmp/pclink_install.log"
 
-# Log function that prints to stdout AND file
 log() {
     echo "$(date) - PCLink: $1" | tee -a "$LOG_FILE"
 }
 
-# Error function that prints to stderr
 error() {
     echo "ERROR: $1" | tee -a "$LOG_FILE" >&2
 }
@@ -316,79 +301,51 @@ case "$1" in
         fi
 
         # --- Python Venv Setup ---
-        # We try to create/update venv, but we catch errors
         if [ ! -d "$VENV_DIR" ]; then
             log "Creating virtual environment..."
             if command -v python3 >/dev/null; then
-                # Use --without-pip to potentially speed up if pip is not needed/bundled,
-                # but we usually need pip.
                 python3 -m venv --system-site-packages "$VENV_DIR" >> "$LOG_FILE" 2>&1
                 if [ $? -ne 0 ]; then
                     error "Failed to create virtual environment."
-                    echo "Please check $LOG_FILE for details."
                 fi
             else
                 error "python3 not found, venv creation skipped."
             fi
         fi
 
-        # Install Wheel
-        # Find wheel file - robustness for filenames with spaces/weird chars
-        WHEEL_FILE=$(find "$INSTALL_DIR" -maxdepth 1 -name "*.whl" -type f | head -1)
-
-        if [ -f "$WHEEL_FILE" ] && [ -f "$VENV_DIR/bin/pip" ]; then
-            log "Installing wheel: $WHEEL_FILE"
-            # Force reinstall to ensure we overwrite any old files.
-            # We capture output but print errors on failure.
-            if ! "$VENV_DIR/bin/pip" install --no-warn-script-location --force-reinstall "$WHEEL_FILE" >> "$LOG_FILE" 2>&1; then
-                error "Wheel install failed."
-                echo "Detailed pip error log in $LOG_FILE"
-                error "Installation might be incomplete. Check internet connection if dependencies are missing."
-
-                # Emergency fallback: Try installing WITHOUT dependencies?
-                log "Attempting fallback: Install without dependencies..."
-                "$VENV_DIR/bin/pip" install --no-deps --no-warn-script-location --force-reinstall "$WHEEL_FILE" >> "$LOG_FILE" 2>&1
+        # Install Wheels offline
+        if [ -f "$VENV_DIR/bin/pip" ]; then
+            log "Installing wheels from $INSTALL_DIR..."
+            if ! "$VENV_DIR/bin/pip" install --no-warn-script-location --no-index --find-links="$INSTALL_DIR" "$INSTALL_DIR"/pclink-*.whl >> "$LOG_FILE" 2>&1; then
+                log "Offline wheel install failed, attempting fallback with online/system packages..."
+                "$VENV_DIR/bin/pip" install --no-warn-script-location --find-links="$INSTALL_DIR" "$INSTALL_DIR"/pclink-*.whl >> "$LOG_FILE" 2>&1
             fi
         else
-            error "Wheel file or pip missing. Wheel=$WHEEL_FILE"
+            error "pip missing in venv."
         fi
 
         # --- Permissions ---
-        # Only setup if we are root
         if [ "$(id -u)" -eq 0 ]; then
-             # Validate sudoers file
             if [ -f "/etc/sudoers.d/pclink" ]; then
                 chmod 440 /etc/sudoers.d/pclink
             fi
 
-            # --- Wayland Input Setup (uinput) ---
             log "Setting up uinput permissions for Wayland..."
-            # Create input group if it doesn't exist
             if ! getent group input >/dev/null; then
                 groupadd -r input || true
             fi
 
-            # Ensure udev rules are applied
             if [ -f "/etc/udev/rules.d/99-uinput.rules" ]; then
                 chmod 644 /etc/udev/rules.d/99-uinput.rules
                 command -v udevadm >/dev/null 2>&1 && udevadm control --reload-rules && udevadm trigger --attr-match=subsystem=misc || true
             fi
 
-            # Load uinput module
             command -v modprobe >/dev/null 2>&1 && modprobe uinput || true
         fi
 
-        # --- System Updates ---
         log "Updating system caches..."
         command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications || true
         command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
-
-        # Enable service globally (optional, purely for convenience)
-        if command -v systemctl >/dev/null 2>&1; then
-             # We can't enable user services for ALL users easily, so we typically rely on presets
-             # or users doing `systemctl --user enable pclink`
-             true
-        fi
 
         log "Configuration complete."
         ;;
@@ -401,29 +358,22 @@ exit 0
 """
 
         postinst_path = scripts_dir / "postinst"
-        # CRITICAL: Write with newline='\n' to force LF line endings on Windows
         with open(postinst_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(postinst_content.strip())
         postinst_path.chmod(0o755)
 
-        # --- prerm content ---
-        # SAFE: Always exit 0, never block removal
         prerm_content = """#!/bin/bash
-# Note: DO NOT use 'set -e' - failures must not block package operations
 
 LOG_FILE="/tmp/pclink_install.log"
 log() { echo "$(date) - PCLink: $1" | tee -a "$LOG_FILE"; }
 
 echo "=== PCLink prerm: action='$1', old_version='$2', new_version='$3' ==="
 
-# Standard Multi-Distro prerm logic
 case "$1" in
     remove|0)
         log "Stopping services for removal..."
 
-        # Try to stop user services gracefully
         if command -v systemctl >/dev/null 2>&1; then
-            # Stop all user instances
             for user_dir in /run/user/*/; do
                 user_id=$(basename "$user_dir")
                 if [ -n "$user_id" ] && [ "$user_id" != "*" ]; then
@@ -432,13 +382,11 @@ case "$1" in
             done
         fi
 
-        # Kill any remaining PCLink processes
         pkill -f "/usr/lib/pclink" 2>/dev/null || true
         sleep 1
         ;;
 
     upgrade|deconfigure|1)
-        # During upgrade, do NOT stop services
         log "Preparing for upgrade (keeping services running)..."
         ;;
 
@@ -456,15 +404,11 @@ exit 0
 """
 
         prerm_path = scripts_dir / "prerm"
-        # CRITICAL: Write with newline='\n' to force LF line endings on Windows
         with open(prerm_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(prerm_content.strip())
         prerm_path.chmod(0o755)
 
-        # --- postrm content ---
-        # SAFE: Cleanup what we can, ignore the rest
         postrm_content = """#!/bin/bash
-# Note: DO NOT use 'set -e' - failures must not block package operations
 
 INSTALL_DIR="/usr/lib/pclink"
 VENV_DIR="$INSTALL_DIR/venv"
@@ -474,25 +418,21 @@ log() { echo "$(date) - PCLink: $1" | tee -a "$LOG_FILE"; }
 echo "=== PCLink postrm: action='$1', old_version='$2' ==="
 log "Starting postrm action=$1"
 
-# Standard Multi-Distro postrm logic
 case "$1" in
     remove|0)
         log "Cleaning up installation..."
 
-        # Remove virtual environment
         if [ -d "$VENV_DIR" ]; then
             log "Removing virtual environment..."
             rm -rf "$VENV_DIR" 2>/dev/null || true
         fi
 
-        # Remove wheel files
         if [ -d "$INSTALL_DIR" ]; then
             log "Removing wheel files..."
             find "$INSTALL_DIR" -name "*.whl" -type f -delete 2>/dev/null || true
             rmdir "$INSTALL_DIR" 2>/dev/null || true
         fi
 
-        # Disable systemd user service globally
         if command -v systemctl >/dev/null 2>&1; then
             systemctl --global disable pclink.service 2>/dev/null || true
             systemctl daemon-reload 2>/dev/null || true
@@ -502,26 +442,19 @@ case "$1" in
     purge)
         log "Purging configuration..."
 
-        # Remove everything including config and wheels
         if [ -d "$INSTALL_DIR" ]; then
             log "Removing installation directory..."
             rm -rf "$INSTALL_DIR" 2>/dev/null || true
         fi
         rm -f "/etc/sudoers.d/pclink" 2>/dev/null || true
 
-        # Disable and remove systemd service
         if command -v systemctl >/dev/null 2>&1; then
             systemctl --global disable pclink.service 2>/dev/null || true
             systemctl daemon-reload 2>/dev/null || true
         fi
-
-        # Remove user config directories (optional - be careful here)
-        # Uncomment if you want to remove user data on purge:
-        # rm -rf /home/*/.config/pclink 2>/dev/null || true
         ;;
 
     upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
-        # During upgrade, do NOT remove anything
         log "Package operation '$1' (no cleanup needed)"
         ;;
 
@@ -530,7 +463,6 @@ case "$1" in
         ;;
 esac
 
-# Update system databases (safe for all operations)
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database /usr/share/applications || true
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 command -v mandb >/dev/null 2>&1 && mandb -q 2>/dev/null || true
@@ -540,7 +472,6 @@ exit 0
 """
 
         postrm_path = scripts_dir / "postrm"
-        # CRITICAL: Write with newline='\n' to force LF line endings on Windows
         with open(postrm_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(postrm_content.strip())
         postrm_path.chmod(0o755)

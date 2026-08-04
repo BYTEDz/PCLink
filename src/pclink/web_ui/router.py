@@ -6,6 +6,7 @@ PCLink Web UI Router
 Serves the web-based control panel interface with dynamic asset cache busting.
 """
 
+import jinja2  # noqa: F401
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
