@@ -385,40 +385,14 @@ class DesktopStreamingService:
         return False
 
     async def start_engine(self, client_host=None, srtp_key=None, **kwargs):
-        """Start or reuse engine. Dynamically forwards config params to IPC or CLI."""
+        """Start or reuse engine. Dynamically forwards ANY config params to IPC or CLI."""
         self.srtp_key = srtp_key
         if not ENGINE_PATH.exists():
             logger.error(_("Mirror engine not found at {}").format(ENGINE_PATH))
             return False
 
-        # Defaults for CLI flags / IPC payload
-        defaults = {
-            "encoder": "auto",
-            "bitrate": 4000,
-            "audio": True,
-            "gdi": False,
-            "speed_preset": "ultrafast",
-            "tune": "zerolatency",
-            "nvenc_preset": "p4",
-            "nvenc_tune": "ultra-low-latency",
-            "vaapi_target_usage": 1,
-            "qsv_target_usage": 7,
-            "rc_mode": "cbr",
-            "cqp_value": 26,
-            "key_int_max": 60,
-            "bframes": 0,
-            "ref_frames": 1,
-            "rtp_mtu": 1200,
-            "queue_max_time_ns": 0,
-            "queue_max_buffers": 2,
-            "aggregate_mode": "zero-latency",
-            "udp_buffer_size": 2097152,
-            "show_cursor": True,
-            "colorimetry": "bt709",
-        }
-
-        # Normalize camelCase to snake_case from incoming kwargs
-        config = defaults.copy()
+        # Dynamic normalization: convert camelCase keys (e.g., audioOnly) to snake_case (audio_only)
+        config = {}
         for k, v in kwargs.items():
             snake_k = re.sub(r"(?<!^)(?=[A-Z])", "_", k).lower()
             config[snake_k] = v
@@ -426,14 +400,8 @@ class DesktopStreamingService:
         if self._engine_alive() and await self._ensure_ipc():
             logger.info(
                 _(
-                    "Engine alive, restarting pipeline via IPC: host={} encoder={} res={}x{}@{}"
-                ).format(
-                    client_host,
-                    config.get("encoder"),
-                    config.get("width"),
-                    config.get("height"),
-                    config.get("fps"),
-                )
+                    "Engine alive, restarting pipeline via IPC: host={} config={}"
+                ).format(client_host, config)
             )
             cfg = {
                 "type": "RESTART_PIPELINE",
@@ -460,24 +428,6 @@ class DesktopStreamingService:
 
         args = [str(ENGINE_PATH)]
 
-        cli_key_map = {
-            "speed_preset": "--speed-preset",
-            "nvenc_preset": "--nvenc-preset",
-            "nvenc_tune": "--nvenc-tune",
-            "vaapi_target_usage": "--vaapi-target-usage",
-            "qsv_target_usage": "--qsv-target-usage",
-            "rc_mode": "--rc-mode",
-            "cqp_value": "--cqp-value",
-            "key_int_max": "--key-int-max",
-            "ref_frames": "--ref-frames",
-            "rtp_mtu": "--rtp-mtu",
-            "queue_max_time_ns": "--queue-max-time-ns",
-            "queue_max_buffers": "--queue-max-buffers",
-            "aggregate_mode": "--aggregate-mode",
-            "udp_buffer_size": "--udp-buffer-size",
-            "show_cursor": "--show-cursor",
-        }
-
         ignored_keys = {
             "srtp",
             "srtp_key",
@@ -490,16 +440,14 @@ class DesktopStreamingService:
             "client_host",
         }
 
+        # Dynamic argument generation for any parameter passed from Flutter
         for k, v in config.items():
             if v is None or k in ignored_keys:
                 continue
-            flag = cli_key_map.get(k, f"--{k.replace('_', '-')}")
+            flag = f"--{k.replace('_', '-')}"
             if isinstance(v, bool):
-                if k in ("gdi",):
-                    if v:
-                        args.append(flag)
-                else:
-                    args.extend([flag, "true" if v else "false"])
+                if v:
+                    args.append(flag)
             else:
                 args.extend([flag, str(v)])
 
