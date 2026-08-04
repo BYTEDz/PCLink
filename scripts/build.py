@@ -486,6 +486,18 @@ VSVersionInfo(
         if icon_path:
             cmd.append(f"--icon={icon_path}")
 
+        # Collect entire packages for libraries with dynamic imports/templates
+        collect_packages = [
+            "jinja2",
+            "fastapi",
+            "starlette",
+            "uvicorn",
+            "pydantic",
+        ]
+
+        for pkg in collect_packages:
+            cmd.append(f"--collect-all={pkg}")
+
         for imp in HIDDEN_IMPORTS:
             cmd.append(f"--hidden-import={imp}")
 
