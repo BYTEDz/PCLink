@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.7.0] - 2026-08-04
+
+## Features & Additions
+- **file-service**: add option to delete items to trash and implement OS-specific trash handling ([cbb4679](https://github.com/BYTEDz/PCLink/commit/cbb4679)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- **system-service**: enhance disk info retrieval by filtering out ignored file systems and mount points ([d7c97d3](https://github.com/BYTEDz/PCLink/commit/d7c97d3)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- **input-api**: implement mouse and keyboard input methods in InputAPI ([21238ab](https://github.com/BYTEDz/PCLink/commit/21238ab)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- **desktop-streaming**: enhance mouse input processing and update token file path ([430a628](https://github.com/BYTEDz/PCLink/commit/430a628)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- **sdk**: add PCLink Unified Extension SDK with API request and event handling capabilities ([cb87497](https://github.com/BYTEDz/PCLink/commit/cb87497)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- **telemetry**: add process telemetry display for extensions in UI and backend ([768915d](https://github.com/BYTEDz/PCLink/commit/768915d)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- **command-palette**: enhance command palette with grouped categories and keyboard navigation ([bc0c604](https://github.com/BYTEDz/PCLink/commit/bc0c604)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- add command palette modal and related functionality ([1773f70](https://github.com/BYTEDz/PCLink/commit/1773f70)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- **dashboard**: enhance telemetry and system info display ([caa3eba](https://github.com/BYTEDz/PCLink/commit/caa3eba)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- Enhance device management and permissions handling ([5e0d29b](https://github.com/BYTEDz/PCLink/commit/5e0d29b)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- **cli**: Implement PCLink command-line interface with interactive menu ([e723936](https://github.com/BYTEDz/PCLink/commit/e723936)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- refactor services to improve dependency management and enhance media probing functionality ([0341caf](https://github.com/BYTEDz/PCLink/commit/0341caf)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance websocket handling with disconnect support and improve error management ([d1fd4bb](https://github.com/BYTEDz/PCLink/commit/d1fd4bb)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance diagnostics and configuration management with async support and type safety ([7e8e0c3](https://github.com/BYTEDz/PCLink/commit/7e8e0c3)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- optimize mouse command handling for non-blocking execution and enhance input service methods ([326b27a](https://github.com/BYTEDz/PCLink/commit/326b27a)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- enhance pairing service with decoupled notification callbacks and improved CORS middleware ([4845559](https://github.com/BYTEDz/PCLink/commit/4845559)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- implement pairing service for device management and state handling ([e440ae1](https://github.com/BYTEDz/PCLink/commit/e440ae1)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
+## Bug Fixes
+- update GitHub Actions to use stable versions of actions ([01b5c81](https://github.com/BYTEDz/PCLink/commit/01b5c81)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- handle exceptions during device registration and IP change notifications ([7cafe01](https://github.com/BYTEDz/PCLink/commit/7cafe01)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
+## Refactoring
+- Refactor error handling and improve code readability across multiple routers ([2bb6212](https://github.com/BYTEDz/PCLink/commit/2bb6212)) by [@AzharZouhir](https://github.com/AzharZouhir)
+- Remove unused dependencies and improve version comparison logic ([dd5afc2](https://github.com/BYTEDz/PCLink/commit/dd5afc2)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
+## Other Changes
+- Enhance device listing API to include unapproved devices ([74f7beb](https://github.com/BYTEDz/PCLink/commit/74f7beb)) by [@AzharZouhir](https://github.com/AzharZouhir)
+
 ## [4.6.1] - 2026-07-28
 
 ## Features & Additions
