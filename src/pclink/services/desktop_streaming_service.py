@@ -57,7 +57,8 @@ class DesktopStreamingService:
         self.reader = None
         self.writer = None
         self.listen_task = None
-        self._subscribers = {}
+        self._subscribers = {}  # callback -> name
+        self._subscriber_ips = {}  # callback -> client_ip
         self.srtp_key = None
 
     def _engine_env(self) -> dict:
@@ -93,6 +94,14 @@ class DesktopStreamingService:
                         env["GST_PLUGIN_SCANNER"] = str(scanner)
                     break
         return env
+
+    def get_active_client_hosts(self, default_ip="127.0.0.1") -> str:
+        """Returns comma-separated string of all active client IP addresses."""
+        active_ips = [ip for ip in self._subscriber_ips.values() if ip]
+        unique_ips = list(set(active_ips))
+        if not unique_ips:
+            return default_ip
+        return ",".join(unique_ips)
 
     async def diagnose_system(self) -> dict:
         """Run diagnostics on mirroring subsystem."""
@@ -225,86 +234,6 @@ class DesktopStreamingService:
 
         return info
 
-    async def collect_engine_diagnostics(self) -> dict:
-        """Collect GStreamer and environment diagnostics useful for debugging engine failures."""
-        result = {
-            "gst_inspect_version": None,
-            "gst_inspect_plugins": None,
-            "env": {},
-            "errors": [],
-        }
-
-        env = self._engine_env()
-
-        for key in (
-            "PATH",
-            "GST_PLUGIN_PATH",
-            "GST_PLUGIN_SYSTEM_PATH",
-            "GST_PLUGIN_SCANNER",
-        ):
-            result["env"][key] = env.get(key)
-
-        async def run_cmd(*cmd):
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
-                )
-                stdout, stderr = await proc.communicate()
-                return (
-                    proc.returncode,
-                    stdout.decode(errors="ignore"),
-                    stderr.decode(errors="ignore"),
-                )
-            except FileNotFoundError as e:
-                return 127, "", str(e)
-            except Exception as e:
-                return 1, "", str(e)
-
-        code, out, err = await run_cmd("gst-inspect-1.0", "--version")
-        if code == 0:
-            result["gst_inspect_version"] = out.strip()
-        else:
-            result["errors"].append({"gst-inspect-version": err or out})
-
-        plugins_to_check = [
-            "webrtcbin",
-            "d3d11screencapturesrc",
-            "x264enc",
-            "mfh264enc",
-        ]
-        plugin_outputs = {}
-        for p in plugins_to_check:
-            code, out, err = await run_cmd("gst-inspect-1.0", p)
-            plugin_outputs[p] = {
-                "returncode": code,
-                "stdout": out.strip(),
-                "stderr": err.strip(),
-            }
-
-        result["gst_inspect_plugins"] = plugin_outputs
-
-        code, out, err = await run_cmd("gst-inspect-1.0", "--plugins")
-        if code == 0:
-            lines = [
-                line
-                for line in out.splitlines()
-                if any(
-                    k in line
-                    for k in (
-                        "webrtcbin",
-                        "d3d11screencapturesrc",
-                        "x264enc",
-                        "mfh264enc",
-                        "gstpython",
-                    )
-                )
-            ]
-            result["gst_plugins_list"] = "\n".join(lines)
-        else:
-            result["gst_plugins_list"] = err or out
-
-        return result
-
     def _engine_alive(self) -> bool:
         return self.process is not None and self.process.returncode is None
 
@@ -385,28 +314,29 @@ class DesktopStreamingService:
         return False
 
     async def start_engine(self, client_host=None, srtp_key=None, **kwargs):
-        """Start or reuse engine. Dynamically forwards ANY config params to IPC or CLI."""
+        """Start or update engine. Supports multi-client unicast streaming."""
         self.srtp_key = srtp_key
         if not ENGINE_PATH.exists():
             logger.error(_("Mirror engine not found at {}").format(ENGINE_PATH))
             return False
 
-        # Dynamic normalization: convert camelCase keys (e.g., audioOnly) to snake_case (audio_only)
         config = {}
         for k, v in kwargs.items():
             snake_k = re.sub(r"(?<!^)(?=[A-Z])", "_", k).lower()
             config[snake_k] = v
 
+        all_hosts = self.get_active_client_hosts(default_ip=client_host or "127.0.0.1")
+
         if self._engine_alive() and await self._ensure_ipc():
             logger.info(
                 _(
-                    "Engine alive, restarting pipeline via IPC: host={} config={}"
-                ).format(client_host, config)
+                    "Engine alive, updating multi-client pipeline via IPC: hosts={} config={}"
+                ).format(all_hosts, config)
             )
             cfg = {
                 "type": "RESTART_PIPELINE",
-                "output_mode": "rtp" if client_host else "webrtc",
-                "client_host": client_host or "127.0.0.1",
+                "output_mode": "rtp" if all_hosts else "webrtc",
+                "client_host": all_hosts,
                 "framerate": config.get("fps"),
                 "srtp_key": srtp_key,
                 **config,
@@ -440,7 +370,6 @@ class DesktopStreamingService:
             "client_host",
         }
 
-        # Dynamic argument generation for any parameter passed from Flutter
         for k, v in config.items():
             if v is None or k in ignored_keys:
                 continue
@@ -461,18 +390,10 @@ class DesktopStreamingService:
                 token = Path(TOKEN_FILE).read_text().strip()
                 if token:
                     args += ["--token", token]
-                    logger.info(
-                        _("Using cached persistent portal token from {}").format(
-                            TOKEN_FILE
-                        )
-                    )
             except Exception:
                 pass
 
-        if client_host:
-            args += ["--output", "rtp", "--host", client_host]
-        else:
-            args += ["--output", "webrtc"]
+        args += ["--output", "rtp", "--host", all_hosts]
 
         kwargs = {
             "stdout": subprocess.PIPE,
@@ -482,33 +403,17 @@ class DesktopStreamingService:
         if OS_TYPE == "windows":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-        sanitized_args = []
-        skip_next = False
-        for arg in args:
-            if skip_next:
-                sanitized_args.append("***REDACTED***")
-                skip_next = False
-            elif arg in ("--srtp-key", "--token"):
-                sanitized_args.append(arg)
-                skip_next = True
-            else:
-                sanitized_args.append(arg)
-
-        logger.info(_("Starting mirror engine: {args}").format(args=sanitized_args))
+        logger.info(_("Starting mirror engine: {args}").format(args=args))
         self.process = await asyncio.create_subprocess_exec(*args, **kwargs)
 
         async def log_engine(stream, prefix):
-            ansi_regex = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-            key_regex = re.compile(r"(key=[\"'])[a-fA-F0-9]{20,}([\"'])", re.IGNORECASE)
             while True:
                 line = await stream.readline()
                 if not line:
                     break
                 text = line.decode(errors="ignore").strip()
-                clean_text = ansi_regex.sub("", text)
-                clean_text = key_regex.sub(r"\1***REDACTED***\2", clean_text)
-                if clean_text:
-                    logger.info(f"MIRROR_ENGINE [{prefix}]: {clean_text}")
+                if text:
+                    logger.info(f"MIRROR_ENGINE [{prefix}]: {text}")
 
         asyncio.create_task(log_engine(self.process.stdout, "OUT"))
         asyncio.create_task(log_engine(self.process.stderr, "ERR"))
@@ -517,51 +422,29 @@ class DesktopStreamingService:
             return True
         else:
             logger.error("Mirror engine IPC connection failed")
-            try:
-                diags = await self.collect_engine_diagnostics()
-                logger.error("Engine diagnostics: %s", json.dumps(diags))
-            except Exception as e:
-                logger.error("Failed to collect engine diagnostics: %s", e)
             return False
 
     async def stop_engine(self):
-        """Actually terminate the engine process to release the portal and system tray icon."""
+        """Actually terminate the engine process."""
         await self.kill_engine()
 
     async def kill_engine(self):
-        """Terminate the underlying process, freeing OS portal sessions, active capture descriptors, and taskbar icons."""
+        """Terminate process."""
         if self.process:
             try:
                 if OS_TYPE == "windows":
-                    try:
-                        await asyncio.wait_for(
-                            asyncio.to_thread(
-                                subprocess.run,
-                                ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
-                                creationflags=subprocess.CREATE_NO_WINDOW,
-                                stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL,
-                                timeout=5,
-                            ),
-                            timeout=10.0,
-                        )
-                    except (subprocess.TimeoutExpired, asyncio.TimeoutError):
-                        logger.warning(
-                            _("taskkill timed out, attempting direct terminate")
-                        )
-                        try:
-                            self.process.terminate()
-                        except Exception:
-                            pass
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 else:
                     self.process.terminate()
                 await asyncio.wait_for(self.process.wait(), timeout=2.0)
-            except asyncio.TimeoutError:
-                logger.warning(_("Engine process did not exit within timeout"))
-            except Exception as e:
-                logger.warning(_("Error killing engine: {}").format(e))
+            except Exception:
+                pass
             self.process = None
-            logger.info(_("Mirror engine process terminated."))
 
         self.srtp_key = None
         if self.reader:
@@ -572,46 +455,36 @@ class DesktopStreamingService:
         self.writer = None
         if self.listen_task:
             self.listen_task.cancel()
-            try:
-                await self.listen_task
-            except asyncio.CancelledError:
-                pass
             self.listen_task = None
 
     def reset_portal_token(self) -> bool:
-        """Remove the persistent capture token to force native system authorization dialogs during the next startup sequence."""
         try:
             if os.path.exists(TOKEN_FILE):
                 os.remove(TOKEN_FILE)
-                logger.info(f"Cached portal token {TOKEN_FILE} has been cleared")
                 return True
-        except Exception as e:
-            logger.error(f"Failed to clear portal token file: {e}")
+        except Exception:
+            pass
         return False
 
     async def send_command(self, cmd: dict):
         if not self.writer or self.writer.is_closing():
-            logger.warning("IPC not connected, cannot send command")
             return
         self.writer.write(json.dumps(cmd).encode() + b"\n")
         await self.writer.drain()
 
     async def _listen_ipc(self):
-        """Listen for IPC messages from the engine."""
         while True:
             if not self.reader:
                 await asyncio.sleep(0.5)
                 continue
             try:
                 line = await self.reader.readline()
-            except Exception as e:
-                logger.warning(_("IPC read error: {}").format(e))
+            except Exception:
                 self.reader = None
                 self.writer = None
                 break
 
             if not line:
-                logger.warning(_("Mirror engine IPC closed"))
                 self.reader = None
                 self.writer = None
                 break
@@ -621,16 +494,14 @@ class DesktopStreamingService:
                 continue
             try:
                 msg = json.loads(line)
-                if msg.get("type") == "WAITING_FOR_PORTAL_APPROVAL":
-                    logger.info(_("Engine is waiting for Wayland portal approval"))
-
                 for sub in list(self._subscribers.keys()):
                     asyncio.create_task(self._safe_notify(sub, msg))
-            except Exception as e:
-                logger.error(_("Mirror IPC decode fail: {}").format(e))
+            except Exception:
+                pass
 
-    def subscribe(self, callback, name="Unknown"):
+    def subscribe(self, callback, name="Unknown", client_ip="127.0.0.1"):
         self._subscribers[callback] = name
+        self._subscriber_ips[callback] = client_ip
 
     async def _safe_notify(self, callback, msg):
         try:
@@ -640,7 +511,22 @@ class DesktopStreamingService:
 
     def unsubscribe(self, callback) -> int:
         self._subscribers.pop(callback, None)
-        return len(self._subscribers)
+        self._subscriber_ips.pop(callback, None)
+
+        remaining_count = len(self._subscribers)
+        if remaining_count > 0 and self._engine_alive():
+            # Update running engine with remaining active client IPs
+            remaining_hosts = self.get_active_client_hosts()
+            logger.info(
+                f"Client unsubscribed. Updating pipeline with remaining hosts: {remaining_hosts}"
+            )
+            asyncio.create_task(
+                self.send_command(
+                    {"type": "RESTART_PIPELINE", "client_host": remaining_hosts}
+                )
+            )
+
+        return remaining_count
 
 
 desktop_streaming_service = DesktopStreamingService()

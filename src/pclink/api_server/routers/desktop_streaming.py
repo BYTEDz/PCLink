@@ -57,7 +57,11 @@ def _process_mouse_input(data: dict):
 async def broadcast_streaming_devices():
     """Pushes a list of all currently active device names streaming output to all subscribers."""
     active_names = list(set(desktop_streaming_service._subscribers.values()))
-    msg = {"type": "STREAM_DEVICES_UPDATE", "devices": active_names}
+    msg = {
+        "type": "STREAM_DEVICES_UPDATE",
+        "devices": active_names,
+        "count": len(active_names),
+    }
     for sub in list(desktop_streaming_service._subscribers.keys()):
         asyncio.create_task(desktop_streaming_service._safe_notify(sub, msg))
 
@@ -74,9 +78,11 @@ async def start_desktop_streaming(request: Request):
     if output_mode == "webrtc":
         client_host = None
     else:
-        # Fallback to localhost if request.client is None to prevent attribute access crashes
-        client_host = body.get("udpHost") or (
-            request.client.host if request.client else "127.0.0.1"
+        client_host = (
+            body.get("client_host")
+            or body.get("clientHost")
+            or body.get("udpHost")
+            or (request.client.host if request.client else "127.0.0.1")
         )
 
     srtp_key = None
@@ -110,7 +116,6 @@ async def stop_desktop_streaming():
 async def get_status():
     active_names = list(set(desktop_streaming_service._subscribers.values()))
     active_clients = len(desktop_streaming_service._subscribers)
-    # If the engine is running but no active WS clients exist (e.g. Audio-Only UDP Broadcast), fallback to 1
     if active_clients == 0 and desktop_streaming_service.process is not None:
         active_clients = 1
         active_names = ["Unknown Device"]
@@ -151,6 +156,8 @@ async def send_engine_input(request: Request):
 
 @router.websocket("/ws")
 async def desktop_streaming_websocket(websocket: WebSocket):
+    client_ip = websocket.client.host if websocket.client else "127.0.0.1"
+
     try:
         await verify_web_session(websocket)
         device_name = "Web UI"
@@ -174,7 +181,9 @@ async def desktop_streaming_websocket(websocket: WebSocket):
         except (asyncio.TimeoutError, Exception):
             pass
 
-    desktop_streaming_service.subscribe(send_to_ws, device_name)
+    desktop_streaming_service.subscribe(
+        send_to_ws, name=device_name, client_ip=client_ip
+    )
 
     # Broadcast updated list to all subscribers
     asyncio.create_task(broadcast_streaming_devices())
@@ -188,7 +197,6 @@ async def desktop_streaming_websocket(websocket: WebSocket):
         pass
     finally:
         remaining = desktop_streaming_service.unsubscribe(send_to_ws)
-        # Broadcast updated list to remaining subscribers
         asyncio.create_task(broadcast_streaming_devices())
         if remaining == 0:
             await desktop_streaming_service.stop_engine()
