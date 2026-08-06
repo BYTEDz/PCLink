@@ -65,42 +65,27 @@ class DesktopStreamingService:
         """Prepare the environment for the FerrumCast engine process."""
         env = os.environ.copy()
         if OS_TYPE == "windows":
+            # Flat layout: all DLLs, plugins, and gst-plugin-scanner.exe live
+            # in the same directory as ferrumcast.exe — no subfolders.
+            # ENGINE_PATH.parent is always the primary candidate; fall back to
+            # known system GStreamer installs only if the exe isn't there.
             candidates = [
                 ENGINE_PATH.parent,
-                Path(r"C:\Program Files\gstreamer\1.0\msvc_x86_64"),
-                Path(r"C:\gstreamer\1.0\msvc_x86_64"),
+                Path(r"C:\Program Files\gstreamer\1.0\msvc_x86_64\bin"),
+                Path(r"C:\gstreamer\1.0\msvc_x86_64\bin"),
             ]
             for base in candidates:
                 if base.exists() and base.is_dir():
-                    gst_bin = (
-                        base if (base / "ferrumcast.exe").exists() else base / "bin"
-                    )
-                    gst_plugin_path = (
-                        base / "gstreamer-1.0"
-                        if (base / "gstreamer-1.0").exists()
-                        else base / "lib" / "gstreamer-1.0"
-                    )
-                    if gst_bin.exists():
-                        path = env.get("PATH", "")
-                        if str(gst_bin) not in path:
-                            env["PATH"] = str(gst_bin) + os.pathsep + path
-                    if gst_plugin_path.exists():
-                        plugin_path = str(gst_plugin_path)
-                        if (
-                            "GST_PLUGIN_PATH" not in env
-                            or plugin_path not in env["GST_PLUGIN_PATH"]
-                        ):
-                            env["GST_PLUGIN_PATH"] = plugin_path
-                        if (
-                            "GST_PLUGIN_SYSTEM_PATH" not in env
-                            or plugin_path not in env["GST_PLUGIN_SYSTEM_PATH"]
-                        ):
-                            env["GST_PLUGIN_SYSTEM_PATH"] = plugin_path
-                    scanner = (
-                        base / "libexec" / "gstreamer-1.0" / "gst-plugin-scanner.exe"
-                        if (base / "libexec").exists()
-                        else gst_bin / "gst-plugin-scanner.exe"
-                    )
+                    exe_dir = str(base)
+                    # Prepend exe dir to PATH so all bundled DLLs are found first
+                    path = env.get("PATH", "")
+                    if exe_dir not in path:
+                        env["PATH"] = exe_dir + os.pathsep + path
+                    # Always set plugin path to exe dir — never let GStreamer fall
+                    # back to a system scan. Wipe SYSTEM_PATH for the same reason.
+                    env["GST_PLUGIN_PATH"] = exe_dir
+                    env["GST_PLUGIN_SYSTEM_PATH"] = ""
+                    scanner = base / "gst-plugin-scanner.exe"
                     if scanner.exists():
                         env["GST_PLUGIN_SCANNER"] = str(scanner)
                     break
