@@ -57,7 +57,7 @@ class DesktopStreamingService:
         self.reader = None
         self.writer = None
         self.listen_task = None
-        self._subscribers = set()
+        self._subscribers = {}
         self.srtp_key = None
 
     def _engine_env(self) -> dict:
@@ -624,13 +624,13 @@ class DesktopStreamingService:
                 if msg.get("type") == "WAITING_FOR_PORTAL_APPROVAL":
                     logger.info(_("Engine is waiting for Wayland portal approval"))
 
-                for sub in list(self._subscribers):
+                for sub in list(self._subscribers.keys()):
                     asyncio.create_task(self._safe_notify(sub, msg))
             except Exception as e:
                 logger.error(_("Mirror IPC decode fail: {}").format(e))
 
-    def subscribe(self, callback):
-        self._subscribers.add(callback)
+    def subscribe(self, callback, name="Unknown"):
+        self._subscribers[callback] = name
 
     async def _safe_notify(self, callback, msg):
         try:
@@ -639,7 +639,7 @@ class DesktopStreamingService:
             pass
 
     def unsubscribe(self, callback) -> int:
-        self._subscribers.discard(callback)
+        self._subscribers.pop(callback, None)
         return len(self._subscribers)
 
 
