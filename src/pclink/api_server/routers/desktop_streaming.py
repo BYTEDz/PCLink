@@ -120,6 +120,9 @@ async def get_status():
         active_clients = 1
         active_names = ["Unknown Device"]
 
+    diag = await desktop_streaming_service.diagnose_system()
+    encoders = diag.get("encoders", ["x264"])
+
     return {
         "active": desktop_streaming_service.process is not None
         and desktop_streaming_service.process.returncode is None,
@@ -127,6 +130,7 @@ async def get_status():
         "srtp_key": desktop_streaming_service.srtp_key,
         "active_clients": active_clients,
         "devices": active_names,
+        "encoders": encoders,
     }
 
 
