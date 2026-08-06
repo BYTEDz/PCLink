@@ -47,7 +47,7 @@ jobs:
 
             if [[ "$filename" == *"pc-windows-msvc"* ]]; then
               if [[ "$filename" == *.zip ]]; then
-                unzip -o "$f" -d out/windows
+                unzip -o "$f" -d out/windows || true  # unzip exits 1 on backslash path warnings; extraction is still valid
               else
                 cp "$f" out/windows/
               fi
