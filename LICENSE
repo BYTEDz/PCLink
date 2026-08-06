@@ -1,32 +1,60 @@
-PCLink Server License
-=====================
+===============================================================================
+                        BYTEDZ DUAL LICENSE NOTICE
+===============================================================================
 
-Copyright (C) 2025-2026 BYTEDz
+Copyright (C) 2025-2026 BYTEDz. All Rights Reserved.
 
-This project is dual-licensed. You may choose to use this software under the terms of the
-GNU Affero General Public License v3.0 (AGPL-3.0) OR under the terms of the PCLink
-Commercial License.
+Product: PCLink Server
 
+This software is dual-licensed by BYTEDz. You may choose to use, modify, and
+distribute this software under the terms of either:
+
+  1. GNU Affero General Public License v3.0 (AGPL-3.0) — For Open Source
+  2. BYTEDz Commercial License — For Proprietary / Enterprise Use
+
+-------------------------------------------------------------------------------
 1. COMMUNITY / OPEN SOURCE USE (AGPL-3.0)
------------------------------------------
-For open-source projects, personal use, or internal non-profit use where you are willing
-to release your source code if you modify and distribute this software (including over a network).
+-------------------------------------------------------------------------------
+For non-commercial open-source projects, personal use, or internal non-profit
+deployment where you agree to fully comply with all terms of the AGPL-3.0.
 
-*   File: LICENSE.AGPL
-*   Terms: GNU Affero General Public License v3.0
+CRITICAL NOTICE REGARDING NETWORK USE:
+This software contains network-interactive services. Under Section 13 of the
+AGPL-3.0, if you run a modified or unmodified version of this software on a
+network and allow remote users to interact with it (including Web UI access,
+remote desktop streaming, or API integrations), you MUST make the COMPLETE
+SOURCE CODE of your version available to all network users under the AGPL-3.0.
 
-2. COMMERCIAL USE (Proprietary License)
----------------------------------------
-For commercial software, proprietary integrations, or enterprise use cases where
-you do not wish to release your source code or are unable to comply with the AGPL-3.0 terms.
+  * License Terms: GNU Affero General Public License v3.0
+  * Reference File: LICENSE.AGPL
 
-*   Allows integration into proprietary software.
-*   No requirement to release your source code.
-*   Includes commercial support options.
+-------------------------------------------------------------------------------
+2. COMMERCIAL / ENTERPRISE USE (BYTEDz Commercial License)
+-------------------------------------------------------------------------------
+For commercial software vendors, proprietary SaaS platforms, closed-network
+enterprises, or integrations where you do not wish to disclose your source code
+or cannot comply with AGPL-3.0 network disclosure requirements.
 
-To acquire a Commercial License, please contact: support@bytedz.com
+Under the BYTEDz Commercial License, BYTEDz grants you explicit rights to:
+  * Embed and run this software inside closed-source / proprietary products.
+  * Provide network/remote desktop services without releasing your source code.
+  * Receive dedicated technical support and enterprise SLA guarantees.
 
-3. THIRD-PARTY COMPONENTS
--------------------------
-This software includes components from third-party open-source projects.
-See the NOTICES file for a full list of dependencies and their respective licenses.
+To acquire a Commercial License or discuss enterprise licensing, contact:
+  Email: support@bytedz.com
+  Web:   https://bytedz.com
+
+-------------------------------------------------------------------------------
+3. CONTRIBUTIONS
+-------------------------------------------------------------------------------
+All pull requests, code submissions, and contributions to this repository are
+governed by the BYTEDz Contributor License Agreement (CLA). By submitting code,
+you grant BYTEDz the right to license your contributions under both the AGPL-3.0
+and the BYTEDz Commercial License.
+
+-------------------------------------------------------------------------------
+4. THIRD-PARTY NOTICES
+-------------------------------------------------------------------------------
+This software incorporates third-party open-source components. A full list of
+dependencies and their respective licenses is provided in the NOTICES file.
+===============================================================================
