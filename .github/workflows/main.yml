@@ -116,7 +116,7 @@ jobs:
         run: |
           $binDir = "src\pclink\assets\bin"
           if (!(Test-Path $binDir)) { New-Item -ItemType Directory -Force -Path $binDir }
-          Copy-Item -Path "temp-ferrumcast\*" -Destination $binDir -Force
+          Copy-Item -Path "temp-ferrumcast\*" -Destination $binDir -Recurse -Force
           Write-Host "Binaries injected for PyInstaller: $binDir"
 
       - name: Set up Python

@@ -66,13 +66,20 @@ class DesktopStreamingService:
         env = os.environ.copy()
         if OS_TYPE == "windows":
             candidates = [
+                ENGINE_PATH.parent,
                 Path(r"C:\Program Files\gstreamer\1.0\msvc_x86_64"),
                 Path(r"C:\gstreamer\1.0\msvc_x86_64"),
             ]
             for base in candidates:
                 if base.exists() and base.is_dir():
-                    gst_bin = base / "bin"
-                    gst_plugin_path = base / "lib" / "gstreamer-1.0"
+                    gst_bin = (
+                        base if (base / "ferrumcast.exe").exists() else base / "bin"
+                    )
+                    gst_plugin_path = (
+                        base / "gstreamer-1.0"
+                        if (base / "gstreamer-1.0").exists()
+                        else base / "lib" / "gstreamer-1.0"
+                    )
                     if gst_bin.exists():
                         path = env.get("PATH", "")
                         if str(gst_bin) not in path:
@@ -89,7 +96,11 @@ class DesktopStreamingService:
                             or plugin_path not in env["GST_PLUGIN_SYSTEM_PATH"]
                         ):
                             env["GST_PLUGIN_SYSTEM_PATH"] = plugin_path
-                    scanner = gst_bin / "gst-plugin-scanner.exe"
+                    scanner = (
+                        base / "libexec" / "gstreamer-1.0" / "gst-plugin-scanner.exe"
+                        if (base / "libexec").exists()
+                        else gst_bin / "gst-plugin-scanner.exe"
+                    )
                     if scanner.exists():
                         env["GST_PLUGIN_SCANNER"] = str(scanner)
                     break
