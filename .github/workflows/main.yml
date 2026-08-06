@@ -171,8 +171,8 @@ jobs:
         run: |
           mkdir -p src/pclink/assets/bin
           if [ -d "temp-ferrumcast" ]; then
-            cp temp-ferrumcast/ferrumcast-linux src/pclink/assets/bin/ferrumcast || cp temp-ferrumcast/ferrumcast src/pclink/assets/bin/ferrumcast
-            chmod +x src/pclink/assets/bin/ferrumcast
+            cp -r temp-ferrumcast/* src/pclink/assets/bin/
+            [ -f src/pclink/assets/bin/ferrumcast ] && chmod +x src/pclink/assets/bin/ferrumcast
           fi
 
       - name: Set up Python
