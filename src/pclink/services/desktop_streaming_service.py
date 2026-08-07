@@ -59,16 +59,13 @@ class DesktopStreamingService:
         self.listen_task = None
         self._subscribers = {}  # callback -> name
         self._subscriber_ips = {}  # callback -> client_ip
+        self._active_http_clients = set()  # IP addresses of HTTP POST streaming clients
         self.srtp_key = None
 
     def _engine_env(self) -> dict:
         """Prepare the environment for the FerrumCast engine process."""
         env = os.environ.copy()
         if OS_TYPE == "windows":
-            # Flat layout: all DLLs, plugins, and gst-plugin-scanner.exe live
-            # in the same directory as ferrumcast.exe — no subfolders.
-            # ENGINE_PATH.parent is always the primary candidate; fall back to
-            # known system GStreamer installs only if the exe isn't there.
             candidates = [
                 ENGINE_PATH.parent,
                 Path(r"C:\Program Files\gstreamer\1.0\msvc_x86_64\bin"),
@@ -77,12 +74,9 @@ class DesktopStreamingService:
             for base in candidates:
                 if base.exists() and base.is_dir():
                     exe_dir = str(base)
-                    # Prepend exe dir to PATH so all bundled DLLs are found first
                     path = env.get("PATH", "")
                     if exe_dir not in path:
                         env["PATH"] = exe_dir + os.pathsep + path
-                    # Always set plugin path to exe dir — never let GStreamer fall
-                    # back to a system scan. Wipe SYSTEM_PATH for the same reason.
                     env["GST_PLUGIN_PATH"] = exe_dir
                     env["GST_PLUGIN_SYSTEM_PATH"] = ""
                     scanner = base / "gst-plugin-scanner.exe"
@@ -92,12 +86,24 @@ class DesktopStreamingService:
         return env
 
     def get_active_client_hosts(self, default_ip="127.0.0.1") -> str:
-        """Returns comma-separated string of all active client IP addresses."""
-        active_ips = [ip for ip in self._subscriber_ips.values() if ip]
-        unique_ips = list(set(active_ips))
-        if not unique_ips:
+        """Returns comma-separated string of all active client IP addresses (WebSocket + HTTP POST clients)."""
+        active_ips = set(self._subscriber_ips.values())
+        active_ips.update(self._active_http_clients)
+        active_ips.discard(None)
+        active_ips.discard("")
+        active_ips.discard("127.0.0.1")
+
+        if not active_ips:
             return default_ip
-        return ",".join(unique_ips)
+        return ",".join(sorted(list(active_ips)))
+
+    def remove_http_client(self, client_host: str):
+        """Removes a client IP from active HTTP stream clients."""
+        if client_host:
+            for h in client_host.split(","):
+                clean_h = h.strip()
+                if clean_h:
+                    self._active_http_clients.discard(clean_h)
 
     async def diagnose_system(self) -> dict:
         """Run diagnostics on mirroring subsystem."""
@@ -316,6 +322,12 @@ class DesktopStreamingService:
             logger.error(_("Mirror engine not found at {}").format(ENGINE_PATH))
             return False
 
+        if client_host:
+            for h in client_host.split(","):
+                clean_h = h.strip()
+                if clean_h:
+                    self._active_http_clients.add(clean_h)
+
         config = {}
         for k, v in kwargs.items():
             snake_k = re.sub(r"(?<!^)(?=[A-Z])", "_", k).lower()
@@ -443,6 +455,7 @@ class DesktopStreamingService:
             self.process = None
 
         self.srtp_key = None
+        self._active_http_clients.clear()
         if self.reader:
             self.reader.close()
         if self.writer:
@@ -509,9 +522,8 @@ class DesktopStreamingService:
         self._subscribers.pop(callback, None)
         self._subscriber_ips.pop(callback, None)
 
-        remaining_count = len(self._subscribers)
+        remaining_count = len(self._subscribers) + len(self._active_http_clients)
         if remaining_count > 0 and self._engine_alive():
-            # Update running engine with remaining active client IPs
             remaining_hosts = self.get_active_client_hosts()
             logger.info(
                 f"Client unsubscribed. Updating pipeline with remaining hosts: {remaining_hosts}"

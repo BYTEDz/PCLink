@@ -21,7 +21,6 @@ router = APIRouter(prefix="/desktop-streaming", tags=["desktop_streaming"])
 
 
 def _process_mouse_input(data: dict):
-    """Parses MOUSE_INPUT payloads sent from FerrumViewer Android app and executes them via kernel uinput."""
     from ...services.input_service import input_service
 
     action = data.get("action")
@@ -55,7 +54,6 @@ def _process_mouse_input(data: dict):
 
 
 async def broadcast_streaming_devices():
-    """Pushes a list of all currently active device names streaming output to all subscribers."""
     active_names = list(set(desktop_streaming_service._subscribers.values()))
     msg = {
         "type": "STREAM_DEVICES_UPDATE",
@@ -107,15 +105,52 @@ async def start_desktop_streaming(request: Request):
 
 
 @router.post("/stop", dependencies=[Depends(verify_api_key)])
-async def stop_desktop_streaming():
+async def stop_desktop_streaming(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    stop_all = body.get("stop_all") or body.get("stopAll") or body.get("force") or False
+
+    if stop_all:
+        log.info(
+            "Explicit stop_all request received. Terminating desktop streaming engine for all devices."
+        )
+        await desktop_streaming_service.stop_engine()
+        return {"success": True, "stopped_all": True}
+
+    client_ip = request.client.host if request.client else None
+    if client_ip:
+        desktop_streaming_service.remove_http_client(client_ip)
+
+    remaining_hosts = desktop_streaming_service.get_active_client_hosts(default_ip="")
+    if remaining_hosts and desktop_streaming_service._engine_alive():
+        log.info(
+            f"Client {client_ip} stopped stream locally. Updating pipeline with remaining hosts: {remaining_hosts}"
+        )
+        await desktop_streaming_service.send_command(
+            {"type": "RESTART_PIPELINE", "client_host": remaining_hosts}
+        )
+    else:
+        await desktop_streaming_service.stop_engine()
+
+    return {"success": True, "stopped_all": False}
+
+
+@router.post("/stop-all", dependencies=[Depends(verify_api_key)])
+async def stop_all_desktop_streaming():
+    log.info("Global stop-all endpoint invoked. Killing desktop streaming engine.")
     await desktop_streaming_service.stop_engine()
-    return {"success": True}
+    return {"success": True, "stopped_all": True}
 
 
 @router.get("/status", dependencies=[Depends(verify_api_key)])
 async def get_status():
     active_names = list(set(desktop_streaming_service._subscribers.values()))
-    active_clients = len(desktop_streaming_service._subscribers)
+    active_clients = len(desktop_streaming_service._subscribers) + len(
+        desktop_streaming_service._active_http_clients
+    )
     if active_clients == 0 and desktop_streaming_service.process is not None:
         active_clients = 1
         active_names = ["Unknown Device"]
@@ -189,7 +224,6 @@ async def desktop_streaming_websocket(websocket: WebSocket):
         send_to_ws, name=device_name, client_ip=client_ip
     )
 
-    # Broadcast updated list to all subscribers
     asyncio.create_task(broadcast_streaming_devices())
 
     try:
