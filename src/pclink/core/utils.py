@@ -1,4 +1,5 @@
-# src/pclink/core/utils.py
+# filepath: src/pclink/core/utils.py
+
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -99,7 +100,7 @@ def increase_open_files_limit(target: int = 4096):
 def get_available_ips() -> List[str]:
     """
     Gets a list of all non-loopback IPv4 addresses on the host.
-    Returns a sorted list prioritizing local network IPs.
+    Returns a sorted list prioritizing local physical network IPs over virtual/ICS adapters.
     """
     local_ips, other_ips = [], []
 
@@ -111,19 +112,24 @@ def get_available_ips() -> List[str]:
             if_stats = {}
 
         for iface, addrs in psutil.net_if_addrs().items():
+            iface_lower = iface.lower()
             if any(
-                x in iface.lower()
+                x in iface_lower
                 for x in [
                     "virtual",
                     "vmnet",
                     "loopback",
                     "docker",
                     "veth",
+                    "vethernet",
+                    "hyper-v",
+                    "wsl",
+                    "default switch",
                     "virbr",
                     "tun",
                     "tap",
                 ]
-            ) or iface.startswith(("lo", "br-")):
+            ) or iface_lower.startswith(("lo", "br-")):
                 continue
 
             stats = if_stats.get(iface)
@@ -139,6 +145,8 @@ def get_available_ips() -> List[str]:
                             or ip_obj.is_link_local
                             or ip_obj.is_multicast
                             or ip_obj.is_unspecified
+                            or str(addr.address)
+                            == "192.168.137.1"  # Ignore Windows ICS gateway
                         ):
                             continue
 
@@ -170,7 +178,7 @@ def get_available_ips() -> List[str]:
                     ip = match.group(1)
                     try:
                         ip_obj = ipaddress.IPv4Address(ip)
-                        if not ip_obj.is_loopback:
+                        if not ip_obj.is_loopback and ip != "192.168.137.1":
                             if ip_obj.is_private:
                                 local_ips.append(ip)
                             else:
@@ -186,7 +194,7 @@ def get_available_ips() -> List[str]:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                 s.connect(("8.8.8.8", 80))
                 ip = s.getsockname()[0]
-                if ip:
+                if ip and ip != "192.168.137.1":
                     try:
                         ip_obj = ipaddress.IPv4Address(ip)
                         if not ip_obj.is_loopback and not ip_obj.is_unspecified:

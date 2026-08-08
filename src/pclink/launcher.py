@@ -1,3 +1,5 @@
+# filepath: src/pclink/launcher.py
+
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -77,7 +79,7 @@ def set_dpi_awareness():
 
 
 def setup_network_permissions():
-    """Setup network permissions for Windows firewall."""
+    """Setup network permissions for Windows firewall across all profiles."""
     if sys.platform == "win32" and getattr(sys, "frozen", False):
         try:
             import subprocess
@@ -115,6 +117,7 @@ def setup_network_permissions():
                     "action=allow",
                     f"program={exe_path}",
                     "enable=yes",
+                    "profile=any",
                 ]
 
                 subprocess.run(
@@ -122,7 +125,7 @@ def setup_network_permissions():
                     capture_output=True,
                     creationflags=subprocess.CREATE_NO_WINDOW,
                 )
-                log.info("Launcher: Firewall rule added successfully")
+                log.info("Launcher: Firewall rule added successfully for all profiles")
             else:
                 log.debug("Launcher: Firewall rule already exists")
 

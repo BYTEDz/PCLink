@@ -246,6 +246,15 @@ def _repair_menu(ctx):
     return _run_interactive_menu(_("Repair Center:"), choices, action_map)
 
 
+def _run_cmd_no_pause(ctx, cmd, **kwargs):
+    """Executes a daemon operation command and automatically returns to menu without keypress pause."""
+    import time
+
+    ctx.invoke(cmd, **kwargs)
+    time.sleep(1)
+    return "NO_PAUSE"
+
+
 def launch_interactive_menu(ctx):
     if not questionary:
         click.secho(
@@ -296,9 +305,9 @@ def launch_interactive_menu(ctx):
             ]
 
         action_map = {
-            "start": lambda: ctx.invoke(start),
-            "stop": lambda: ctx.invoke(stop),
-            "restart": lambda: ctx.invoke(restart),
+            "start": lambda: _run_cmd_no_pause(ctx, start),
+            "stop": lambda: _run_cmd_no_pause(ctx, stop),
+            "restart": lambda: _run_cmd_no_pause(ctx, restart),
             "status": lambda: ctx.invoke(status),
             "ui": lambda: ctx.invoke(ui),
             "logs": lambda: ctx.invoke(logs, follow=False),

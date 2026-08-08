@@ -1,4 +1,5 @@
-# src/pclink/services/repair_service.py
+# filepath: src/pclink/services/repair_service.py
+
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -291,7 +292,9 @@ class RepairService:
         try:
             from .transfer_service import transfer_service
 
-            cleaned = asyncio.run(transfer_service.cleanup_stale_sessions(days=1))
+            cleaned = asyncio.run(
+                transfer_service.cleanup_stale_sessions(threshold_days=1)
+            )
             if cleaned > 0:
                 act_transfer = _("Purged {} stale transfer files").format(cleaned)
                 repaired_actions.append(act_transfer)
@@ -421,6 +424,7 @@ class RepairService:
                     "action=allow",
                     f"program={exe_path}",
                     "enable=yes",
+                    "profile=any",
                 ]
                 subprocess.run(
                     add_cmd,
@@ -429,7 +433,10 @@ class RepairService:
                     if hasattr(subprocess, "CREATE_NO_WINDOW")
                     else 0,
                 )
-                return {"status": "ok", "message": _("Windows Firewall rule added.")}
+                return {
+                    "status": "ok",
+                    "message": _("Windows Firewall rule added for all profiles."),
+                }
             except Exception as e:
                 return {
                     "status": "error",
