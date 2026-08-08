@@ -347,8 +347,11 @@ class DesktopStreamingService:
                 "client_host": all_hosts,
                 "framerate": config.get("fps"),
                 "srtp_key": srtp_key,
-                **config,
             }
+            for key, val in config.items():
+                if key not in cfg:
+                    cfg[key] = val
+
             await self.send_command(cfg)
             return True
 
@@ -478,7 +481,18 @@ class DesktopStreamingService:
     async def send_command(self, cmd: dict):
         if not self.writer or self.writer.is_closing():
             return
-        self.writer.write(json.dumps(cmd).encode() + b"\n")
+        normalized_cmd = {}
+        if isinstance(cmd, dict):
+            for k, v in cmd.items():
+                snake_k = (
+                    re.sub(r"(?<!^)(?=[A-Z])", "_", k).lower()
+                    if isinstance(k, str)
+                    else k
+                )
+                normalized_cmd[snake_k] = v
+        else:
+            normalized_cmd = cmd
+        self.writer.write(json.dumps(normalized_cmd).encode() + b"\n")
         await self.writer.drain()
 
     async def _listen_ipc(self):
