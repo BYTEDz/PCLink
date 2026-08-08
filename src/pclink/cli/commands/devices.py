@@ -1,5 +1,3 @@
-# filepath: src/pclink/cli/commands/devices.py
-
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -413,14 +411,12 @@ def list_blacklist():
     _print_table([_("ID"), _("Hardware ID"), _("Reason")], rows, [3, 40, 25])
 
 
-# --- Layer 3: Per-Device Permissions ---
+# --- Device Access & Permissions ---
 
 
 @device_group.command(
     name="perm",
-    help=_(
-        "Layer 3: Assign permissions to a specific device (role or checkbox picker)."
-    ),
+    help=_("Assign permissions to a specific device (role or checkbox picker)."),
 )
 @click.argument("id_or_idx")
 @click.argument("role", type=click.Choice(list(PERM_ROLES.keys())), required=False)
@@ -451,7 +447,7 @@ def update_perms(id_or_idx: str, role: str = None):
             is_disabled_globally = not global_services.get(s_key, True)
             display_title = f"{label} [{s_key}]"
             if is_disabled_globally:
-                display_title += _(" (DISABLED GLOBALLY AT LAYER 1)")
+                display_title += _(" (DISABLED GLOBALLY AT FEATURE SWITCH)")
 
             choices.append(
                 questionary.Choice(
@@ -462,7 +458,7 @@ def update_perms(id_or_idx: str, role: str = None):
             )
 
         selected = questionary.checkbox(
-            _("Select Layer 3 permissions for device {}:").format(target_id),
+            _("Select permissions for device {}:").format(target_id),
             choices=choices,
             style=PCLINK_CLI_STYLE,
         ).ask()
@@ -500,14 +496,12 @@ def update_perms(id_or_idx: str, role: str = None):
         )
 
 
-# --- Layer 2: Default Device Permission Policy ---
+# --- Default Device Permission Policy ---
 
 
 @device_group.command(
     name="policy",
-    help=_(
-        "Layer 2: View or edit default permissions assigned to newly paired devices."
-    ),
+    help=_("View or edit default permissions assigned to newly paired devices."),
 )
 @click.option(
     "--edit", "-e", is_flag=True, help=_("Interactively edit default device policy.")
@@ -518,7 +512,7 @@ def device_policy(edit: bool = False):
 
     if not edit:
         click.secho(
-            _("=== Layer 2: New Device Default Permission Policy ==="),
+            _("=== Default New-Device Permission Policy ==="),
             fg="cyan",
             bold=True,
         )
@@ -559,9 +553,7 @@ def device_policy(edit: bool = False):
     ]
 
     selected = questionary.checkbox(
-        _(
-            "Select default permissions assigned to newly paired devices (Layer 2 Policy):"
-        ),
+        _("Select default permissions assigned to newly paired devices:"),
         choices=choices,
         style=PCLINK_CLI_STYLE,
     ).ask()

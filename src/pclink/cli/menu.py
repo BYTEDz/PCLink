@@ -1,5 +1,3 @@
-# filepath: src/pclink/cli/menu.py
-
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -54,8 +52,8 @@ from .commands.repair import diagnose, run_repair, repair_wayland
 _ = gettext.gettext
 
 
-def _print_menu_header():
-    """Renders the ASCII logo banner and version tag at the top of the menu."""
+def _print_menu_header(update_version=None):
+    """Renders the ASCII logo banner, version tag, and update indicator at the top of the menu."""
     click.clear()
     click.secho(
         r"""  ____   ____ _     _       _
@@ -68,10 +66,20 @@ def _print_menu_header():
         bold=True,
     )
     click.secho(
-        f"  {version_info.product_name} v{version_info.version}\n",
+        f"  {version_info.product_name} v{version_info.version}",
         fg="green",
         bold=True,
     )
+    if update_version:
+        click.secho(
+            _(
+                "  ★ UPDATE AVAILABLE: v{} (Select 'Check for Updates' to install)\n"
+            ).format(update_version),
+            fg="yellow",
+            bold=True,
+        )
+    else:
+        click.echo("")
 
 
 def _run_interactive_menu(title, choices, action_map):
@@ -123,10 +131,8 @@ def _device_menu(ctx):
         questionary.Choice(_("List Paired Devices"), value="list"),
         questionary.Choice(_("Pending Pairing Requests"), value="requests"),
         questionary.Choice(_("Get Pairing QR Code"), value="get_qr"),
-        questionary.Choice(_("Manage Default Device Policy (Layer 2)"), value="policy"),
-        questionary.Choice(
-            _("Edit Device Permissions (Layer 3)"), value="perm_checkbox"
-        ),
+        questionary.Choice(_("Default New-Device Policy"), value="policy"),
+        questionary.Choice(_("Edit Device Permissions"), value="perm_checkbox"),
         questionary.Choice(_("Revoke Device Access"), value="revoke"),
         questionary.Choice(_("Ban Device"), value="ban"),
         questionary.Choice(_("Unban Device"), value="unban"),
@@ -169,18 +175,14 @@ def _device_menu(ctx):
 def _service_menu(ctx):
     choices = [
         questionary.Choice(_("List Global Service Status"), value="list"),
-        questionary.Choice(
-            _("Edit Global Service Kill Switches (Layer 1)"), value="edit"
-        ),
+        questionary.Choice(_("Edit Global Feature Switches"), value="edit"),
         questionary.Choice(_("Back to Main Menu"), value="back"),
     ]
     action_map = {
         "list": lambda: ctx.invoke(list_services),
         "edit": lambda: ctx.invoke(edit_services_interactive),
     }
-    return _run_interactive_menu(
-        _("Global Services / Kill Switches (Layer 1):"), choices, action_map
-    )
+    return _run_interactive_menu(_("Global Feature Switches:"), choices, action_map)
 
 
 def _config_menu(ctx):
@@ -189,9 +191,7 @@ def _config_menu(ctx):
         questionary.Choice(_("Disable Autostart"), value="auto_dis"),
         questionary.Choice(_("Enable System Tray"), value="tray_en"),
         questionary.Choice(_("Disable System Tray"), value="tray_dis"),
-        questionary.Choice(
-            _("Global Services / Kill Switches (Layer 1)"), value="services"
-        ),
+        questionary.Choice(_("Global Feature Switches"), value="services"),
         questionary.Choice(_("Back to Main Menu"), value="back"),
     ]
     action_map = {
@@ -266,7 +266,24 @@ def launch_interactive_menu(ctx):
 
     is_advanced_mode = False
 
+    # Perform lightweight update availability probe for CLI banner
+    update_info = None
+    try:
+        from ..core.update_checker import UpdateChecker
+
+        update_info = UpdateChecker().check_for_updates(timeout=2)
+    except Exception:
+        pass
+
+    latest_version = update_info.get("version") if update_info else None
+
     while True:
+        update_label = (
+            _("Check for Updates [UPDATE AVAILABLE: v{}]").format(latest_version)
+            if latest_version
+            else _("Check for Updates")
+        )
+
         if is_advanced_mode:
             choices = [
                 questionary.Choice(_("Start PCLink Daemon"), value="start"),
@@ -275,13 +292,11 @@ def launch_interactive_menu(ctx):
                 questionary.Choice(_("Status"), value="status"),
                 questionary.Choice(_("Open Web UI"), value="ui"),
                 questionary.Choice(_("Manage Devices & Pairing"), value="devices"),
-                questionary.Choice(
-                    _("Global Services / Kill Switches (Layer 1)"), value="services"
-                ),
+                questionary.Choice(_("Global Feature Switches"), value="services"),
                 questionary.Choice(_("Configuration"), value="config"),
                 questionary.Choice(_("Repair Center"), value="repair"),
                 questionary.Choice(_("View Logs"), value="logs"),
-                questionary.Choice(_("Check for Updates"), value="update"),
+                questionary.Choice(update_label, value="update"),
                 questionary.Choice(_("Initial Admin Setup"), value="setup"),
                 questionary.Choice(_("About PCLink"), value="about"),
                 questionary.Choice(_("Lock Advanced Mode"), value="lock_advanced"),
@@ -295,7 +310,7 @@ def launch_interactive_menu(ctx):
                 questionary.Choice(_("Status"), value="status"),
                 questionary.Choice(_("Open Web UI"), value="ui"),
                 questionary.Choice(_("View Logs"), value="logs"),
-                questionary.Choice(_("Check for Updates"), value="update"),
+                questionary.Choice(update_label, value="update"),
                 questionary.Choice(_("About PCLink"), value="about"),
                 questionary.Choice(
                     _("Unlock Advanced Mode (Password Required)"),
@@ -320,7 +335,7 @@ def launch_interactive_menu(ctx):
             "repair": lambda: _repair_menu(ctx),
         }
 
-        _print_menu_header()
+        _print_menu_header(latest_version)
         if is_advanced_mode:
             click.secho(_("  [ADVANCED ADMIN MODE ACTIVE]\n"), fg="yellow", bold=True)
         else:

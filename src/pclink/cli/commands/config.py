@@ -1,5 +1,3 @@
-# filepath: src/pclink/cli/commands/config.py
-
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -99,13 +97,13 @@ def config_set_tray(state):
         )
 
 
-# --- Layer 1: Global Services / Kill Switches ---
+# --- Global Feature Switches / Kill Switches ---
 
 
 @click.group(
     name="service",
     help=_(
-        "Layer 1: Manage global service kill switches (enable/disable features server-wide)."
+        "Manage global feature kill switches (enable/disable features server-wide)."
     ),
 )
 def service_group():
@@ -171,12 +169,16 @@ def toggle_service(service_name: str, enable: bool = None):
     if success:
         status_msg = _("enabled") if new_state else _("disabled")
         click.secho(
-            _("✓ Global service '{}' has been {}.").format(service_name, status_msg),
+            _("✓ Global feature switch '{}' has been {}.").format(
+                service_name, status_msg
+            ),
             fg="green" if new_state else "yellow",
             bold=True,
         )
     else:
-        click.secho(_("Error: Failed to toggle global service."), fg="red", err=True)
+        click.secho(
+            _("Error: Failed to toggle global feature switch."), fg="red", err=True
+        )
 
 
 @service_group.command(
@@ -202,7 +204,7 @@ def edit_services_interactive():
     ]
 
     selected = questionary.checkbox(
-        _("Select global services to ENABLE on server (Layer 1 Kill Switches):"),
+        _("Select global services to ENABLE on server (Server-Wide Kill Switches):"),
         choices=choices,
         style=PCLINK_CLI_STYLE,
     ).ask()
@@ -222,5 +224,5 @@ def edit_services_interactive():
 
     config_manager.set("services", updated_services)
     click.secho(
-        _("✓ Global service kill switches updated successfully."), fg="green", bold=True
+        _("✓ Global feature switches updated successfully."), fg="green", bold=True
     )
