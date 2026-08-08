@@ -366,35 +366,47 @@ class DesktopStreamingService:
                 tmp_bin.unlink(missing_ok=True)
             raise HTTPException(status_code=500, detail=f"Download failed: {e}")
 
-        # Check if the downloaded file is a compressed archive (.zip, .tar.gz, .tgz)
+        # Extract archive contents into target_dir (preserves DLLs on Windows)
         import tarfile
         import zipfile
 
-        extracted_file = None
+        extracted_bin: Path | None = None
         if zipfile.is_zipfile(tmp_bin):
             logger.info(f"Extracting zip archive for {tag_name}...")
             with zipfile.ZipFile(tmp_bin, "r") as zip_ref:
-                for member in zip_ref.namelist():
-                    if member.endswith(BIN_NAME) or member == BIN_NAME:
-                        zip_ref.extract(member, target_dir)
-                        extracted_file = target_dir / member
-                        break
+                for member in zip_ref.infolist():
+                    # Skip directory entries
+                    if member.filename.endswith("/"):
+                        continue
+                    # Flatten: strip any subdirectory prefix so DLLs land in target_dir
+                    flat_name = Path(member.filename).name
+                    dest = target_dir / flat_name
+                    with zip_ref.open(member) as src, open(dest, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    if flat_name == BIN_NAME:
+                        extracted_bin = dest
         elif tarfile.is_tarfile(tmp_bin):
             logger.info(f"Extracting tar archive for {tag_name}...")
             with tarfile.open(tmp_bin, "r:*") as tar_ref:
                 for member in tar_ref.getmembers():
-                    if member.name.endswith(BIN_NAME) or member.name == BIN_NAME:
-                        tar_ref.extract(member, target_dir)
-                        extracted_file = target_dir / member.name
-                        break
+                    if not member.isfile():
+                        continue
+                    flat_name = Path(member.name).name
+                    dest = target_dir / flat_name
+                    src = tar_ref.extractfile(member)
+                    if src:
+                        with open(dest, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                    if flat_name == BIN_NAME:
+                        extracted_bin = dest
 
-        if extracted_file and extracted_file.exists():
-            if extracted_file != target_bin:
-                shutil.move(str(extracted_file), str(target_bin))
-            if tmp_bin.exists() and tmp_bin != target_bin:
-                tmp_bin.unlink(missing_ok=True)
+        if extracted_bin and extracted_bin.exists():
+            # Rename binary to canonical BIN_NAME if needed (shouldn't differ, but guard anyway)
+            if extracted_bin != target_bin:
+                shutil.move(str(extracted_bin), str(target_bin))
+            tmp_bin.unlink(missing_ok=True)
         else:
-            # Not an archive or extracted directly
+            # Not an archive — treat downloaded file directly as binary
             os.replace(tmp_bin, target_bin)
 
         if OS_TYPE != "windows":
