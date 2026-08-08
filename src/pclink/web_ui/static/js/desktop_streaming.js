@@ -167,7 +167,8 @@ window.runDesktopStreamingDiagnostics = async () => {
         if (binaryBadge) {
             if (data.binary_exists) {
                 binaryBadge.className = "badge badge-success text-white gap-1 font-bold text-[10px]";
-                binaryBadge.innerHTML = `<i data-feather="check" class="w-3 h-3"></i> Active`;
+                const verStr = data.active_version ? `Active: ${data.active_version}` : 'Active';
+                binaryBadge.innerHTML = `<i data-feather="check" class="w-3 h-3"></i> ${verStr}`;
             } else {
                 binaryBadge.className = "badge badge-error text-white gap-1 font-bold text-[10px]";
                 binaryBadge.innerHTML = `<i data-feather="x" class="w-3 h-3"></i> Missing`;
@@ -477,5 +478,324 @@ window.resetDesktopStreamingPortalSession = async () => {
         }
     } catch (e) {
         window.pclinkUI.showToast('Error', 'Failed to communicate with portal subsystem', 'error');
+    }
+};
+
+// --- FerrumCast Multi-Version Manager JS ---
+window._fcVersionData = { installed: [], releases: [] };
+
+window.openFerrumCastVersionModal = async () => {
+    const title = `<i data-feather="cpu" class="w-4 h-4 text-primary"></i> Engine Manager`;
+    const body = `
+        <div id="fcUpdateNotification" class="alert alert-info shadow-xs p-3 mb-3 flex items-center justify-between text-xs hidden">
+            <div class="flex items-center gap-2">
+                <i data-feather="arrow-up-circle" class="w-4 h-4 text-info shrink-0"></i>
+                <div>
+                    <span class="font-bold">New update available: </span>
+                    <span id="fcUpdateTag" class="font-mono font-bold"></span>
+                </div>
+            </div>
+            <button class="btn btn-xs btn-primary text-white font-bold" onclick="window.switchFcModalTab('releases')">View Release</button>
+        </div>
+
+        <div class="tabs tabs-boxed mb-3 bg-base-200 p-1">
+            <a class="tab tab-active font-bold text-xs" id="fcTabInstalled" onclick="window.switchFcModalTab('installed')">
+                <i data-feather="hard-drive" class="w-3.5 h-3.5 mr-1.5"></i> Installed Builds
+            </a>
+            <a class="tab font-bold text-xs" id="fcTabReleases" onclick="window.switchFcModalTab('releases')">
+                <i data-feather="github" class="w-3.5 h-3.5 mr-1.5"></i> Release History
+            </a>
+        </div>
+
+        <div id="fcSectionInstalled" class="space-y-3">
+            <p class="text-[11px] opacity-70">Local FerrumCast binaries available on this system.</p>
+            <div id="fcInstalledList" class="divide-y divide-base-300 max-h-96 overflow-y-auto pr-1">
+                <div class="text-center py-6 opacity-40 text-xs">
+                    <span class="loading loading-spinner loading-xs mr-2"></span> Inspecting binary builds...
+                </div>
+            </div>
+        </div>
+
+        <div id="fcSectionReleases" class="space-y-3 hidden">
+            <p class="text-[11px] opacity-70">Published builds from official GitHub repository.</p>
+            <div id="fcReleasesList" class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                <div class="text-center py-6 opacity-40 text-xs">
+                    <span class="loading loading-spinner loading-xs mr-2"></span> Fetching releases...
+                </div>
+            </div>
+        </div>
+    `;
+
+    const footer = `
+        <div id="fcModalStatusText" class="text-xs font-bold text-info flex items-center gap-1.5 hidden">
+            <span class="loading loading-spinner loading-xs"></span> <span id="fcModalStatusMsg">Processing...</span>
+        </div>
+        <button class="btn btn-xs btn-neutral ml-auto" onclick="window.closeSidePanel()">Close</button>
+    `;
+
+    window.openSidePanel(title, body, footer);
+    await window.loadFcVersionsData();
+};
+
+window.switchFcModalTab = (tab) => {
+    const tabInst = document.getElementById('fcTabInstalled');
+    const tabRel = document.getElementById('fcTabReleases');
+    const secInst = document.getElementById('fcSectionInstalled');
+    const secRel = document.getElementById('fcSectionReleases');
+
+    if (!tabInst || !tabRel || !secInst || !secRel) return;
+
+    if (tab === 'installed') {
+        tabInst.classList.add('tab-active');
+        tabRel.classList.remove('tab-active');
+        secInst.classList.remove('hidden');
+        secRel.classList.add('hidden');
+    } else {
+        tabRel.classList.add('tab-active');
+        tabInst.classList.remove('tab-active');
+        secRel.classList.remove('hidden');
+        secInst.classList.add('hidden');
+    }
+    if (window.feather) feather.replace();
+};
+
+window.loadFcVersionsData = async () => {
+    const instList = document.getElementById('fcInstalledList');
+    const relList = document.getElementById('fcReleasesList');
+
+    try {
+        const res = await window.pclinkUI.webUICall('/desktop-streaming/ferrumcast/versions');
+        if (!res.ok) throw new Error("Failed fetching version data");
+        const data = await res.json();
+        window._fcVersionData = data;
+
+        // Check for new update
+        const activeItem = (data.installed || []).find(i => i.is_active);
+        const activeTag = activeItem ? activeItem.tag : null;
+        const latestRelease = (data.releases || [])[0];
+
+        const updateBanner = document.getElementById('fcUpdateNotification');
+        const updateTagSpan = document.getElementById('fcUpdateTag');
+        if (latestRelease && activeTag && activeTag !== latestRelease.tag_name && updateBanner && updateTagSpan) {
+            updateTagSpan.textContent = latestRelease.tag_name;
+            updateBanner.classList.remove('hidden');
+        } else if (updateBanner) {
+            updateBanner.classList.add('hidden');
+        }
+
+        // Render Installed Versions
+        if (instList) {
+            instList.innerHTML = '';
+            if (data.installed && data.installed.length > 0) {
+                data.installed.forEach(v => {
+                    const item = document.createElement('div');
+                    item.className = "flex justify-between items-center py-2.5 px-1";
+
+                    const activeBadge = v.is_active
+                        ? `<span class="badge badge-success text-white text-[10px] font-bold">Active</span>`
+                        : `<button class="btn btn-xs btn-outline btn-primary text-[10px] font-bold" onclick="window.selectFcVersion('${v.tag}')">Use Build</button>`;
+
+                    const deleteBtn = (!v.is_active && !v.is_bundled)
+                        ? `<button class="btn btn-xs btn-ghost text-error p-1 h-6 min-h-0" title="Delete build" onclick="window.deleteFcVersion('${v.tag}')"><i data-feather="trash-2" class="w-3.5 h-3.5"></i></button>`
+                        : '';
+
+                    item.innerHTML = `
+                        <div class="flex items-center gap-2.5">
+                            <div class="p-1.5 bg-base-200 rounded-md">
+                                <i data-feather="${v.is_bundled ? 'package' : 'hard-drive'}" class="w-4 h-4 text-primary"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-bold text-xs flex items-center gap-1.5">
+                                    ${v.display_name}
+                                </h5>
+                                <p class="text-[10px] opacity-60 font-mono">${(v.size_bytes / (1024*1024)).toFixed(1)} MB • ${v.is_bundled ? 'Bundled' : 'Config Cache'}</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            ${activeBadge}
+                            ${deleteBtn}
+                        </div>
+                    `;
+                    instList.appendChild(item);
+                });
+            } else {
+                instList.innerHTML = `<div class="text-center py-4 text-xs opacity-50">No installed builds detected.</div>`;
+            }
+        }
+
+        // Render GitHub Releases cleanly
+        if (relList) {
+            relList.innerHTML = '';
+            if (data.releases && data.releases.length > 0) {
+                data.releases.forEach((r, idx) => {
+                    const isInstalled = (data.installed || []).some(i => i.tag === r.tag_name);
+                    const isActive = (data.installed || []).some(i => i.tag === r.tag_name && i.is_active);
+
+                    const card = document.createElement('div');
+                    card.className = "border border-base-300 rounded-lg overflow-hidden bg-base-100";
+
+                    let actionBtn = '';
+                    if (isActive) {
+                        actionBtn = `<span class="badge badge-success text-white text-[10px] font-bold">Active</span>`;
+                    } else if (isInstalled) {
+                        actionBtn = `<button class="btn btn-xs btn-outline btn-primary font-bold" onclick="event.stopPropagation(); window.selectFcVersion('${r.tag_name}')">Use Build</button>`;
+                    } else {
+                        actionBtn = `<button class="btn btn-xs btn-success text-white font-bold" onclick="event.stopPropagation(); window.downloadFcVersion('${r.tag_name}', '${r.download_url || ''}')">Install</button>`;
+                    }
+
+                    const formattedBody = window.renderFcMarkdown(r.body || 'No release notes published.');
+
+                    card.innerHTML = `
+                        <div class="p-3 flex justify-between items-center cursor-pointer hover:bg-base-200/50 transition-colors" onclick="window.toggleFcReleaseNotes(${idx})">
+                            <div class="flex items-center gap-2">
+                                <i data-feather="chevron-right" id="fcRelArrow-${idx}" class="w-3.5 h-3.5 opacity-50 transition-transform"></i>
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-bold text-xs text-primary font-mono">${r.tag_name}</span>
+                                        ${r.prerelease ? `<span class="badge badge-warning text-[9px] font-bold">Pre-release</span>` : ''}
+                                    </div>
+                                    <p class="text-[10px] opacity-60">${r.published_at ? new Date(r.published_at).toLocaleDateString() : ''}</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                ${actionBtn}
+                            </div>
+                        </div>
+                        <div id="fcRelNotes-${idx}" class="hidden p-3 bg-base-200/40 border-t border-base-300 text-xs opacity-90 leading-relaxed max-h-48 overflow-y-auto space-y-1.5 font-sans">
+                            ${formattedBody}
+                        </div>
+                    `;
+                    relList.appendChild(card);
+                });
+            } else {
+                relList.innerHTML = `<div class="text-center py-4 text-xs opacity-50">No release history found.</div>`;
+            }
+        }
+
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Failed to load FerrumCast version info', 'error');
+    }
+
+    if (window.feather) feather.replace();
+};
+
+window.renderFcMarkdown = (mdText) => {
+    if (!mdText) return '';
+    let html = mdText
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    // Headers (### ## #)
+    html = html.replace(/^### (.*$)/gim, '<h5 class="font-bold text-xs text-primary mt-2 mb-1">$1</h5>');
+    html = html.replace(/^## (.*$)/gim, '<h4 class="font-black text-xs text-primary mt-2 mb-1 border-b border-base-300 pb-1">$1</h4>');
+    html = html.replace(/^# (.*$)/gim, '<h3 class="font-black text-sm text-primary mt-2 mb-1">$1</h3>');
+
+    // Bold & Italic
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-base-content">$1</strong>');
+    html = html.replace(/\*(.*?)\*/g, '<em class="italic">$1</em>');
+
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-base-300/60 rounded font-mono text-[11px]">$1</code>');
+
+    // Lists (- or *)
+    html = html.replace(/^\s*[\-\*]\s+(.*$)/gim, '<li class="ml-4 list-disc text-xs opacity-90">$1</li>');
+
+    // Paragraph breaks
+    html = html.replace(/\n\n/g, '<div class="h-1.5"></div>');
+    html = html.replace(/\n/g, '<br/>');
+
+    return html;
+};
+
+window.toggleFcReleaseNotes = (idx) => {
+    const notes = document.getElementById(`fcRelNotes-${idx}`);
+    const arrow = document.getElementById(`fcRelArrow-${idx}`);
+    if (!notes) return;
+
+    const isHidden = notes.classList.contains('hidden');
+    if (isHidden) {
+        notes.classList.remove('hidden');
+        if (arrow) arrow.style.transform = 'rotate(90deg)';
+    } else {
+        notes.classList.add('hidden');
+        if (arrow) arrow.style.transform = 'rotate(0deg)';
+    }
+};
+
+window.selectFcVersion = async (tag) => {
+    try {
+        window.setFcModalStatus(`Switching active version to ${tag}...`);
+        const res = await window.pclinkUI.webUICall('/desktop-streaming/ferrumcast/select', {
+            method: 'POST',
+            body: JSON.stringify({ tag })
+        });
+        if (res.ok) {
+            window.pclinkUI.showToast('Version Active', `Switched FerrumCast engine to ${tag}`, 'success');
+            await window.loadFcVersionsData();
+            await window.runDesktopStreamingDiagnostics();
+        } else {
+            const err = await res.json();
+            window.pclinkUI.showToast('Switch Failed', err.detail || 'Failed to switch version', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Connection failure switching version', 'error');
+    } finally {
+        window.setFcModalStatus(null);
+    }
+};
+
+window.downloadFcVersion = async (tag, url) => {
+    try {
+        window.setFcModalStatus(`Downloading FerrumCast ${tag}... (this may take a moment)`);
+        const res = await window.pclinkUI.webUICall('/desktop-streaming/ferrumcast/download', {
+            method: 'POST',
+            body: JSON.stringify({ tag, download_url: url })
+        });
+        if (res.ok) {
+            window.pclinkUI.showToast('Update Complete', `FerrumCast ${tag} downloaded and activated`, 'success');
+            await window.loadFcVersionsData();
+            await window.runDesktopStreamingDiagnostics();
+        } else {
+            const err = await res.json();
+            window.pclinkUI.showToast('Download Failed', err.detail || 'Download failed', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Download connection failed', 'error');
+    } finally {
+        window.setFcModalStatus(null);
+    }
+};
+
+window.deleteFcVersion = async (tag) => {
+    if (!confirm(`Delete cached FerrumCast binary ${tag}?`)) return;
+    try {
+        window.setFcModalStatus(`Deleting ${tag}...`);
+        const res = await window.pclinkUI.webUICall(`/desktop-streaming/ferrumcast/versions/${encodeURIComponent(tag)}`, {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            window.pclinkUI.showToast('Cache Deleted', `Removed ${tag} from config cache`, 'info');
+            await window.loadFcVersionsData();
+        } else {
+            const err = await res.json();
+            window.pclinkUI.showToast('Delete Failed', err.detail || 'Failed to delete cache', 'error');
+        }
+    } catch (e) {
+        window.pclinkUI.showToast('Error', 'Failed deleting version cache', 'error');
+    } finally {
+        window.setFcModalStatus(null);
+    }
+};
+
+window.setFcModalStatus = (msg) => {
+    const statusBox = document.getElementById('fcModalStatusText');
+    const statusMsg = document.getElementById('fcModalStatusMsg');
+    if (!statusBox || !statusMsg) return;
+    if (msg) {
+        statusMsg.textContent = msg;
+        statusBox.classList.remove('hidden');
+    } else {
+        statusBox.classList.add('hidden');
     }
 };

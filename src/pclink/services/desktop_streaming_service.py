@@ -9,10 +9,15 @@ import logging
 import os
 import platform
 import re
+import shutil
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 
+from fastapi import HTTPException
+
+from ..core.constants import APP_DATA_PATH
 from ..core.utils import resource_path
 
 logger = logging.getLogger(__name__)
@@ -46,9 +51,40 @@ STRUCTURED_PATH = resource_path(
 LEGACY_PATH = resource_path(f"src/pclink/assets/bin/{BIN_NAME}")
 
 if STRUCTURED_PATH.exists():
-    ENGINE_PATH = STRUCTURED_PATH
+    BUNDLED_PATH = STRUCTURED_PATH
 else:
-    ENGINE_PATH = LEGACY_PATH
+    BUNDLED_PATH = LEGACY_PATH
+
+FERRUMCAST_DIR = APP_DATA_PATH / "ferrumcast"
+VERSIONS_DIR = FERRUMCAST_DIR / "versions"
+ACTIVE_CONFIG_FILE = FERRUMCAST_DIR / "active.json"
+
+
+def get_active_engine_path() -> Path:
+    """Resolve the active FerrumCast binary path using active.json or fallback to bundled."""
+    if ACTIVE_CONFIG_FILE.exists():
+        try:
+            with open(ACTIVE_CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                active_tag = data.get("active_version")
+                if active_tag and active_tag != "bundled":
+                    target_bin = VERSIONS_DIR / active_tag / BIN_NAME
+                    if target_bin.exists():
+                        return target_bin
+        except Exception as e:
+            logger.warning(f"Failed reading active FerrumCast config: {e}")
+
+    if BUNDLED_PATH.exists():
+        return BUNDLED_PATH
+
+    sys_path = shutil.which(BIN_NAME)
+    if sys_path:
+        return Path(sys_path)
+
+    return BUNDLED_PATH
+
+
+ENGINE_PATH = get_active_engine_path()
 
 
 class DesktopStreamingService:
@@ -61,6 +97,331 @@ class DesktopStreamingService:
         self._subscriber_ips = {}  # callback -> client_ip
         self._active_http_clients = set()  # IP addresses of HTTP POST streaming clients
         self.srtp_key = None
+        self._releases_cache = None
+        self._releases_cache_time = 0
+        self._version_cache = {}  # str(path) -> (mtime, version_string)
+
+    def refresh_engine_path(self) -> Path:
+        global ENGINE_PATH
+        ENGINE_PATH = get_active_engine_path()
+        return ENGINE_PATH
+
+    async def get_binary_version(self, path: Path) -> str:
+        """Query a binary's version via --version flag with in-memory caching."""
+        if not path.exists():
+            return "Unknown"
+
+        try:
+            mtime = path.stat().st_mtime
+            path_key = str(path.resolve())
+            if path_key in self._version_cache:
+                cached_mtime, cached_ver = self._version_cache[path_key]
+                if cached_mtime == mtime:
+                    return cached_ver
+        except Exception:
+            pass
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                str(path),
+                "--version",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if platform.system() == "Windows"
+                else 0,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+            if proc.returncode == 0:
+                out = stdout.decode().strip()
+                parts = out.split()
+                ver = parts[1] if len(parts) >= 2 else out
+                try:
+                    self._version_cache[str(path.resolve())] = (
+                        path.stat().st_mtime,
+                        ver,
+                    )
+                except Exception:
+                    pass
+                return ver
+        except Exception:
+            pass
+        return "v0.1.0"
+
+    async def get_installed_versions(self) -> list:
+        """Return list of installed version objects (bundled + config versions)."""
+        active_path = get_active_engine_path()
+        versions = []
+
+        bundled_exists = BUNDLED_PATH.exists()
+        bundled_ver = (
+            await self.get_binary_version(BUNDLED_PATH) if bundled_exists else "v0.1.0"
+        )
+        versions.append(
+            {
+                "tag": "bundled",
+                "display_name": f"{bundled_ver} (Bundled)",
+                "is_bundled": True,
+                "is_active": (active_path == BUNDLED_PATH),
+                "size_bytes": BUNDLED_PATH.stat().st_size if bundled_exists else 0,
+                "path": str(BUNDLED_PATH),
+            }
+        )
+
+        if VERSIONS_DIR.exists():
+            for item in VERSIONS_DIR.iterdir():
+                if item.is_dir():
+                    bin_file = item / BIN_NAME
+                    if bin_file.exists():
+                        ver_str = await self.get_binary_version(bin_file)
+                        info_file = item / "info.json"
+                        tag_name = item.name
+                        if info_file.exists():
+                            try:
+                                with open(info_file, "r", encoding="utf-8") as f:
+                                    tag_name = json.load(f).get("tag_name", item.name)
+                            except Exception:
+                                pass
+                        versions.append(
+                            {
+                                "tag": tag_name,
+                                "display_name": f"{tag_name} ({ver_str})",
+                                "is_bundled": False,
+                                "is_active": (active_path == bin_file),
+                                "size_bytes": bin_file.stat().st_size,
+                                "path": str(bin_file),
+                            }
+                        )
+
+        return versions
+
+    def select_active_version(self, tag_name: str) -> dict:
+        """Switch active version tag."""
+        if self._engine_alive():
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot switch version while desktop streaming is active.",
+            )
+
+        FERRUMCAST_DIR.mkdir(parents=True, exist_ok=True)
+
+        if tag_name == "bundled":
+            target_data = {"active_version": "bundled"}
+        else:
+            target_bin = VERSIONS_DIR / tag_name / BIN_NAME
+            if not target_bin.exists():
+                raise HTTPException(
+                    status_code=404, detail=f"Version '{tag_name}' is not installed."
+                )
+            target_data = {"active_version": tag_name}
+
+        with open(ACTIVE_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(target_data, f, indent=2)
+
+        new_path = self.refresh_engine_path()
+        return {
+            "success": True,
+            "active_version": tag_name,
+            "active_path": str(new_path),
+        }
+
+    def delete_version_cache(self, tag_name: str) -> dict:
+        """Delete cached version folder."""
+        if tag_name == "bundled":
+            raise HTTPException(status_code=400, detail="Cannot delete bundled binary.")
+
+        active_path = get_active_engine_path()
+        target_dir = VERSIONS_DIR / tag_name
+        target_bin = target_dir / BIN_NAME
+
+        if active_path == target_bin:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete currently active version. Switch to another version first.",
+            )
+
+        if target_dir.exists():
+            shutil.rmtree(target_dir, ignore_errors=True)
+            return {"success": True, "deleted": tag_name}
+
+        raise HTTPException(
+            status_code=404, detail=f"Version folder '{tag_name}' not found."
+        )
+
+    async def fetch_github_releases(self) -> list:
+        """Fetch FerrumCast releases from GitHub API with 5min cache."""
+        import time
+
+        now = time.time()
+        if self._releases_cache and (now - self._releases_cache_time < 300):
+            return self._releases_cache
+
+        url = "https://api.github.com/repos/BYTEDz/FerrumCast/releases"
+        req = urllib.request.Request(url, headers={"User-Agent": "PCLink-Server"})
+        loop = asyncio.get_running_loop()
+
+        def _do_fetch():
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status == 200:
+                    return json.loads(resp.read().decode("utf-8"))
+            return []
+
+        try:
+            raw_releases = await loop.run_in_executor(None, _do_fetch)
+            parsed = []
+            for r in raw_releases:
+                tag = r.get("tag_name")
+                body = r.get("body", "")
+                assets = r.get("assets", [])
+
+                target_triple = (
+                    "x86_64"
+                    if ARCH_NAME in ["x86_64", "amd64"]
+                    else ("aarch64" if ARCH_NAME in ["arm64", "aarch64"] else ARCH_NAME)
+                )
+
+                matching_asset = None
+                # First pass: Exact match for OS + Architecture target string
+                for a in assets:
+                    name = a.get("name", "").lower()
+                    if OS_TYPE in name and target_triple in name:
+                        matching_asset = a.get("browser_download_url")
+                        break
+
+                # Second pass: OS match fallback
+                if not matching_asset:
+                    for a in assets:
+                        name = a.get("name", "").lower()
+                        if OS_TYPE in name or (
+                            OS_TYPE == "windows" and name.endswith(".exe")
+                        ):
+                            matching_asset = a.get("browser_download_url")
+                            break
+
+                if not matching_asset and assets:
+                    matching_asset = assets[0].get("browser_download_url")
+
+                parsed.append(
+                    {
+                        "tag_name": tag,
+                        "name": r.get("name") or tag,
+                        "published_at": r.get("published_at"),
+                        "body": body,
+                        "download_url": matching_asset,
+                        "prerelease": r.get("prerelease", False),
+                    }
+                )
+
+            self._releases_cache = parsed
+            self._releases_cache_time = now
+            return parsed
+        except Exception as e:
+            logger.error(f"Failed fetching GitHub releases for FerrumCast: {e}")
+            return self._releases_cache or []
+
+    async def download_version(self, tag_name: str, download_url: str = None) -> dict:
+        """Download a FerrumCast release into config version cache."""
+        if self._engine_alive():
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot update binary while desktop streaming is active.",
+            )
+
+        if not download_url:
+            releases = await self.fetch_github_releases()
+            for r in releases:
+                if r["tag_name"] == tag_name:
+                    download_url = r.get("download_url")
+                    break
+
+        if not download_url:
+            ext = ".exe" if OS_TYPE == "windows" else ""
+            download_url = f"https://github.com/BYTEDz/FerrumCast/releases/download/{tag_name}/ferrumcast_{OS_TYPE}_{ARCH_NAME}{ext}"
+
+        FERRUMCAST_DIR.mkdir(parents=True, exist_ok=True)
+        VERSIONS_DIR.mkdir(parents=True, exist_ok=True)
+        target_dir = VERSIONS_DIR / tag_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        tmp_bin = target_dir / f"{BIN_NAME}.tmp"
+        target_bin = target_dir / BIN_NAME
+
+        loop = asyncio.get_running_loop()
+
+        def _do_download():
+            req = urllib.request.Request(
+                download_url, headers={"User-Agent": "PCLink-Server"}
+            )
+            with urllib.request.urlopen(req, timeout=60) as response, open(
+                tmp_bin, "wb"
+            ) as out_file:
+                shutil.copyfileobj(response, out_file)
+
+        logger.info(f"Downloading FerrumCast {tag_name} from {download_url}...")
+        try:
+            await loop.run_in_executor(None, _do_download)
+        except Exception as e:
+            logger.error(f"Failed to download FerrumCast version {tag_name}: {e}")
+            if tmp_bin.exists():
+                tmp_bin.unlink(missing_ok=True)
+            raise HTTPException(status_code=500, detail=f"Download failed: {e}")
+
+        # Check if the downloaded file is a compressed archive (.zip, .tar.gz, .tgz)
+        import tarfile
+        import zipfile
+
+        extracted_file = None
+        if zipfile.is_zipfile(tmp_bin):
+            logger.info(f"Extracting zip archive for {tag_name}...")
+            with zipfile.ZipFile(tmp_bin, "r") as zip_ref:
+                for member in zip_ref.namelist():
+                    if member.endswith(BIN_NAME) or member == BIN_NAME:
+                        zip_ref.extract(member, target_dir)
+                        extracted_file = target_dir / member
+                        break
+        elif tarfile.is_tarfile(tmp_bin):
+            logger.info(f"Extracting tar archive for {tag_name}...")
+            with tarfile.open(tmp_bin, "r:*") as tar_ref:
+                for member in tar_ref.getmembers():
+                    if member.name.endswith(BIN_NAME) or member.name == BIN_NAME:
+                        tar_ref.extract(member, target_dir)
+                        extracted_file = target_dir / member.name
+                        break
+
+        if extracted_file and extracted_file.exists():
+            if extracted_file != target_bin:
+                shutil.move(str(extracted_file), str(target_bin))
+            if tmp_bin.exists() and tmp_bin != target_bin:
+                tmp_bin.unlink(missing_ok=True)
+        else:
+            # Not an archive or extracted directly
+            os.replace(tmp_bin, target_bin)
+
+        if OS_TYPE != "windows":
+            os.chmod(target_bin, 0o755)
+
+        tmp_ver = await self.get_binary_version(target_bin)
+        logger.info(f"Downloaded binary version: {tmp_ver}")
+
+        with open(target_dir / "info.json", "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "tag_name": tag_name,
+                    "version_string": tmp_ver,
+                    "download_url": download_url,
+                },
+                f,
+                indent=2,
+            )
+
+        self.select_active_version(tag_name)
+
+        return {
+            "success": True,
+            "tag": tag_name,
+            "version": tmp_ver,
+            "path": str(target_bin),
+        }
 
     def _engine_env(self) -> dict:
         """Prepare the environment for the FerrumCast engine process."""
@@ -107,8 +468,6 @@ class DesktopStreamingService:
 
     async def diagnose_system(self) -> dict:
         """Run diagnostics on mirroring subsystem."""
-        import shutil
-
         info = {
             "platform": platform.system(),
             "binary_exists": ENGINE_PATH.exists(),

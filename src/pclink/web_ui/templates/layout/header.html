@@ -28,6 +28,12 @@
 
   <!-- Right: Notifications & Status Badges -->
   <div class="flex-none flex gap-2 items-center">
+    <!-- PCLink App Update Badge Button -->
+    <button id="headerPclinkUpdateBadge" class="btn btn-xs btn-warning text-warning-content font-extrabold gap-1 animate-pulse hidden" onclick="window.openPclinkUpdateSidePanel()" title="PCLink server update available">
+      <i data-feather="arrow-up-circle" class="w-3.5 h-3.5"></i>
+      <span id="headerPclinkUpdateTag" class="font-mono text-[10px]">Update</span>
+    </button>
+
     <!-- Notification Center Bell Button (Reuses Side Panel) -->
     <button class="btn btn-ghost btn-circle btn-sm relative" onclick="window.openNotificationPanel()" title="Notification Center">
       <i data-feather="bell" class="w-4 h-4"></i>

@@ -215,10 +215,20 @@ window.checkForUpdates = async () => {
             const data = await res.json();
             if (data.update_available) {
                 window.updateData = data;
+
+                // Show top header update badge button
+                const headerBadge = document.getElementById('headerPclinkUpdateBadge');
+                const headerTag = document.getElementById('headerPclinkUpdateTag');
+                if (headerBadge && headerTag) {
+                    headerTag.textContent = `v${data.latest_version}`;
+                    headerBadge.classList.remove('hidden');
+                }
+
                 const b = document.getElementById('updateBanner');
                 if (b) {
                     b.classList.remove('hidden');
-                    document.getElementById('updateVersion').textContent = `v${data.latest_version} available`;
+                    const ver = document.getElementById('updateVersion');
+                    if (ver) ver.textContent = `v${data.latest_version} available`;
                     const notes = document.getElementById('updateReleaseNotes');
                     if (notes && data.release_notes) notes.textContent = data.release_notes;
                 }
@@ -229,8 +239,52 @@ window.checkForUpdates = async () => {
         }
     } catch (e) { }
 };
+
+window.openPclinkUpdateSidePanel = () => {
+    const data = window.updateData;
+    if (!data) return;
+
+    const title = `<i data-feather="arrow-up-circle" class="w-4 h-4 text-primary"></i> PCLink Update v${data.latest_version}`;
+
+    let formattedNotes = 'No release notes provided.';
+    if (typeof window.renderFcMarkdown === 'function') {
+        formattedNotes = window.renderFcMarkdown(data.release_notes || '');
+    } else {
+        formattedNotes = `<pre class="font-mono text-xs whitespace-pre-wrap">${data.release_notes || ''}</pre>`;
+    }
+
+    const body = `
+        <div class="space-y-4">
+            <div class="p-3.5 bg-primary/10 border border-primary/20 rounded-xl flex items-center justify-between">
+                <div>
+                    <h4 class="font-bold text-xs text-primary">PCLink Server Update</h4>
+                    <p class="text-[11px] opacity-70 mt-0.5">Installed: <span class="font-mono font-bold">v${data.current_version}</span> → Latest: <span class="font-mono font-bold text-success">v${data.latest_version}</span></p>
+                </div>
+                <span class="badge badge-success text-white font-bold text-[10px]">Available</span>
+            </div>
+
+            <div class="space-y-1.5">
+                <h5 class="font-bold text-xs opacity-70 uppercase tracking-wider">Release Notes</h5>
+                <div class="p-3.5 bg-base-200/50 border border-base-300 rounded-xl text-xs leading-relaxed max-h-80 overflow-y-auto space-y-2">
+                    ${formattedNotes}
+                </div>
+            </div>
+        </div>
+    `;
+
+    const footer = `
+        <button class="btn btn-xs btn-neutral" onclick="window.closeSidePanel()">Close</button>
+        <button class="btn btn-xs btn-primary text-white font-bold gap-1 ml-auto" onclick="window.downloadUpdate()">
+            <i data-feather="download" class="w-3.5 h-3.5"></i> Download & Install
+        </button>
+    `;
+
+    window.openSidePanel(title, body, footer);
+    if (window.feather) feather.replace();
+};
+
 window.dismissUpdate = () => { const b = document.getElementById('updateBanner'); if (b) b.classList.add('hidden'); localStorage.setItem('updateDismissed', Date.now().toString()); };
-window.downloadUpdate = () => { if (window.updateData?.download_url) { window.open(window.updateData.download_url, '_blank'); window.dismissUpdate(); } };
+window.downloadUpdate = () => { if (window.updateData?.download_url) { window.open(window.updateData.download_url, '_blank'); window.dismissUpdate(); window.closeSidePanel(); } };
 
 window.refreshDevices = () => window.pclinkUI.loadDevices();
 window.refreshLogs = () => window.pclinkUI.loadLogs();

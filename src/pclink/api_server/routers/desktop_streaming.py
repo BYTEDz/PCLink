@@ -171,7 +171,47 @@ async def get_status():
 
 @router.get("/diagnostics", dependencies=[Depends(verify_api_key)])
 async def get_diagnostics():
-    return await desktop_streaming_service.diagnose_system()
+    diag = await desktop_streaming_service.diagnose_system()
+    diag["active_path"] = str(desktop_streaming_service.refresh_engine_path())
+    diag["active_version"] = await desktop_streaming_service.get_binary_version(
+        desktop_streaming_service.refresh_engine_path()
+    )
+    return diag
+
+
+@router.get("/ferrumcast/versions", dependencies=[Depends(verify_api_key)])
+async def list_ferrumcast_versions():
+    installed = await desktop_streaming_service.get_installed_versions()
+    releases = await desktop_streaming_service.fetch_github_releases()
+    return {
+        "installed": installed,
+        "releases": releases,
+        "active_path": str(desktop_streaming_service.refresh_engine_path()),
+    }
+
+
+@router.post("/ferrumcast/select", dependencies=[Depends(verify_api_key)])
+async def select_ferrumcast_version(request: Request):
+    body = await request.json()
+    tag = body.get("tag")
+    if not tag:
+        raise HTTPException(status_code=400, detail="Tag is required")
+    return desktop_streaming_service.select_active_version(tag)
+
+
+@router.post("/ferrumcast/download", dependencies=[Depends(verify_api_key)])
+async def download_ferrumcast_version(request: Request):
+    body = await request.json()
+    tag = body.get("tag")
+    url = body.get("download_url")
+    if not tag:
+        raise HTTPException(status_code=400, detail="Tag is required")
+    return await desktop_streaming_service.download_version(tag, download_url=url)
+
+
+@router.delete("/ferrumcast/versions/{tag}", dependencies=[Depends(verify_api_key)])
+async def delete_ferrumcast_version(tag: str):
+    return desktop_streaming_service.delete_version_cache(tag)
 
 
 @router.post("/reset-portal", dependencies=[Depends(verify_api_key)])
