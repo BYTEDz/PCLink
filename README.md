@@ -92,11 +92,11 @@ Join the wider PCLink ecosystem:
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=bytedz%2Fpclink&type=timeline&logscale=&legend=bottom-right">
+<a href="https://star-history.dera.page/#bytedz/pclink&type=timeline">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=bytedz/pclink&type=timeline&theme=dark&logscale&legend=bottom-right" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=bytedz/pclink&type=timeline&logscale&legend=bottom-right" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=bytedz/pclink&type=timeline&logscale&legend=bottom-right" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=bytedz/pclink&type=timeline&theme=dark&logscale&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=bytedz/pclink&type=timeline&logscale&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=bytedz/pclink&type=timeline&logscale&legend=bottom-right" />
  </picture>
 </a>
 
