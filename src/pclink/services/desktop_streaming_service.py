@@ -370,21 +370,20 @@ class DesktopStreamingService:
         import tarfile
         import zipfile
 
-        extracted_bin: Path | None = None
+        extracted_any = False
         if zipfile.is_zipfile(tmp_bin):
             logger.info(f"Extracting zip archive for {tag_name}...")
             with zipfile.ZipFile(tmp_bin, "r") as zip_ref:
                 for member in zip_ref.infolist():
                     # Skip directory entries
-                    if member.filename.endswith("/"):
+                    if member.is_dir() or member.filename.endswith("/"):
                         continue
-                    # Flatten: strip any subdirectory prefix so DLLs land in target_dir
+                    # Flatten: strip any subdirectory prefix so DLLs land directly in target_dir
                     flat_name = Path(member.filename).name
                     dest = target_dir / flat_name
                     with zip_ref.open(member) as src, open(dest, "wb") as dst:
                         shutil.copyfileobj(src, dst)
-                    if flat_name == BIN_NAME:
-                        extracted_bin = dest
+                    extracted_any = True
         elif tarfile.is_tarfile(tmp_bin):
             logger.info(f"Extracting tar archive for {tag_name}...")
             with tarfile.open(tmp_bin, "r:*") as tar_ref:
@@ -397,13 +396,9 @@ class DesktopStreamingService:
                     if src:
                         with open(dest, "wb") as dst:
                             shutil.copyfileobj(src, dst)
-                    if flat_name == BIN_NAME:
-                        extracted_bin = dest
+                    extracted_any = True
 
-        if extracted_bin and extracted_bin.exists():
-            # Rename binary to canonical BIN_NAME if needed (shouldn't differ, but guard anyway)
-            if extracted_bin != target_bin:
-                shutil.move(str(extracted_bin), str(target_bin))
+        if extracted_any:
             tmp_bin.unlink(missing_ok=True)
         else:
             # Not an archive — treat downloaded file directly as binary

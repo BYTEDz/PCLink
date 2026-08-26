@@ -640,7 +640,7 @@ window.loadFcVersionsData = async () => {
                     } else if (isInstalled) {
                         actionBtn = `<button class="btn btn-xs btn-outline btn-primary font-bold" onclick="event.stopPropagation(); window.selectFcVersion('${r.tag_name}')">Use Build</button>`;
                     } else {
-                        actionBtn = `<button class="btn btn-xs btn-success text-white font-bold" onclick="event.stopPropagation(); window.downloadFcVersion('${r.tag_name}', '${r.download_url || ''}')">Install</button>`;
+                        actionBtn = `<button id="fc-dl-btn-${idx}" class="btn btn-xs btn-success text-white font-bold" onclick="event.stopPropagation(); window.downloadFcVersion('${r.tag_name}', '${r.download_url || ''}', 'fc-dl-btn-${idx}')">Install</button>`;
                     }
 
                     const formattedBody = window.renderFcMarkdown(r.body || 'No release notes published.');
@@ -745,23 +745,39 @@ window.selectFcVersion = async (tag) => {
     }
 };
 
-window.downloadFcVersion = async (tag, url) => {
+window.downloadFcVersion = async (tag, url, btnId = null) => {
+    const btn = btnId ? document.getElementById(btnId) : null;
+    const origBtnHtml = btn ? btn.innerHTML : null;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="loading loading-spinner loading-xs mr-1"></span> Downloading`;
+    }
+
     try {
-        window.setFcModalStatus(`Downloading FerrumCast ${tag}... (this may take a moment)`);
+        window.setFcModalStatus(`Downloading and unpacking FerrumCast ${tag}... (this may take a moment)`);
         const res = await window.pclinkUI.webUICall('/desktop-streaming/ferrumcast/download', {
             method: 'POST',
             body: JSON.stringify({ tag, download_url: url })
         });
         if (res.ok) {
-            window.pclinkUI.showToast('Update Complete', `FerrumCast ${tag} downloaded and activated`, 'success');
+            window.pclinkUI.showToast('Update Complete', `FerrumCast ${tag} installed and activated`, 'success');
             await window.loadFcVersionsData();
             await window.runDesktopStreamingDiagnostics();
+            window.switchFcModalTab('installed');
         } else {
             const err = await res.json();
             window.pclinkUI.showToast('Download Failed', err.detail || 'Download failed', 'error');
+            if (btn && origBtnHtml) {
+                btn.disabled = false;
+                btn.innerHTML = origBtnHtml;
+            }
         }
     } catch (e) {
         window.pclinkUI.showToast('Error', 'Download connection failed', 'error');
+        if (btn && origBtnHtml) {
+            btn.disabled = false;
+            btn.innerHTML = origBtnHtml;
+        }
     } finally {
         window.setFcModalStatus(null);
     }
@@ -791,11 +807,14 @@ window.deleteFcVersion = async (tag) => {
 window.setFcModalStatus = (msg) => {
     const statusBox = document.getElementById('fcModalStatusText');
     const statusMsg = document.getElementById('fcModalStatusMsg');
-    if (!statusBox || !statusMsg) return;
+    if (!statusBox) return;
     if (msg) {
-        statusMsg.textContent = msg;
+        if (statusMsg) statusMsg.textContent = msg;
         statusBox.classList.remove('hidden');
+        statusBox.style.display = 'flex';
     } else {
+        if (statusMsg) statusMsg.textContent = '';
         statusBox.classList.add('hidden');
+        statusBox.style.display = 'none';
     }
 };
