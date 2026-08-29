@@ -1,23 +1,35 @@
-# src/pclink/core/extension_context.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
 import gettext
+import json
 import logging
-import platform
+import os
 import subprocess
-import time
+import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from .extension_base import ExtensionMetadata
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
 
+PERMISSION_ALIASES: Dict[str, set] = {
+    "media.read": {"media", "media.read"},
+    "media.control": {"media", "media.control"},
+    "input.inject": {"input", "input.inject"},
+    "power.control": {"power", "power.control", "system"},
+    "system.exec": {"system", "system.exec"},
+    "fs.read": {"fs.read", "filesystem.read", "files_read", "fs.all"},
+    "fs.write": {"fs.write", "filesystem.write", "files_write", "fs.all"},
+    "storage.local": {"storage", "storage.local"},
+    "notifications": {"notifications", "notification"},
+}
 
-class PermissionDeniedError(Exception):
+
+class PermissionDeniedError(PermissionError):
     pass
 
 
@@ -27,15 +39,20 @@ class ExtensionAPI:
         self.ipc_conn = ipc_conn
 
     def _check_permission(self, permission: str):
-        if permission not in self.metadata.permissions:
+        granted_set = set(self.metadata.permissions)
+        accepted_aliases = PERMISSION_ALIASES.get(permission, {permission})
+
+        if (
+            not granted_set.intersection(accepted_aliases)
+            and "fs.all" not in granted_set
+        ):
             raise PermissionDeniedError(
-                _("Extension '{name}' missing permission: {permission}").format(
-                    name=self.metadata.name, permission=permission
-                )
+                _(
+                    "Permission denied: capability '{perm}' is not granted to extension '{ext_id}'."
+                ).format(perm=permission, ext_id=self.metadata.id)
             )
 
     def _call_ipc(self, api_name: str, method: str, kwargs: Dict[str, Any]) -> Any:
-        """Proxy call to host process over IPC when running in isolated process mode."""
         if not self.ipc_conn:
             return None
         try:
@@ -49,16 +66,194 @@ class ExtensionAPI:
             )
             response = self.ipc_conn.recv()
             if response.get("status") == "error":
-                raise RuntimeError(response.get("error", _("IPC Call Failed")))
+                raise RuntimeError(response.get("error", "IPC Call Failed"))
             return response.get("result")
         except Exception as e:
             log.error(f"IPC context call failed ({api_name}.{method}): {e}")
             return None
 
 
-class InputAPI(ExtensionAPI):
-    """Provides extension access to PCLink's zero-prompt kernel uinput input engine."""
+class ExecAPI(ExtensionAPI):
+    def run(
+        self,
+        command: Union[str, List[str]],
+        timeout: int = 15,
+        cwd: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        self._check_permission("system.exec")
+        if self.ipc_conn:
+            return self._call_ipc(
+                "exec", "run", {"command": command, "timeout": timeout, "cwd": cwd}
+            )
 
+        kwargs = {
+            "shell": isinstance(command, str),
+            "capture_output": True,
+            "text": True,
+            "timeout": timeout,
+            "cwd": cwd,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+        try:
+            res = subprocess.run(command, **kwargs)
+            return {
+                "exit_code": res.returncode,
+                "stdout": res.stdout,
+                "stderr": res.stderr,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": f"Command timed out after {timeout} seconds",
+            }
+        except Exception as e:
+            return {"exit_code": -1, "stdout": "", "stderr": str(e)}
+
+
+class FsAPI(ExtensionAPI):
+    def _get_base_path(self) -> Path:
+        from . import constants
+
+        path = constants.APP_DATA_PATH / "extension_data" / self.metadata.id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _resolve_safe_path(self, relative_path: str) -> Path:
+        base = self._get_base_path().resolve()
+        target = (base / relative_path).resolve()
+        if "fs.all" not in self.metadata.permissions and not target.is_relative_to(
+            base
+        ):
+            raise PermissionDeniedError(
+                _("File access outside allowed scope is forbidden: {path}").format(
+                    path=relative_path
+                )
+            )
+        return target
+
+    def read_text(self, path: str) -> str:
+        self._check_permission("fs.read")
+        target = self._resolve_safe_path(path)
+        return target.read_text(encoding="utf-8")
+
+    def write_text(self, path: str, content: str) -> bool:
+        self._check_permission("fs.write")
+        target = self._resolve_safe_path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return True
+
+    def list_dir(self, path: str = ".") -> List[Dict[str, Any]]:
+        self._check_permission("fs.read")
+        target = self._resolve_safe_path(path)
+        if not target.is_dir():
+            return []
+        items = []
+        for entry in os.scandir(target):
+            items.append(
+                {
+                    "name": entry.name,
+                    "is_dir": entry.is_dir(),
+                    "size": entry.stat().st_size if not entry.is_dir() else 0,
+                    "modified_at": entry.stat().st_mtime,
+                }
+            )
+        return items
+
+
+class FetchAPI(ExtensionAPI):
+    def request(
+        self,
+        url: str,
+        method: str = "GET",
+        headers: Optional[Dict[str, str]] = None,
+        body: Optional[Any] = None,
+        timeout: int = 10,
+    ) -> Dict[str, Any]:
+        self._check_permission("net.fetch")
+        if self.ipc_conn:
+            return self._call_ipc(
+                "fetch",
+                "request",
+                {
+                    "url": url,
+                    "method": method,
+                    "headers": headers,
+                    "body": body,
+                    "timeout": timeout,
+                },
+            )
+
+        import urllib.error
+        import urllib.request
+
+        req_headers = headers or {"User-Agent": f"PCLink-Extension/{self.metadata.id}"}
+        data_bytes = None
+        if body:
+            if isinstance(body, (dict, list)):
+                data_bytes = json.dumps(body).encode("utf-8")
+                req_headers["Content-Type"] = "application/json"
+            elif isinstance(body, str):
+                data_bytes = body.encode("utf-8")
+
+        req = urllib.request.Request(
+            url, data=data_bytes, headers=req_headers, method=method.upper()
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                content = resp.read().decode("utf-8", errors="ignore")
+                return {
+                    "status_code": resp.status,
+                    "headers": dict(resp.headers),
+                    "body": content,
+                }
+        except urllib.error.HTTPError as e:
+            return {
+                "status_code": e.code,
+                "headers": dict(e.headers),
+                "body": e.read().decode("utf-8", errors="ignore"),
+            }
+        except Exception as e:
+            return {"status_code": 500, "headers": {}, "body": str(e)}
+
+
+class StorageAPI(ExtensionAPI):
+    def _get_store_path(self) -> Path:
+        from . import constants
+
+        p = constants.APP_DATA_PATH / "extension_data" / self.metadata.id / "kv.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def get(self, key: str, default: Any = None) -> Any:
+        self._check_permission("storage.local")
+        p = self._get_store_path()
+        if not p.exists():
+            return default
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return data.get(key, default)
+        except Exception:
+            return default
+
+    def set(self, key: str, value: Any) -> bool:
+        self._check_permission("storage.local")
+        p = self._get_store_path()
+        data = {}
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        data[key] = value
+        p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return True
+
+
+class InputAPI(ExtensionAPI):
     def mouse_move(self, dx: int, dy: int):
         self._check_permission("input.inject")
         if self.ipc_conn:
@@ -77,22 +272,6 @@ class InputAPI(ExtensionAPI):
 
         input_service.mouse_click(button, clicks)
 
-    def mouse_scroll(self, dx: int, dy: int):
-        self._check_permission("input.inject")
-        if self.ipc_conn:
-            return self._call_ipc("input", "mouse_scroll", {"dx": dx, "dy": dy})
-        from ..services.input_service import input_service
-
-        input_service.mouse_scroll(dx, dy)
-
-    def keyboard_type(self, text: str):
-        self._check_permission("input.inject")
-        if self.ipc_conn:
-            return self._call_ipc("input", "keyboard_type", {"text": text})
-        from ..services.input_service import input_service
-
-        input_service.keyboard_type(text)
-
     def keyboard_press_key(self, key_str: str, modifiers: List[str] = None):
         self._check_permission("input.inject")
         if self.ipc_conn:
@@ -106,87 +285,30 @@ class InputAPI(ExtensionAPI):
         input_service.keyboard_press_key(key_str, modifiers or [])
 
 
-class ThemeAPI(ExtensionAPI):
-    def get_system_theme(self) -> str:
-        """Returns 'dark' or 'light'."""
-        self._check_permission("theme.read")
+class MediaAPI(ExtensionAPI):
+    async def get_state(self) -> Dict[str, Any]:
+        self._check_permission("media.read")
+        from ..services.media_service import media_service
 
-        if self.ipc_conn:
-            return self._call_ipc("theme", "get_system_theme", {}) or "dark"
+        return await media_service.get_media_info()
 
-        if platform.system() == "Windows":
-            try:
-                import winreg
+    async def command(self, action: str):
+        self._check_permission("media.control")
+        from ..services.media_service import media_service
 
-                registry = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
-                key = winreg.OpenKey(
-                    registry,
-                    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                )
-                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-                return "light" if value == 1 else "dark"
-            except Exception as e:
-                log.warning(f"Failed to read windows theme: {e}")
-                return "dark"
-        return "dark"
+        await media_service.media_command(action)
 
 
-class DialogAPI(ExtensionAPI):
-    def open_file_picker(
-        self, title: str = "Select a File", file_types: List[str] = None
-    ) -> Optional[str]:
-        """
-        Opens a native file picker dialog on the server host.
-        Returns the selected file path or None if cancelled.
-        """
-        self._check_permission("ui.picker")
+class PowerAPI(ExtensionAPI):
+    async def execute(self, action: str):
+        self._check_permission("power.control")
+        from ..services.system_service import system_service
 
-        if self.ipc_conn:
-            return self._call_ipc(
-                "dialog",
-                "open_file_picker",
-                {"title": title, "file_types": file_types},
-            )
-
-        if file_types is None:
-            file_types = ["All Files", "*.*"]
-
-        if platform.system() == "Windows":
-            ps_script = f"""
-            Add-Type -AssemblyName System.Windows.Forms
-            $f = New-Object System.Windows.Forms.OpenFileDialog
-            $f.Title = "{title}"
-            $f.Filter = "All Files (*.*)|*.*"
-            if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
-                Write-Host $f.FileName
-            }}
-            """
-
-            try:
-                cmd = [
-                    "powershell",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    ps_script,
-                ]
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                )
-                path = result.stdout.strip()
-                return path if path else None
-            except Exception as e:
-                log.error(f"File picker failed: {e}")
-                return None
-        return None
+        await system_service.power_command(action)
 
 
 class NotificationAPI(ExtensionAPI):
     def show(self, title: str, message: str, type: str = "info") -> bool:
-        """Pushes a notification directly into PCLink's Notification Center & Web UI toasts."""
         if self.ipc_conn:
             return bool(
                 self._call_ipc(
@@ -195,7 +317,6 @@ class NotificationAPI(ExtensionAPI):
                     {"title": title, "message": message, "type": type},
                 )
             )
-
         try:
             from ..api_server.ws_manager import ui_manager
 
@@ -209,8 +330,16 @@ class NotificationAPI(ExtensionAPI):
             )
             return True
         except Exception as e:
-            log.error(f"Failed to dispatch extension notification: {e}")
+            log.error(f"Failed to dispatch notification: {e}")
             return False
+
+
+class ThemeAPI(ExtensionAPI):
+    def get_theme(self) -> str:
+        # Theme inspection is an automatic framework QoL feature and requires no permission check
+        from ..core.config import config_manager
+
+        return config_manager.get("theme", "dark")
 
 
 class ExtensionContext:
@@ -219,34 +348,35 @@ class ExtensionContext:
 
         self.metadata = metadata
         self.ipc_conn = ipc_conn
-        self.input = InputAPI(metadata, ipc_conn=ipc_conn)
-        self.theme = ThemeAPI(metadata, ipc_conn=ipc_conn)
-        self.dialog = DialogAPI(metadata, ipc_conn=ipc_conn)
-        self.notification = NotificationAPI(metadata, ipc_conn=ipc_conn)
-        self._event_listeners: Dict[str, List[Callable]] = {}
-        self._background_tasks: List[Dict[str, Any]] = []
 
-        # Isolated extension storage directory
-        self._data_path = constants.APP_DATA_PATH / "extension_data" / metadata.name
+        self.exec = ExecAPI(metadata, ipc_conn=ipc_conn)
+        self.fs = FsAPI(metadata, ipc_conn=ipc_conn)
+        self.fetch = FetchAPI(metadata, ipc_conn=ipc_conn)
+        self.storage = StorageAPI(metadata, ipc_conn=ipc_conn)
+
+        self.input = InputAPI(metadata, ipc_conn=ipc_conn)
+        self.media = MediaAPI(metadata, ipc_conn=ipc_conn)
+        self.power = PowerAPI(metadata, ipc_conn=ipc_conn)
+        self.notification = NotificationAPI(metadata, ipc_conn=ipc_conn)
+        self.theme = ThemeAPI(metadata, ipc_conn=ipc_conn)
+
+        self._event_listeners: Dict[str, List[Callable]] = {}
+        self._data_path = constants.APP_DATA_PATH / "extension_data" / metadata.id
         self._data_path.mkdir(parents=True, exist_ok=True)
 
     @property
-    def extension_data_path(self) -> Path:
-        """Returns the isolated persistent storage directory for this extension."""
+    def data_path(self) -> Path:
         return self._data_path
 
     def notify(self, title: str, message: str, type: str = "info") -> bool:
-        """Convenience method for extension developers to trigger PCLink notifications."""
         return self.notification.show(title, message, type)
 
     def on(self, event_name: str, handler: Callable):
-        """Register an event listener for PCLink system or inter-extension events."""
         if event_name not in self._event_listeners:
             self._event_listeners[event_name] = []
         self._event_listeners[event_name].append(handler)
 
     def publish_event(self, event_name: str, data: Dict[str, Any] = None):
-        """Publishes an event to the host event bus to notify other extensions or host systems."""
         if self.ipc_conn:
             try:
                 self.ipc_conn.send(
@@ -264,29 +394,3 @@ class ExtensionContext:
         from .extension_manager import ExtensionManager
 
         ExtensionManager().dispatch_event(event_name, data or {})
-
-    def register_task(self, task_name: str, interval_seconds: float, handler: Callable):
-        """Registers a background task to be run periodically by the host manager loop."""
-        self._background_tasks.append(
-            {
-                "name": task_name,
-                "interval": interval_seconds,
-                "handler": handler,
-                "last_run": 0.0,
-            }
-        )
-        log.info(
-            _("Registered background task '{task}' for extension '{ext}'").format(
-                task=task_name, ext=self.metadata.name
-            )
-        )
-
-    def log_audit(self, action: str, details: Dict[str, Any] = None):
-        """Logs a high-privilege extension audit record."""
-        audit_log = self._data_path / "audit.log"
-        entry = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ACTION={action} | DETAILS={details or {}}\n"
-        try:
-            with open(audit_log, "a", encoding="utf-8") as f:
-                f.write(entry)
-        except Exception as e:
-            log.error(f"Failed to write audit entry for {self.metadata.name}: {e}")

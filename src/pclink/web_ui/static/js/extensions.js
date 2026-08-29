@@ -34,10 +34,12 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
         const isLoaded = ext.is_loaded;
         const iconUrl = ext.icon ? `/ui/extensions/${id}/icon` : null;
 
-        // Telemetry badges (PID, CPU %, Memory MB)
         const pidBadge = isLoaded && ext.pid ? `<span class="badge badge-ghost badge-xs font-mono">PID ${ext.pid}</span>` : '';
         const cpuBadge = isLoaded && ext.cpu_percent !== undefined ? `<span class="badge badge-outline badge-xs font-mono font-bold">${ext.cpu_percent}% CPU</span>` : '';
         const memBadge = isLoaded && ext.memory_mb !== undefined ? `<span class="badge badge-outline badge-xs font-mono font-bold">${ext.memory_mb} MB</span>` : '';
+
+        const hasViews = (ext.contributes?.views && ext.contributes.views.length > 0) || ext.ui_entry;
+        const hasWidgets = (ext.contributes?.dashboard_widgets && ext.contributes.dashboard_widgets.length > 0) || (ext.dashboard_widgets && ext.dashboard_widgets.length > 0);
 
         return `
         <div class="card bg-base-100 border border-base-300 shadow-sm transition-all hover:border-primary group">
@@ -49,19 +51,24 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
                         </div>
                         <div class="overflow-hidden">
                             <div class="flex items-center gap-2">
-                                <h4 class="font-bold text-sm leading-tight truncate">${ext.display_name || id}</h4>
-                                <span class="text-[9px] font-black uppercase opacity-40">v${ext.version || '0.0.1'}</span>
+                                <h4 class="font-bold text-sm leading-tight truncate">${ext.name || ext.display_name || id}</h4>
+                                <span class="text-[9px] font-black uppercase opacity-40">v${ext.version || '1.0.0'}</span>
                             </div>
                             <p class="text-[10px] font-bold opacity-50 truncate mt-1">${ext.description || 'No description'}</p>
-                            <div class="flex items-center gap-1.5 mt-2">
+                            <div class="flex items-center gap-1.5 mt-2 flex-wrap">
                                 ${pidBadge} ${cpuBadge} ${memBadge}
+                                ${hasWidgets ? `<span class="badge badge-primary badge-xs text-[8px] font-bold uppercase">Widget</span>` : ''}
                             </div>
                         </div>
                     </div>
                     <input type="checkbox" class="toggle toggle-sm toggle-primary shrink-0" ${isLoaded ? 'checked' : ''} ${needsConsent ? 'disabled' : ''} onchange="window.toggleExtension('${id}', this.checked, this)" />
                 </div>
-                <div class="flex items-center gap-2 mt-4 pt-4 border-t border-base-200">
-                    <button class="btn btn-xs btn-ghost font-bold opacity-50 hover:opacity-100" onclick="window.openExtLogs('${id}', '${ext.display_name || id}')">
+                <div class="flex items-center gap-2 mt-4 pt-4 border-t border-base-200 flex-wrap">
+                    ${hasViews && isLoaded ? `
+                    <button class="btn btn-xs btn-primary text-white font-bold" onclick="window.openExtensionUI('${id}', '${ext.name || id}')">
+                        <i data-feather="external-link" class="w-3"></i> Open UI
+                    </button>` : ''}
+                    <button class="btn btn-xs btn-ghost font-bold opacity-50 hover:opacity-100" onclick="window.openExtLogs('${id}', '${ext.name || id}')">
                         <i data-feather="list" class="w-3"></i> Logs
                     </button>
                     <div class="flex-1"></div>
@@ -69,7 +76,7 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
                     <button class="btn btn-xs btn-warning font-bold" onclick="window.approveExtension('${id}')">
                         <i data-feather="check" class="w-3"></i> Approve & Enable
                     </button>` : ''}
-                    <button class="btn btn-xs btn-ghost btn-error border-base-300 font-bold" onclick="window.deleteExtension('${id}', '${ext.display_name || id}')">
+                    <button class="btn btn-xs btn-ghost btn-error border-base-300 font-bold" onclick="window.deleteExtension('${id}', '${ext.name || id}')">
                         <i data-feather="trash-2" class="w-3"></i> Remove
                     </button>
                 </div>
@@ -77,6 +84,25 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
         </div>`;
     }).join('');
     this.renderIcons();
+};
+
+window.openExtensionUI = function (id, title) {
+    const url = `/extensions/${id}/ui?theme=${document.documentElement.getAttribute('data-theme') || 'dark'}`;
+    const headerTitle = `<i data-feather="package" class="w-4 h-4 text-primary"></i> ${title}`;
+    const body = `
+        <div class="w-full h-full min-h-[500px] flex flex-col bg-base-100 rounded-xl overflow-hidden border border-base-300 shadow-inner">
+            <iframe
+                src="${url}"
+                class="w-full flex-1 border-none min-h-[500px]"
+                sandbox="allow-scripts allow-forms allow-same-origin"
+                loading="lazy">
+            </iframe>
+        </div>
+    `;
+    const footer = `
+        <button class="btn btn-xs btn-ghost" onclick="window.closeSidePanel()">Close</button>
+    `;
+    window.openSidePanel(headerTitle, body, footer);
 };
 
 window.loadExtensions = () => { if (window.pclinkUI) window.pclinkUI.loadExtensions(); };
@@ -123,7 +149,6 @@ window._currentExtLogsId = null;
 window.openExtLogs = async (id, name) => {
     window._currentExtLogsId = id;
     const modal = document.getElementById('extLogsModal');
-    const title = document.getElementById('confirmModalTitle');
     const content = document.getElementById('extLogsContent');
     if (!modal) return;
     const titleEl = document.getElementById('extLogsModalTitle');

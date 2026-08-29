@@ -1,8 +1,8 @@
-# src/pclink/api_server/middleware.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
+import urllib.parse
 from typing import Any
 
 from fastapi import Request
@@ -156,33 +156,21 @@ def create_extension_middleware(extension_manager: Any):
         if path.startswith("/extensions/") and not path.startswith("/api/extensions"):
             parts = path.split("/")
             if len(parts) > 2:
-                extension_id = parts[2]
-                is_active = (
-                    extension_manager.get_extension(extension_id) is not None
-                    or extension_id in extension_manager.isolated_processes
-                )
-                if not is_active:
-                    manifest_path = (
-                        extension_manager.extensions_path
-                        / extension_id
-                        / "extension.yaml"
-                    )
-                    if manifest_path.exists():
-                        try:
-                            import yaml
+                raw_identifier = parts[2]
+                extension_id = urllib.parse.unquote(raw_identifier)
 
-                            with open(manifest_path, "r", encoding="utf-8") as f:
-                                config = yaml.safe_load(f)
-                            if config.get("enabled", True):
-                                extension_manager.failed_extensions.pop(
-                                    extension_id, None
-                                )
-                                if extension_manager.load_extension(extension_id):
-                                    return await call_next(request)
-                        except Exception as e:
-                            log.error(
-                                f"Failed to hot-load extension {extension_id} on request: {e}"
-                            )
+                # Skip internal SDK and theme asset endpoints
+                if extension_id in ("sdk", "theme"):
+                    return await call_next(request)
+
+                ext_instance = extension_manager.get_extension(extension_id)
+                if ext_instance is None:
+                    manifest = extension_manager.get_manifest(extension_id)
+                    if manifest and manifest.get("enabled", True):
+                        extension_manager.failed_extensions.pop(extension_id, None)
+                        target_id = manifest.get("id") or extension_id
+                        if extension_manager.load_extension(target_id):
+                            return await call_next(request)
 
                     if not path.endswith("/icon"):
                         log.warning(

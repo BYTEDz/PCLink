@@ -1,14 +1,11 @@
-# src/pclink/services/linux_evdev_service.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import ctypes
 import ctypes.util
 import logging
-import os
 import re
 import time
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 try:
@@ -26,10 +23,6 @@ log = logging.getLogger(__name__)
 def _build_dynamic_xkb_map(
     layout_name: str, variant: str = ""
 ) -> Dict[str, Tuple[int, bool, bool]]:
-    """
-    Dynamically queries libxkbcommon to build a map from unicode characters
-    to (evdev_keycode, need_shift, need_altgr) for ANY active Linux keyboard layout.
-    """
     lib_path = ctypes.util.find_library("xkbcommon") or "libxkbcommon.so.0"
     try:
         xkb = ctypes.CDLL(lib_path)
@@ -40,7 +33,6 @@ def _build_dynamic_xkb_map(
     try:
         xkb.xkb_context_new.restype = ctypes.c_void_p
         xkb.xkb_context_new.argtypes = [ctypes.c_int]
-
         xkb.xkb_context_unref.restype = None
         xkb.xkb_context_unref.argtypes = [ctypes.c_void_p]
 
@@ -59,7 +51,6 @@ def _build_dynamic_xkb_map(
             ctypes.POINTER(XkbRuleNames),
             ctypes.c_int,
         ]
-
         xkb.xkb_keymap_unref.restype = None
         xkb.xkb_keymap_unref.argtypes = [ctypes.c_void_p]
 
@@ -109,17 +100,15 @@ def _build_dynamic_xkb_map(
         char_map: Dict[str, Tuple[int, bool, bool]] = {}
         buf = ctypes.create_string_buffer(32)
 
-        # Scanner levels: (level_idx, need_shift, need_altgr)
         levels = [
-            (0, False, False),  # Normal
-            (1, True, False),  # Shift
-            (2, False, True),  # AltGr
-            (3, True, True),  # Shift + AltGr
+            (0, False, False),
+            (1, True, False),
+            (2, False, True),
+            (3, True, True),
         ]
 
         syms_ptr = ctypes.POINTER(ctypes.c_uint32)()
 
-        # Scan XKB keycodes (8 to 255 -> evdev keycodes 0 to 247)
         for evdev_code in range(1, 248):
             xkb_code = evdev_code + 8
             for level, shift, altgr in levels:
@@ -137,10 +126,6 @@ def _build_dynamic_xkb_map(
 
         xkb.xkb_keymap_unref(keymap)
         xkb.xkb_context_unref(ctx)
-
-        log.info(
-            f"[EVDEV_XKB] Dynamically generated {len(char_map)} character mappings for layout '{clean_layout}'."
-        )
         return char_map
 
     except Exception as e:
@@ -149,11 +134,6 @@ def _build_dynamic_xkb_map(
 
 
 class LinuxEvdevService:
-    """
-    Low-level Linux input service using uinput/evdev.
-    Bypasses Wayland security by creating virtual hardware devices.
-    """
-
     def __init__(self):
         self.ui = None
         self._auto_layout = None
@@ -250,6 +230,16 @@ class LinuxEvdevService:
                     ecodes.KEY_RIGHTMETA,
                     ecodes.KEY_COMPOSE,
                     ecodes.KEY_MENU,
+                    # Media Control Keys
+                    ecodes.KEY_PLAYPAUSE,
+                    ecodes.KEY_PAUSECD,
+                    ecodes.KEY_STOPCD,
+                    ecodes.KEY_NEXTSONG,
+                    ecodes.KEY_PREVIOUSSONG,
+                    ecodes.KEY_VOLUMEUP,
+                    ecodes.KEY_VOLUMEDOWN,
+                    ecodes.KEY_MUTE,
+                    # Pointer Buttons
                     ecodes.BTN_LEFT,
                     ecodes.BTN_RIGHT,
                     ecodes.BTN_MIDDLE,
@@ -263,7 +253,9 @@ class LinuxEvdevService:
             }
 
             self.ui = UInput(capabilities, name="PCLink Virtual Input")
-            log.info("Successfully created PCLink Virtual Input device via uinput.")
+            log.info(
+                "Initialized PCLink Virtual Input device with media key capabilities."
+            )
 
             self.btn_map = {
                 "left": ecodes.BTN_LEFT,
@@ -276,6 +268,15 @@ class LinuxEvdevService:
                 f"Failed to initialize uinput device: {e}. Check /dev/uinput permissions."
             )
             self.ui = None
+
+    def emit_key_tap(self, keycode: int):
+        if not self.ui:
+            return
+        self.ui.write(ecodes.EV_KEY, keycode, 1)
+        self.ui.syn()
+        time.sleep(0.02)
+        self.ui.write(ecodes.EV_KEY, keycode, 0)
+        self.ui.syn()
 
     def move_relative(self, dx: int, dy: int):
         if self.ui:
@@ -306,8 +307,6 @@ class LinuxEvdevService:
         self.ui.syn()
 
     def _detect_system_layout(self) -> str:
-        """Detect current system keyboard layout dynamically."""
-        # 1. GNOME gsettings (Fedora / Ubuntu Wayland)
         try:
             import subprocess
 
@@ -318,16 +317,12 @@ class LinuxEvdevService:
                 timeout=2,
             )
             if res.returncode == 0 and res.stdout:
-                out = res.stdout.strip()
-                matches = re.findall(r"\('xkb',\s*'([^']+)'\)", out)
+                matches = re.findall(r"\('xkb',\s*'([^']+)'\)", res.stdout)
                 if matches:
-                    layout = matches[0].split("+")[0]
-                    log.info(f"[LAYOUT_DETECT] Detected GNOME input layout: '{layout}'")
-                    return layout
-        except Exception as e:
-            log.debug(f"[LAYOUT_DETECT] GNOME gsettings detection failed: {e}")
+                    return matches[0].split("+")[0]
+        except Exception:
+            pass
 
-        # 2. localectl status
         try:
             import subprocess
 
@@ -336,65 +331,18 @@ class LinuxEvdevService:
             )
             if res.returncode == 0:
                 for line in res.stdout.splitlines():
-                    line_lower = line.lower()
-                    if "x11 layout:" in line_lower or "vc keymap:" in line_lower:
-                        val = (
-                            line.split(":", 1)[1]
-                            .strip()
-                            .lower()
-                            .split(",")[0]
-                            .split("-")[0]
-                        )
-                        if val:
-                            log.info(
-                                f"[LAYOUT_DETECT] Detected localectl layout: '{val}'"
-                            )
-                            return val
-        except Exception as e:
-            log.debug(f"[LAYOUT_DETECT] localectl detection failed: {e}")
-
-        # 3. Environment variables & /etc/vconsole.conf
-        try:
-            xkb_layout = os.environ.get("XKB_DEFAULT_LAYOUT", "").lower()
-            if xkb_layout:
-                return xkb_layout.split(",")[0]
-
-            vconsole = Path("/etc/vconsole.conf")
-            if vconsole.exists():
-                content = vconsole.read_text().lower()
-                for line in content.splitlines():
-                    if line.startswith("keymap=") or line.startswith("xkblayout="):
-                        val = line.split("=", 1)[1].strip("\"'").split("-")[0]
-                        if val:
-                            return val
-        except Exception as e:
-            log.debug(f"[LAYOUT_DETECT] Environment check failed: {e}")
-
-        # 4. setxkbmap fallback
-        try:
-            import subprocess
-
-            res = subprocess.run(
-                ["setxkbmap", "-query"], capture_output=True, text=True, timeout=2
-            )
-            if res.returncode == 0:
-                for line in res.stdout.splitlines():
-                    if "layout:" in line.lower():
+                    if "x11 layout:" in line.lower() or "vc keymap:" in line.lower():
                         val = line.split(":", 1)[1].strip().lower().split(",")[0]
-                        log.info(f"[LAYOUT_DETECT] Detected setxkbmap layout: '{val}'")
-                        return val
-        except Exception as e:
-            log.debug(f"[LAYOUT_DETECT] setxkbmap detection failed: {e}")
+                        if val:
+                            return val
+        except Exception:
+            pass
 
-        log.info("[LAYOUT_DETECT] Fallback to default layout: 'us'")
         return "us"
 
     def _get_layout_name(self) -> str:
-        cfg_layout = config_manager.get("keyboard_layout", "auto")
-        if not cfg_layout:
-            cfg_layout = "auto"
+        cfg_layout = config_manager.get("keyboard_layout", "auto") or "auto"
         layout = str(cfg_layout).lower()
-
         if layout == "auto":
             if not self._auto_layout:
                 self._auto_layout = self._detect_system_layout()
@@ -403,7 +351,6 @@ class LinuxEvdevService:
 
     def _char_to_key_event(self, char: str) -> Optional[Tuple[int, bool, bool]]:
         layout = self._get_layout_name()
-
         if self._cached_layout != layout or not self._cached_xkb_map:
             self._cached_xkb_map = _build_dynamic_xkb_map(layout)
             self._cached_layout = layout
@@ -411,88 +358,42 @@ class LinuxEvdevService:
         if char in self._cached_xkb_map:
             return self._cached_xkb_map[char]
 
-        # Space / Enter / Tab fallback
         if char == " ":
             return (ecodes.KEY_SPACE, False, False)
         elif char in ("\n", "\r"):
             return (ecodes.KEY_ENTER, False, False)
         elif char == "\t":
             return (ecodes.KEY_TAB, False, False)
-
         return None
-
-    def _paste_text_via_clipboard(self, text: str):
-        """
-        Seamlessly pastes text using clipboard insertion (wl-copy / xclip) and Ctrl+V.
-        Guarantees 100% seamless support for any language (Arabic, CJK, Emojis) without
-        typing hex codes or triggering Enter presses.
-        """
-        log.info(f"[EVDEV] Pasting text via clipboard: '{text}'")
-        from ..core.wayland_utils import clipboard_set_wayland
-
-        success = clipboard_set_wayland(text)
-        if not success:
-            try:
-                import pyperclip
-
-                pyperclip.copy(text)
-                success = True
-            except Exception as e:
-                log.warning(f"[EVDEV] Clipboard copy fallback failed: {e}")
-
-        if success:
-            time.sleep(0.02)
-            # Emit Ctrl + V over uinput
-            self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 1)
-            self.ui.write(ecodes.EV_KEY, ecodes.KEY_V, 1)
-            self.ui.syn()
-            time.sleep(0.01)
-            self.ui.write(ecodes.EV_KEY, ecodes.KEY_V, 0)
-            self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 0)
-            self.ui.syn()
-            time.sleep(0.01)
 
     def type_text(self, text: str):
         if not self.ui:
-            log.warning("[EVDEV] uinput UI device is not initialized.")
             return
 
-        layout = self._get_layout_name()
-        log.info(f"[EVDEV] Typing text: '{text}' (Active layout: '{layout}')")
-
-        # Check if text contains non-ASCII or unmapped characters
         has_unmapped = any(self._char_to_key_event(c) is None for c in text)
-
         if has_unmapped:
-            log.info(
-                "[EVDEV] Text contains international/unmapped characters. Using seamless clipboard paste."
-            )
-            self._paste_text_via_clipboard(text)
+            from ..core.wayland_utils import clipboard_set_wayland
+
+            success = clipboard_set_wayland(text)
+            if success:
+                time.sleep(0.02)
+                self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 1)
+                self.ui.write(ecodes.EV_KEY, ecodes.KEY_V, 1)
+                self.ui.syn()
+                time.sleep(0.01)
+                self.ui.write(ecodes.EV_KEY, ecodes.KEY_V, 0)
+                self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 0)
+                self.ui.syn()
             return
 
-        # Natively supported characters: type via hardware keycodes
         for char in text:
             event = self._char_to_key_event(char)
             if not event:
                 continue
-
             code, need_shift, need_altgr = event
-            key_name = code
-            try:
-                if hasattr(ecodes, "KEY") and isinstance(ecodes.KEY, dict):
-                    key_name = ecodes.KEY.get(code, code)
-            except Exception:
-                pass
-
-            log.info(
-                f"[EVDEV] Char: '{char}' -> KeyCode: {code} ({key_name}), "
-                f"Shift: {need_shift}, AltGr: {need_altgr}"
-            )
-
             if need_altgr:
                 self.ui.write(ecodes.EV_KEY, ecodes.KEY_RIGHTALT, 1)
                 self.ui.syn()
-
             if need_shift:
                 self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
                 self.ui.syn()
@@ -506,83 +407,68 @@ class LinuxEvdevService:
             if need_shift:
                 self.ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
                 self.ui.syn()
-
             if need_altgr:
                 self.ui.write(ecodes.EV_KEY, ecodes.KEY_RIGHTALT, 0)
                 self.ui.syn()
-
             time.sleep(0.01)
 
     def press_key(self, key_str: str, modifiers: List[str] = None):
         if not self.ui:
-            log.warning("[EVDEV] uinput UI device is not initialized.")
             return
-        try:
-            layout = self._get_layout_name()
-            mod_map = {
-                "ctrl": ecodes.KEY_LEFTCTRL,
-                "shift": ecodes.KEY_LEFTSHIFT,
-                "alt": ecodes.KEY_LEFTALT,
-                "altgr": ecodes.KEY_RIGHTALT,
-                "win": ecodes.KEY_LEFTMETA,
-                "cmd": ecodes.KEY_LEFTMETA,
-                "meta": ecodes.KEY_LEFTMETA,
-                "super": ecodes.KEY_LEFTMETA,
-            }
 
-            named_keys = {
-                "enter": ecodes.KEY_ENTER,
-                "esc": ecodes.KEY_ESC,
-                "tab": ecodes.KEY_TAB,
-                "space": ecodes.KEY_SPACE,
-                "backspace": ecodes.KEY_BACKSPACE,
-                "delete": ecodes.KEY_DELETE,
-                "up": ecodes.KEY_UP,
-                "down": ecodes.KEY_DOWN,
-                "left": ecodes.KEY_LEFT,
-                "right": ecodes.KEY_RIGHT,
-                "home": ecodes.KEY_HOME,
-                "end": ecodes.KEY_END,
-                "pageup": ecodes.KEY_PAGEUP,
-                "pagedown": ecodes.KEY_PAGEDOWN,
-            }
+        mod_map = {
+            "ctrl": ecodes.KEY_LEFTCTRL,
+            "shift": ecodes.KEY_LEFTSHIFT,
+            "alt": ecodes.KEY_LEFTALT,
+            "altgr": ecodes.KEY_RIGHTALT,
+            "win": ecodes.KEY_LEFTMETA,
+            "cmd": ecodes.KEY_LEFTMETA,
+        }
 
-            mods = [mod_map.get(m.lower(), None) for m in (modifiers or [])]
-            mods = [m for m in mods if m is not None]
+        named_keys = {
+            "enter": ecodes.KEY_ENTER,
+            "esc": ecodes.KEY_ESC,
+            "tab": ecodes.KEY_TAB,
+            "space": ecodes.KEY_SPACE,
+            "backspace": ecodes.KEY_BACKSPACE,
+            "delete": ecodes.KEY_DELETE,
+            "up": ecodes.KEY_UP,
+            "down": ecodes.KEY_DOWN,
+            "left": ecodes.KEY_LEFT,
+            "right": ecodes.KEY_RIGHT,
+            "home": ecodes.KEY_HOME,
+            "end": ecodes.KEY_END,
+            "pageup": ecodes.KEY_PAGEUP,
+            "pagedown": ecodes.KEY_PAGEDOWN,
+            "play_pause": ecodes.KEY_PLAYPAUSE,
+            "next": ecodes.KEY_NEXTSONG,
+            "prev": ecodes.KEY_PREVIOUSSONG,
+            "volume_up": ecodes.KEY_VOLUMEUP,
+            "volume_down": ecodes.KEY_VOLUMEDOWN,
+            "mute": ecodes.KEY_MUTE,
+        }
 
-            main_key = named_keys.get(key_str.lower(), None)
-            if main_key is None:
-                event = self._char_to_key_event(key_str)
-                if event:
-                    main_key, extra_shift, extra_altgr = event
-                    if extra_shift and ecodes.KEY_LEFTSHIFT not in mods:
-                        mods.append(ecodes.KEY_LEFTSHIFT)
-                    if extra_altgr and ecodes.KEY_RIGHTALT not in mods:
-                        mods.append(ecodes.KEY_RIGHTALT)
+        mods = [
+            mod_map.get(m.lower()) for m in (modifiers or []) if mod_map.get(m.lower())
+        ]
+        main_key = named_keys.get(key_str.lower())
 
-            key_name = main_key
-            try:
-                if hasattr(ecodes, "KEY") and isinstance(ecodes.KEY, dict):
-                    key_name = ecodes.KEY.get(main_key, main_key)
-            except Exception:
-                pass
+        if main_key is None:
+            event = self._char_to_key_event(key_str)
+            if event:
+                main_key, extra_shift, extra_altgr = event
+                if extra_shift and ecodes.KEY_LEFTSHIFT not in mods:
+                    mods.append(ecodes.KEY_LEFTSHIFT)
+                if extra_altgr and ecodes.KEY_RIGHTALT not in mods:
+                    mods.append(ecodes.KEY_RIGHTALT)
 
-            log.info(
-                f"[EVDEV] PressKey: '{key_str}' -> ResolvedKeyCode: {main_key} ({key_name}), "
-                f"Modifiers: {modifiers} -> ResolvedMods: {mods} (Layout: '{layout}')"
-            )
-
-            if main_key:
-                for m in mods:
-                    self.ui.write(ecodes.EV_KEY, m, 1)
-                self.ui.write(ecodes.EV_KEY, main_key, 1)
-                self.ui.syn()
-
-                self.ui.write(ecodes.EV_KEY, main_key, 0)
-                for m in reversed(mods):
-                    self.ui.write(ecodes.EV_KEY, m, 0)
-                self.ui.syn()
-            else:
-                log.warning(f"[EVDEV] Unable to resolve keycode for '{key_str}'")
-        except Exception as e:
-            log.error(f"evdev press_key failed: {e}")
+        if main_key:
+            for m in mods:
+                self.ui.write(ecodes.EV_KEY, m, 1)
+            self.ui.write(ecodes.EV_KEY, main_key, 1)
+            self.ui.syn()
+            time.sleep(0.01)
+            self.ui.write(ecodes.EV_KEY, main_key, 0)
+            for m in reversed(mods):
+                self.ui.write(ecodes.EV_KEY, m, 0)
+            self.ui.syn()
