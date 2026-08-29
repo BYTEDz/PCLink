@@ -25,29 +25,52 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
     const list = document.getElementById('extList');
     if (!list) return;
     if (extensions.length === 0) {
-        list.innerHTML = '<div class="col-span-full py-10 text-center opacity-40 font-black uppercase text-[10px] tracking-widest bg-base-200 border border-dashed border-base-300 rounded-xl"><p>No extensions installed</p><p class="mt-2 normal-case text-[9px]">Install a .zip bundle above to get started</p></div>';
+        list.innerHTML = '<div class="col-span-full py-10 text-center opacity-40 font-black uppercase text-[10px] tracking-widest bg-base-200 border border-dashed border-base-300 rounded-xl"><p>No extensions installed</p><p class="mt-2 normal-case text-[9px]">Install a .pclink package bundle above to get started</p></div>';
         return;
     }
     list.innerHTML = extensions.map(ext => {
         const id = ext.id;
-        const needsConsent = ext.has_dangerous_perms && !ext.user_approved;
+        const isQuarantined = ext.quarantined === true;
+        const needsConsent = isQuarantined && (ext.quarantine_reason === 'SECURITY_CONSENT_REQUIRED' || !ext.user_approved);
         const isLoaded = ext.is_loaded;
         const iconUrl = ext.icon ? `/ui/extensions/${id}/icon` : null;
+
+        const isSvg = ext.icon && ext.icon.toLowerCase().endsWith('.svg');
+        const isThemeAware = ext.theme_aware_icon !== false && isSvg;
+
+        let iconMarkup = `<i data-feather="package" class="w-5 h-5"></i>`;
+        if (iconUrl) {
+            if (isThemeAware) {
+                iconMarkup = `<div class="w-5 h-5 bg-primary" style="-webkit-mask: url('${iconUrl}') no-repeat center / contain; mask: url('${iconUrl}') no-repeat center / contain;"></div>`;
+            } else {
+                iconMarkup = `<img src="${iconUrl}" class="w-5 h-5 rounded-sm object-contain" onerror="this.outerHTML='<i data-feather=\\\'package\\\' class=\\\'w-5 h-5\\\'></i>'; if(window.feather) feather.replace();" />`;
+            }
+        }
 
         const pidBadge = isLoaded && ext.pid ? `<span class="badge badge-ghost badge-xs font-mono">PID ${ext.pid}</span>` : '';
         const cpuBadge = isLoaded && ext.cpu_percent !== undefined ? `<span class="badge badge-outline badge-xs font-mono font-bold">${ext.cpu_percent}% CPU</span>` : '';
         const memBadge = isLoaded && ext.memory_mb !== undefined ? `<span class="badge badge-outline badge-xs font-mono font-bold">${ext.memory_mb} MB</span>` : '';
+        const crashBadge = ext.crash_count > 0 ? `<span class="badge badge-error badge-outline badge-xs font-bold">${ext.crash_count} Crashes</span>` : '';
 
-        const hasViews = (ext.contributes?.views && ext.contributes.views.length > 0) || ext.ui_entry;
-        const hasWidgets = (ext.contributes?.dashboard_widgets && ext.contributes.dashboard_widgets.length > 0) || (ext.dashboard_widgets && ext.dashboard_widgets.length > 0);
+        let statusBadge = '';
+        if (isQuarantined) {
+            const reasonLabel = ext.quarantine_reason === 'SECURITY_CONSENT_REQUIRED'
+                ? 'Consent Required'
+                : (ext.quarantine_reason === 'CRASH_LOOP_DETECTED'
+                    ? 'Crash Loop Lock'
+                    : (ext.quarantine_reason === 'OOM_LIMIT_EXCEEDED'
+                        ? 'Memory Quota Exceeded'
+                        : 'Quarantined'));
+            statusBadge = `<span class="badge badge-warning badge-xs text-[8px] font-black uppercase tracking-wider">${reasonLabel}</span>`;
+        }
 
         return `
-        <div class="card bg-base-100 border border-base-300 shadow-sm transition-all hover:border-primary group">
+        <div class="card bg-base-100 border ${isQuarantined ? 'border-warning/40 bg-warning/5' : 'border-base-300'} shadow-sm transition-all hover:border-primary group">
             <div class="card-body p-4">
                 <div class="flex items-start justify-between gap-3">
                     <div class="flex items-center gap-3 overflow-hidden">
                         <div class="bg-primary/10 text-primary p-2.5 rounded-xl shrink-0 flex items-center justify-center">
-                            ${iconUrl ? `<img src="${iconUrl}" class="w-5 h-5 rounded-sm object-contain" onerror="this.outerHTML='<i data-feather=\\\'package\\\' class=\\\'w-5 h-5\\\'></i>'; if(window.feather) feather.replace();" />` : `<i data-feather="package" class="w-5 h-5"></i>`}
+                            ${iconMarkup}
                         </div>
                         <div class="overflow-hidden">
                             <div class="flex items-center gap-2">
@@ -56,25 +79,21 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
                             </div>
                             <p class="text-[10px] font-bold opacity-50 truncate mt-1">${ext.description || 'No description'}</p>
                             <div class="flex items-center gap-1.5 mt-2 flex-wrap">
-                                ${pidBadge} ${cpuBadge} ${memBadge}
-                                ${hasWidgets ? `<span class="badge badge-primary badge-xs text-[8px] font-bold uppercase">Widget</span>` : ''}
+                                ${statusBadge}
+                                ${pidBadge} ${cpuBadge} ${memBadge} ${crashBadge}
                             </div>
                         </div>
                     </div>
-                    <input type="checkbox" class="toggle toggle-sm toggle-primary shrink-0" ${isLoaded ? 'checked' : ''} ${needsConsent ? 'disabled' : ''} onchange="window.toggleExtension('${id}', this.checked, this)" />
+                    <input type="checkbox" class="toggle toggle-sm toggle-primary shrink-0" ${isLoaded ? 'checked' : ''} ${isQuarantined ? 'disabled' : ''} onchange="window.toggleExtension('${id}', this.checked, this)" />
                 </div>
                 <div class="flex items-center gap-2 mt-4 pt-4 border-t border-base-200 flex-wrap">
-                    ${hasViews && isLoaded ? `
-                    <button class="btn btn-xs btn-primary text-white font-bold" onclick="window.openExtensionUI('${id}', '${ext.name || id}')">
-                        <i data-feather="external-link" class="w-3"></i> Open UI
-                    </button>` : ''}
                     <button class="btn btn-xs btn-ghost font-bold opacity-50 hover:opacity-100" onclick="window.openExtLogs('${id}', '${ext.name || id}')">
                         <i data-feather="list" class="w-3"></i> Logs
                     </button>
                     <div class="flex-1"></div>
-                    ${needsConsent && !isLoaded ? `
+                    ${isQuarantined ? `
                     <button class="btn btn-xs btn-warning font-bold" onclick="window.approveExtension('${id}')">
-                        <i data-feather="check" class="w-3"></i> Approve & Enable
+                        <i data-feather="check" class="w-3"></i> ${needsConsent ? 'Review & Enable' : 'Clear Quarantine'}
                     </button>` : ''}
                     <button class="btn btn-xs btn-ghost btn-error border-base-300 font-bold" onclick="window.deleteExtension('${id}', '${ext.name || id}')">
                         <i data-feather="trash-2" class="w-3"></i> Remove
@@ -84,25 +103,6 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions, globalEnabled) {
         </div>`;
     }).join('');
     this.renderIcons();
-};
-
-window.openExtensionUI = function (id, title) {
-    const url = `/extensions/${id}/ui?theme=${document.documentElement.getAttribute('data-theme') || 'dark'}`;
-    const headerTitle = `<i data-feather="package" class="w-4 h-4 text-primary"></i> ${title}`;
-    const body = `
-        <div class="w-full h-full min-h-[500px] flex flex-col bg-base-100 rounded-xl overflow-hidden border border-base-300 shadow-inner">
-            <iframe
-                src="${url}"
-                class="w-full flex-1 border-none min-h-[500px]"
-                sandbox="allow-scripts allow-forms allow-same-origin"
-                loading="lazy">
-            </iframe>
-        </div>
-    `;
-    const footer = `
-        <button class="btn btn-xs btn-ghost" onclick="window.closeSidePanel()">Close</button>
-    `;
-    window.openSidePanel(headerTitle, body, footer);
 };
 
 window.loadExtensions = () => { if (window.pclinkUI) window.pclinkUI.loadExtensions(); };
@@ -135,9 +135,9 @@ window.deleteExtension = async (id, name) => {
 };
 
 window.approveExtension = async (id) => {
-    if (!await window.confirmDialog('This extension requests high-risk permissions. Only approve if you trust the source.', { title: 'Approve Dangerous Extension', danger: true })) return;
+    if (!await window.confirmDialog('Authorize and activate this extension on your system?', { title: 'Approve Extension', danger: false })) return;
     try {
-        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}/toggle?enabled=true`, { method: 'POST' });
+        const res = await window.pclinkUI.webUICall(`/ui/extensions/${id}/approve`, { method: 'POST' });
         if (res.ok) {
             window.pclinkUI.showToast('Approved', `Extension '${id}' enabled`, 'success');
             await window.pclinkUI.loadExtensions();

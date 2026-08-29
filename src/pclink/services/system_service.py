@@ -630,8 +630,8 @@ class SystemService:
 
         thermals = {}
         try:
-            import pythoncom
-            import win32com.client
+            import pythoncom  # type: ignore[import-not-found, import-untyped]
+            import win32com.client  # type: ignore[import-not-found, import-untyped]
 
             pythoncom.CoInitialize()
             try:
@@ -697,16 +697,16 @@ class SystemService:
             return await self._get_volume_linux_fallback()
 
     def _get_volume_win32(self) -> Dict[str, Any]:
-        import comtypes
-        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
+        import comtypes  # type: ignore[import-not-found, import-untyped]
+        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize  # type: ignore[import-not-found, import-untyped]
 
         try:
             CoInitialize()
-            from pycaw.pycaw import IAudioEndpointVolume
+            from pycaw.pycaw import IAudioEndpointVolume  # type: ignore[import-not-found, import-untyped]
 
             try:
-                from pycaw.constants import CLSID_MMDeviceEnumerator
-                from pycaw.pycaw import IMMDeviceEnumerator
+                from pycaw.constants import CLSID_MMDeviceEnumerator  # type: ignore[import-not-found, import-untyped]
+                from pycaw.pycaw import IMMDeviceEnumerator  # type: ignore[import-not-found, import-untyped]
             except ImportError:
                 IMMDeviceEnumerator = comtypes.GUID(
                     "{A95664D2-9614-4F35-A746-DE8DB63617E6}"
@@ -810,16 +810,16 @@ class SystemService:
             await self._set_volume_linux(level)
 
     def _set_volume_win32(self, level: int):
-        import comtypes
-        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
+        import comtypes  # type: ignore[import-not-found, import-untyped]
+        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize  # type: ignore[import-not-found, import-untyped]
 
         try:
             CoInitialize()
-            from pycaw.pycaw import IAudioEndpointVolume
+            from pycaw.pycaw import IAudioEndpointVolume  # type: ignore[import-not-found, import-untyped]
 
             try:
-                from pycaw.constants import CLSID_MMDeviceEnumerator
-                from pycaw.pycaw import IMMDeviceEnumerator
+                from pycaw.constants import CLSID_MMDeviceEnumerator  # type: ignore[import-not-found, import-untyped]
+                from pycaw.pycaw import IMMDeviceEnumerator  # type: ignore[import-not-found, import-untyped]
             except ImportError:
                 IMMDeviceEnumerator = comtypes.GUID(
                     "{A95664D2-9614-4F35-A746-DE8DB63617E6}"

@@ -126,6 +126,7 @@ class ExtensionMetadata(BaseModel):
     author: str = ""
     pclink_version: Optional[str] = None
     icon: Optional[str] = None
+    theme_aware_icon: bool = True
     category: str = "Utility"
     permissions: List[str] = Field(default_factory=list)
     declared_permissions: List[str] = Field(default_factory=list)
