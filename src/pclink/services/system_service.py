@@ -1,13 +1,12 @@
-# src/pclink/services/system_service.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
-import gettext
 import logging
 import os
 import platform
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -19,13 +18,11 @@ from typing import Any, Callable, Dict, List, Optional, TypeVar
 import psutil
 
 log = logging.getLogger(__name__)
-_ = gettext.gettext
 
 T = TypeVar("T")
 
-# Cache for MAC address to avoid repeated slow probes
 _mac_address_cache = {"mac": None, "timestamp": 0}
-_MAC_CACHE_TTL = 3600  # 1 hour cache
+_MAC_CACHE_TTL = 3600
 
 SUBPROCESS_FLAGS = 0
 if sys.platform == "win32":
@@ -35,7 +32,6 @@ if sys.platform == "win32":
 def safe_probe(
     probe_func: Callable[[], T], default: Any = None, name: str = "telemetry"
 ) -> Any:
-    """Generic wrapper to execute telemetry probes safely, returning standard defaults on error."""
     try:
         res = probe_func()
         return res if res is not None else (default if default is not None else {})
@@ -45,7 +41,6 @@ def safe_probe(
 
 
 def _get_volume_label(mountpoint: str, device: str) -> str:
-    """Retrieves friendly volume label for Windows, Linux, or macOS partitions."""
     try:
         if sys.platform == "win32":
             import ctypes
@@ -89,8 +84,6 @@ def _get_volume_label(mountpoint: str, device: str) -> str:
 
 
 class NetworkMonitor:
-    """Tracks network I/O throughput to calculate real-time transfer speeds."""
-
     def __init__(self):
         self.last_update = time.time()
         try:
@@ -110,7 +103,7 @@ class NetworkMonitor:
             return self.last_speed
 
         delta = now - self.last_update
-        if delta < 0.2:  # Threshold for stability
+        if delta < 0.2:
             return self.last_speed
 
         up_mbps = (
@@ -130,8 +123,7 @@ class NetworkMonitor:
         return self.last_speed
 
 
-def _get_current_user():
-    """Safely get the current user name, handling headless/service environments."""
+def _get_current_user() -> str:
     try:
         return os.getlogin()
     except OSError:
@@ -144,27 +136,22 @@ def _get_current_user():
 
 
 class SystemService:
-    """Logic for system operations: power, volume, telemetry."""
-
     def __init__(self):
         self._network_monitor = NetworkMonitor()
 
-        # Fast Cache (0.5s TTL)
         self._system_info_cache = None
         self._system_info_cache_time = 0
         self._SYSTEM_INFO_TTL = 0.5
 
-        # Slow Cache (5s TTL) for WMI, Sysfs, Disk IO, Battery
         self._slow_metrics_cache = {}
         self._slow_metrics_time = 0
         self._SLOW_METRICS_TTL = 5.0
 
-        # Static Cache (Never expires per process life)
         self._static_os_info = None
 
         self._thermals_cache: Dict[str, float] = {}
         self._thermals_cache_time = 0
-        self._THERMALS_TTL = 30  # 30 seconds
+        self._THERMALS_TTL = 30
 
         self._telemetry_history = deque(maxlen=20)
         self._last_light_snapshot = None
@@ -178,15 +165,13 @@ class SystemService:
         except Exception:
             pass
 
-    async def start_background_collection(self):
-        """Starts the low-impact background telemetry collection."""
+    async def start_background_collection(self) -> None:
         if self._background_task and not self._background_task.done():
             return
 
         self._background_task = asyncio.create_task(self._collection_loop())
 
-    async def _collection_loop(self):
-        """Infinite loop for light telemetry snapshots."""
+    async def _collection_loop(self) -> None:
         from ..api_server.ws_manager import mobile_manager
 
         while True:
@@ -206,7 +191,6 @@ class SystemService:
                 await asyncio.sleep(5)
 
     def _get_light_snapshot(self) -> Dict[str, Any]:
-        """Captures minimal stats needed for graphs without heavy OS probes."""
         mem = psutil.virtual_memory()
         return {
             "cpu": {"percent": psutil.cpu_percent(interval=None)},
@@ -218,11 +202,9 @@ class SystemService:
         }
 
     def get_telemetry_history(self) -> List[Dict[str, Any]]:
-        """Returns the rolling history of light snapshots."""
         return list(self._telemetry_history)
 
     async def run_command(self, cmd: List[str], timeout: float = 5.0) -> str:
-        """Asynchronously runs a command and returns its stdout."""
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -241,16 +223,12 @@ class SystemService:
                 except ProcessLookupError:
                     pass
                 log.warning(f"Command timed out after {timeout}s: {cmd[0]}")
-                raise RuntimeError(_("Command timed out: {cmd}").format(cmd=cmd[0]))
+                raise RuntimeError(f"Command timed out: {cmd[0]}")
 
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()
                 log.debug(f"Command execution failed: {cmd} -> {error_msg}")
-                raise RuntimeError(
-                    _("Command failed: {cmd} - {error}").format(
-                        cmd=cmd[0], error=error_msg
-                    )
-                )
+                raise RuntimeError(f"Command failed: {cmd[0]} - {error_msg}")
 
             return stdout.decode()
         except Exception as e:
@@ -261,13 +239,11 @@ class SystemService:
             raise
 
     def _format_bytes(self, byte_count: int) -> str:
-        """Formats bytes to human-readable string."""
         if byte_count >= 1024**3:
             return f"{byte_count / (1024**3):.1f} GB"
         return f"{byte_count / (1024**2):.0f} MB"
 
     async def get_disks_info(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Provides information about all mounted disk partitions."""
         return await asyncio.to_thread(self._get_sync_disks_info)
 
     def _get_sync_disks_info(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -344,7 +320,6 @@ class SystemService:
             except (PermissionError, FileNotFoundError):
                 continue
 
-        # USB / External Drive Hotplug Detection & WebSocket Notification
         if hasattr(self, "_previous_disks") and self._previous_disks is not None:
             new_disks = current_disk_set - self._previous_disks
             removed_disks = self._previous_disks - current_disk_set
@@ -364,10 +339,8 @@ class SystemService:
                     msg = {
                         "type": "notification",
                         "data": {
-                            "title": _("Drive Connected"),
-                            "message": _(
-                                "Storage device '{drive}' is now available."
-                            ).format(drive=label_name),
+                            "title": "Drive Connected",
+                            "message": f"Storage device '{label_name}' is now available.",
                             "type": "info",
                         },
                     }
@@ -375,11 +348,9 @@ class SystemService:
                     asyncio.create_task(ui_manager.broadcast(msg))
 
         self._previous_disks = current_disk_set
-
         return {"disks": disks_info}
 
     def _get_static_os_info(self) -> Dict[str, str]:
-        """Fetches OS metadata that never changes (cached indefinitely)."""
         if self._static_os_info:
             return self._static_os_info
 
@@ -439,7 +410,6 @@ class SystemService:
         return self._static_os_info
 
     async def get_system_info(self) -> Dict[str, Any]:
-        """Aggregates system telemetry with tiered caching."""
         now = time.time()
         if (
             self._system_info_cache
@@ -608,10 +578,8 @@ class SystemService:
         return safe_probe(_probe, default={}, name="unix_thermals")
 
     def _get_sync_system_info(self) -> Dict[str, Any]:
-        """Synchronous CPU/RAM/Disk/Network telemetry with tiered caching."""
         now = time.time()
 
-        # Fast Path (0.5s updates)
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
         freq = psutil.cpu_freq()
@@ -619,7 +587,6 @@ class SystemService:
         uptime = now - boot
         speed = self._network_monitor.get_speed()
 
-        # Slow Path (5.0s updates) to prevent CPU spikes from WMI/SysFS
         if now - self._slow_metrics_time > self._SLOW_METRICS_TTL:
             temps = (
                 self._get_windows_thermals()
@@ -637,7 +604,6 @@ class SystemService:
             }
             self._slow_metrics_time = now
 
-        # Construct final payload
         payload = self._get_static_os_info().copy()
 
         payload.update(
@@ -655,7 +621,6 @@ class SystemService:
         return payload
 
     def _get_windows_thermals(self) -> Dict[str, float]:
-        """Provides CPU temperature using native WMI."""
         now = time.time()
         if (
             self._thermals_cache
@@ -769,36 +734,64 @@ class SystemService:
             CoUninitialize()
 
     async def _get_volume_linux_fallback(self) -> Dict[str, Any]:
-        methods = [
-            (["amixer", "sget", "Master"], "amixer_master"),
-            (["pactl", "get-sink-volume", "@DEFAULT_SINK@"], "pactl"),
-        ]
-        for cmd, method in methods:
+        # 1. Try pactl (PulseAudio / PipeWire-Pulse)
+        if shutil.which("pactl"):
             try:
-                res = await self.run_command(cmd, timeout=1.0)
-                if method == "amixer_master":
+                res = await self.run_command(
+                    ["pactl", "get-sink-volume", "@DEFAULT_SINK@"], timeout=1.0
+                )
+                mute_out = await self.run_command(
+                    ["pactl", "get-sink-mute", "@DEFAULT_SINK@"], timeout=1.0
+                )
+                lvl = re.search(r"(\d+)%", res)
+                if lvl:
+                    return {
+                        "level": int(lvl.group(1)),
+                        "muted": "yes" in mute_out.lower(),
+                    }
+            except Exception:
+                pass
+
+        # 2. Try wpctl (Native PipeWire / WirePlumber)
+        if shutil.which("wpctl"):
+            try:
+                res = await self.run_command(
+                    ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], timeout=1.0
+                )
+                m = re.search(r"Volume:\s*([0-9.]+)", res)
+                if m:
+                    level = int(round(float(m.group(1)) * 100))
+                    return {
+                        "level": min(100, max(0, level)),
+                        "muted": "[MUTED]" in res,
+                    }
+            except Exception:
+                pass
+
+        # 3. Try amixer (ALSA Fallback)
+        if shutil.which("amixer"):
+            for control in ["Master", "PCM", "Speaker"]:
+                try:
+                    res = await self.run_command(
+                        ["amixer", "sget", control], timeout=1.0
+                    )
                     lvl = re.search(r"\[(\d+)%\]", res)
                     muted = re.search(r"\[off\]", res)
                     if lvl:
-                        return {"level": int(lvl.group(1)), "muted": bool(muted)}
-                elif method == "pactl":
-                    lvl = re.search(r"(\d+)%", res)
-                    mute_out = await self.run_command(
-                        ["pactl", "get-sink-mute", "@DEFAULT_SINK@"], timeout=1.0
-                    )
-                    if lvl:
                         return {
                             "level": int(lvl.group(1)),
-                            "muted": "yes" in mute_out.lower(),
+                            "muted": bool(muted),
                         }
-            except Exception:
-                continue
-        raise RuntimeError(_("Volume control unavailable"))
+                except Exception:
+                    continue
+
+        return {"level": 100, "muted": False}
 
     async def set_volume(self, level: int):
         """Sets master volume (0-100)."""
         if not 0 <= level <= 100:
-            raise ValueError(_("Volume must be 0-100"))
+            raise ValueError("Volume must be between 0 and 100")
+
         if sys.platform == "win32":
             await asyncio.to_thread(self._set_volume_win32, level)
         elif sys.platform == "darwin":
@@ -814,11 +807,7 @@ class SystemService:
                     ["osascript", "-e", f"set volume output volume {level}"]
                 )
         else:
-            if level == 0:
-                await self.run_command(["amixer", "-q", "set", "Master", "mute"])
-            else:
-                await self.run_command(["amixer", "-q", "set", "Master", "unmute"])
-                await self.run_command(["amixer", "-q", "set", "Master", f"{level}%"])
+            await self._set_volume_linux(level)
 
     def _set_volume_win32(self, level: int):
         import comtypes
@@ -857,8 +846,73 @@ class SystemService:
         finally:
             CoUninitialize()
 
+    async def _set_volume_linux(self, level: int):
+        # 1. PipeWire / PulseAudio via pactl
+        if shutil.which("pactl"):
+            try:
+                if level == 0:
+                    await self.run_command(
+                        ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "1"],
+                        timeout=1.0,
+                    )
+                else:
+                    await self.run_command(
+                        ["pactl", "set-sink-mute", "@DEFAULT_SINK@", "0"],
+                        timeout=1.0,
+                    )
+                    await self.run_command(
+                        ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{level}%"],
+                        timeout=1.0,
+                    )
+                return
+            except Exception as e:
+                log.debug(f"pactl volume control failed: {e}")
+
+        # 2. Native PipeWire via wpctl (WirePlumber)
+        if shutil.which("wpctl"):
+            try:
+                vol_scalar = f"{level / 100.0:.2f}"
+                if level == 0:
+                    await self.run_command(
+                        ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1"],
+                        timeout=1.0,
+                    )
+                else:
+                    await self.run_command(
+                        ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"],
+                        timeout=1.0,
+                    )
+                    await self.run_command(
+                        ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", vol_scalar],
+                        timeout=1.0,
+                    )
+                return
+            except Exception as e:
+                log.debug(f"wpctl volume control failed: {e}")
+
+        # 3. ALSA Fallback via amixer
+        if shutil.which("amixer"):
+            for control in ["Master", "PCM", "Speaker"]:
+                try:
+                    if level == 0:
+                        await self.run_command(
+                            ["amixer", "-q", "set", control, "mute"], timeout=1.0
+                        )
+                    else:
+                        await self.run_command(
+                            ["amixer", "-q", "set", control, "unmute"], timeout=1.0
+                        )
+                        await self.run_command(
+                            ["amixer", "-q", "set", control, f"{level}%"],
+                            timeout=1.0,
+                        )
+                    return
+                except Exception:
+                    continue
+
+        raise RuntimeError("No working audio control interface found on Linux host")
+
     async def power_command(self, command: str, hybrid: bool = True):
-        """Handles shutdown, reboot, lock, sleep."""
         cmd_map = {
             "win32": {
                 "shutdown": (
@@ -896,14 +950,12 @@ class SystemService:
         }
         cmd = cmd_map.get(sys.platform, {}).get(command)
         if not cmd:
-            raise ValueError(
-                _("Unsupported command: {command}").format(command=command)
-            )
+            raise ValueError(f"Unsupported command: {command}")
 
         if sys.platform == "linux":
             success = await self._try_power_command_linux(command, cmd)
             if not success:
-                raise RuntimeError(_("Power command failed"))
+                raise RuntimeError("Power command failed")
         else:
             await asyncio.to_thread(subprocess.run, cmd, creationflags=SUBPROCESS_FLAGS)
 
@@ -926,7 +978,6 @@ class SystemService:
         return False
 
     async def get_wol_info(self) -> Dict[str, Any]:
-        """Gets MAC address for Wake-on-LAN using psutil."""
         now = time.time()
         if _mac_address_cache["mac"] and (
             now - _mac_address_cache["timestamp"] < _MAC_CACHE_TTL
@@ -937,7 +988,6 @@ class SystemService:
             try:
                 for nic, addrs in psutil.net_if_addrs().items():
                     for addr in addrs:
-                        # AF_LINK is the standard for MAC addresses
                         if addr.family == psutil.AF_LINK:
                             if addr.address and addr.address != "00:00:00:00:00:00":
                                 return addr.address
@@ -954,5 +1004,4 @@ class SystemService:
         return {"supported": False, "mac_address": None}
 
 
-# Global instance
 system_service = SystemService()

@@ -1,7 +1,7 @@
 /**
  * PCLink Unified Extension Frontend SDK v2.0
  * Provides sandbox communication, Host Broker API access, token propagation,
- * Material 3 theme token injection, and tactile feedback across mobile and web contexts.
+ * Material 3 theme token injection, and automated dynamic widget height reporting.
  */
 (function (global) {
     'use strict';
@@ -13,6 +13,7 @@
             this._token = this._resolveToken();
             this._extensionId = this._resolveExtensionId();
             this._initThemeSync();
+            this._initWidgetAutoResizer();
         }
 
         _resolveToken() {
@@ -140,7 +141,6 @@
 
             this._applyThemeTokens(initialConfig);
 
-            // Listen for live Flutter theme updates
             global.updateTheme = (config) => {
                 this._applyThemeTokens(config);
                 this.emit('theme_change', config);
@@ -154,9 +154,51 @@
             });
         }
 
-        /**
-         * Host Broker invocation wrapper with authenticated token propagation.
-         */
+        _initWidgetAutoResizer() {
+            const isWidget = window.location.pathname.includes('/widget/') || window.location.search.includes('widget=true');
+            if (!isWidget) return;
+
+            const reportExactHeight = () => {
+                const body = document.body;
+                const doc = document.documentElement;
+                if (!body) return;
+
+                const rectHeight = body.getBoundingClientRect().height;
+                const scrollHeight = Math.max(body.scrollHeight, doc ? doc.scrollHeight : 0);
+                const offsetHeight = Math.max(body.offsetHeight, doc ? doc.offsetHeight : 0);
+
+                let targetHeight = rectHeight > 20 ? rectHeight : Math.min(scrollHeight, offsetHeight);
+
+                if (targetHeight > 0 && window.PCLinkWidget) {
+                    window.PCLinkWidget.postMessage('height:' + Math.ceil(targetHeight));
+                    window.PCLinkWidget.postMessage('loaded');
+                }
+            };
+
+            window.addEventListener('DOMContentLoaded', () => {
+                reportExactHeight();
+
+                if (window.ResizeObserver && document.body) {
+                    new ResizeObserver(() => reportExactHeight()).observe(document.body);
+                }
+
+                const observer = new MutationObserver(() => reportExactHeight());
+                observer.observe(document.documentElement, { attributes: true, childList: true, subtree: true });
+
+                if (document.fonts && document.fonts.ready) {
+                    document.fonts.ready.then(reportExactHeight);
+                }
+
+                window.addEventListener('load', reportExactHeight);
+                window.addEventListener('resize', reportExactHeight);
+
+                setTimeout(reportExactHeight, 150);
+                setTimeout(reportExactHeight, 500);
+            });
+
+            global.pclinkReportHeight = reportExactHeight;
+        }
+
         async callBroker(domain, method, params = {}) {
             const headers = { 'Content-Type': 'application/json' };
             if (this._token) {
@@ -181,8 +223,6 @@
             }
             return response.json();
         }
-
-        // --- Foundational Primitives ---
 
         system = {
             exec: async (options) => {
@@ -215,8 +255,6 @@
                 return this.callBroker('storage', 'set', { key, value });
             }
         };
-
-        // --- Convenience Domains ---
 
         input = {
             mouseMove: async (dx, dy) => this.callBroker('input', 'mouseMove', { dx, dy }),
@@ -254,8 +292,6 @@
                 }
             }
         };
-
-        // --- Event Subsystem ---
 
         on(eventName, handler) {
             if (!this._listeners.has(eventName)) {
