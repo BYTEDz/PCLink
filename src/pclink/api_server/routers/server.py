@@ -1,4 +1,3 @@
-# src/pclink/api_server/routers/server.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
@@ -16,6 +15,7 @@ from pydantic import BaseModel
 
 from ...core import constants
 from ...core.config import config_manager
+from ...core.extension_manager import ExtensionManager
 from ...core.logging import memory_log_handler
 from ...core.utils import get_cert_fingerprint
 from ...core.version import __version__
@@ -52,7 +52,6 @@ class AnnouncePayload(BaseModel):
 
 @mgmt_router.get("/status")
 async def server_status(request: Request):
-    """Retrieve current server state, version, and unique identity."""
     controller = getattr(request.app.state, "controller", None)
     mobile_api_enabled = (
         getattr(controller, "mobile_api_enabled", False) if controller else False
@@ -73,13 +72,11 @@ async def server_status(request: Request):
 
 @core_router.get("/heartbeat")
 async def heartbeat():
-    """Lightweight check to confirm the API is responsive."""
     return {"status": "alive", "timestamp": time.time()}
 
 
 @core_router.get("/qr-payload", response_model=QrPayload)
 async def get_qr_payload(request: Request):
-    """Generate the payload for the connection QR code."""
     fingerprint = get_cert_fingerprint(constants.CERT_FILE)
 
     try:
@@ -102,7 +99,6 @@ async def get_qr_payload(request: Request):
 
 @core_router.get("/updates/check")
 async def check_for_updates():
-    """Query the latest version info from GitHub."""
     try:
         response = requests.get(
             "https://api.github.com/repos/BYTEDz/pclink/releases/latest", timeout=10
@@ -137,7 +133,6 @@ async def check_for_updates():
 
 @mgmt_router.post("/notifications/show", dependencies=[WEB_AUTH])
 async def show_system_notification(request: Request):
-    """Trigger a desktop notification via the tray manager."""
     try:
         data = await request.json()
         title = data.get("title", "PCLink")
@@ -155,7 +150,6 @@ async def show_system_notification(request: Request):
 
 @mgmt_router.get("/settings/load", dependencies=[WEB_AUTH])
 async def load_server_settings(request: Request):
-    """Fetch global configuration for the Web UI."""
     try:
         auto_start_status = config_manager.get("auto_start", False)
         controller = getattr(request.app.state, "controller", None)
@@ -185,7 +179,6 @@ async def load_server_settings(request: Request):
 
 @mgmt_router.post("/settings/save", dependencies=[WEB_AUTH])
 async def save_server_settings(request: Request):
-    """Update global configuration and handle side-effects."""
     try:
         data = await request.json()
         controller = getattr(request.app.state, "controller", None)
@@ -207,12 +200,11 @@ async def save_server_settings(request: Request):
         if "allow_extensions" in data:
             extensions_enabled = data["allow_extensions"]
             config_manager.set("allow_extensions", extensions_enabled)
-            from ...services.extension_service import extension_service
-
+            ext_manager = ExtensionManager()
             if extensions_enabled:
-                extension_service.manager.load_all_extensions()
+                ext_manager.load_all_extensions()
             else:
-                extension_service.manager.unload_all_extensions()
+                ext_manager.unload_all_extensions()
 
         if "notifications" in data:
             current_notifications = config_manager.get("notifications", {}).copy()
@@ -248,7 +240,6 @@ async def get_server_logs(
     search: Optional[str] = Query(None, description="Search keyword filter"),
     limit: int = Query(200, ge=1, le=1000, description="Max entries to return"),
 ):
-    """Retrieve filtered, structured logs from the in-memory ring buffer with file fallback."""
     try:
         entries = memory_log_handler.get_logs(
             level=level, min_level=min_level, search=search, limit=limit
@@ -288,7 +279,11 @@ async def get_server_logs(
 
             recent = filtered[-limit:] if len(filtered) > limit else filtered
             if recent:
-                return {"logs": "".join(recent), "lines": len(recent), "structured": []}
+                return {
+                    "logs": "".join(recent),
+                    "lines": len(recent),
+                    "structured": [],
+                }
 
         filter_desc = level or min_level or "ALL"
         return {
@@ -302,7 +297,6 @@ async def get_server_logs(
 
 @mgmt_router.post("/logs/clear", dependencies=[WEB_AUTH])
 async def clear_server_logs():
-    """Truncate in-memory log cache and application log file."""
     try:
         memory_log_handler.buffer.clear()
 
@@ -319,7 +313,6 @@ async def clear_server_logs():
 
 @mgmt_router.post("/server/start", dependencies=[WEB_AUTH])
 async def start_server(request: Request):
-    """Instruct the controller to activate the server profile."""
     controller = getattr(request.app.state, "controller", None)
     if not controller:
         raise HTTPException(status_code=500, detail="Controller missing")
@@ -339,7 +332,6 @@ async def start_server(request: Request):
 
 @mgmt_router.post("/server/stop", dependencies=[WEB_AUTH])
 async def stop_server(request: Request):
-    """Instruct the controller to deactivate the server profile."""
     controller = getattr(request.app.state, "controller", None)
     if not controller:
         raise HTTPException(status_code=500, detail="Controller missing")
@@ -359,7 +351,6 @@ async def stop_server(request: Request):
 
 @mgmt_router.post("/server/restart", dependencies=[WEB_AUTH])
 async def restart_server(request: Request):
-    """Perform a sequenced stop and subsequent start of the server."""
     controller = getattr(request.app.state, "controller", None)
     if not controller:
         raise HTTPException(status_code=500, detail="Controller missing")
@@ -385,7 +376,6 @@ async def restart_server(request: Request):
 
 @mgmt_router.post("/server/shutdown", dependencies=[WEB_AUTH])
 async def shutdown_server(request: Request):
-    """Completely terminate the application process."""
     controller = getattr(request.app.state, "controller", None)
     log.warning("Shutdown triggered via web UI")
 
@@ -412,7 +402,6 @@ async def shutdown_server(request: Request):
 
 @mgmt_router.get("/debug/performance")
 async def debug_performance():
-    """Retrieve system and transfer performance metrics."""
     process = psutil.Process()
     persisted_uploads = len(list(TEMP_UPLOAD_DIR.glob("*.meta")))
     persisted_downloads = len(list(DOWNLOAD_SESSION_DIR.glob("*.json")))
@@ -434,7 +423,6 @@ async def debug_performance():
 
 @mgmt_router.get("/transfers/cleanup/status", dependencies=[WEB_AUTH])
 async def get_transfer_cleanup_status():
-    """Analyze stale transfer data that is eligible for cleanup."""
     try:
         threshold = config_manager.get("transfer_cleanup_threshold", 7)
         now = time.time()
@@ -463,7 +451,6 @@ async def get_transfer_cleanup_status():
 
 @mgmt_router.post("/transfers/cleanup/execute", dependencies=[WEB_AUTH])
 async def execute_transfer_cleanup():
-    """Manually trigger cleanup of stale transfer sessions."""
     threshold = config_manager.get("transfer_cleanup_threshold", 7)
     count = await cleanup_stale_sessions(days=threshold)
     return {"status": "success", "cleaned": count}
@@ -471,7 +458,6 @@ async def execute_transfer_cleanup():
 
 @mgmt_router.post("/transfers/cleanup/config", dependencies=[WEB_AUTH])
 async def update_transfer_cleanup_config(request: Request):
-    """Update the aging threshold for transfer cleanup."""
     data = await request.json()
     threshold = data.get("threshold")
     if threshold is None or not isinstance(threshold, int) or threshold < 0:
@@ -483,13 +469,11 @@ async def update_transfer_cleanup_config(request: Request):
 
 @mgmt_router.get("/ui/pairing/list")
 async def list_pending_pairings(request: Request):
-    """List all currently pending pairing requests."""
     return {"requests": pairing_service.get_pending_requests()}
 
 
 @core_router.post("/announce")
 async def announce_device(request: Request, payload: AnnouncePayload):
-    """Legacy endpoint for mobile devices to announce their presence."""
     connected_devices = getattr(request.app.state, "connected_devices", {})
     client_ip = request.client.host
     is_new = client_ip not in connected_devices
@@ -511,7 +495,6 @@ async def announce_device(request: Request, payload: AnnouncePayload):
 
 @mgmt_router.post("/open-data-dir")
 async def open_data_dir(request: Request):
-    """Pop the native file explorer on the host machine to show the config path."""
     client_ip = request.client.host if request.client else None
     if client_ip not in ("127.0.0.1", "::1", "localhost"):
         log.warning(f"BLOCKED: Remote attempt to open data directory from {client_ip}")

@@ -10,13 +10,13 @@ from fastapi.responses import JSONResponse
 
 from ..core.config import config_manager
 from ..core.device_manager import device_manager
+from ..core.extension_db import extension_db
 from ..core.share_manager import share_manager
 from ..core.validators import ValidationError
 from .routers.dependencies import extract_token
 
 log = logging.getLogger(__name__)
 
-# --- Configuration for Permissions ---
 SERVICE_PERMISSION_MAP = {
     "/files/upload": "files_write",
     "/files/delete": "files_write",
@@ -64,7 +64,6 @@ async def upload_optimization_middleware(request: Request, call_next):
 async def service_enforcement_middleware(request: Request, call_next):
     path = request.url.path
 
-    # 1. Whitelist Core Endpoints (Always Allowed - includes Wake-on-LAN)
     whitelist = [
         "/heartbeat",
         "/auth/check",
@@ -80,7 +79,6 @@ async def service_enforcement_middleware(request: Request, call_next):
     ):
         return await call_next(request)
 
-    # 2. Identify Target Service
     target_service = None
     for prefix, name in SERVICE_PERMISSION_MAP.items():
         if path.startswith(prefix):
@@ -103,7 +101,6 @@ async def service_enforcement_middleware(request: Request, call_next):
             )
 
         token = extract_token(request)
-
         session_token = request.cookies.get("pclink_session") or request.headers.get(
             "X-Session-Token"
         )
@@ -159,18 +156,21 @@ def create_extension_middleware(extension_manager: Any):
                 raw_identifier = parts[2]
                 extension_id = urllib.parse.unquote(raw_identifier)
 
-                # Skip internal SDK and theme asset endpoints
                 if extension_id in ("sdk", "theme"):
                     return await call_next(request)
 
-                ext_instance = extension_manager.get_extension(extension_id)
-                if ext_instance is None:
+                if not extension_manager.is_extension_active(extension_id):
                     manifest = extension_manager.get_manifest(extension_id)
-                    if manifest and manifest.get("enabled", True):
-                        extension_manager.failed_extensions.pop(extension_id, None)
+                    if manifest:
                         target_id = manifest.get("id") or extension_id
-                        if extension_manager.load_extension(target_id):
-                            return await call_next(request)
+                        state = extension_db.get_state(target_id)
+                        if state is None or (
+                            state.get("enabled", True)
+                            and not state.get("quarantined", False)
+                        ):
+                            extension_manager.failed_extensions.pop(target_id, None)
+                            if extension_manager.load_extension(target_id):
+                                return await call_next(request)
 
                     if not path.endswith("/icon"):
                         log.warning(

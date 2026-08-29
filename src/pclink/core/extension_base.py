@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 
 _ = gettext.gettext
 
-# Canonical capability permissions for the security broker
 KNOWN_PERMISSIONS = {
     "system.exec",
     "fs.read",
@@ -28,7 +27,6 @@ KNOWN_PERMISSIONS = {
     "notifications",
 }
 
-# Permissions requiring administrator consent on install
 DANGEROUS_PERMISSIONS = {
     "system.exec",
     "fs.write",
@@ -41,7 +39,6 @@ DANGEROUS_PERMISSIONS = {
 class ExtensionType(str, Enum):
     WEB = "web"
     PROCESS = "process"
-    WASM = "wasm"
 
 
 class NativeCardControl(BaseModel):
@@ -62,7 +59,7 @@ class NativeCardLayout(BaseModel):
 class ExtensionWidgetModel(BaseModel):
     id: str
     title: str
-    type: Literal["native_card", "webview"] = "native_card"
+    type: Literal["native_card", "webview"] = "webview"
     size: Dict[str, int] = Field(default_factory=lambda: {"w": 1, "h": 1})
     entry_point: Optional[str] = None
     refresh_ms: int = 0
@@ -105,7 +102,7 @@ class ResourceLimits(BaseModel):
 
 
 class BackendConfig(BaseModel):
-    runtime: Literal["none", "python", "node", "binary", "wasm"] = "none"
+    runtime: Literal["none", "python", "binary", "node"] = "none"
     entry_point: Optional[str] = None
     isolated: bool = True
     requirements_file: Optional[str] = None
@@ -132,8 +129,6 @@ class ExtensionMetadata(BaseModel):
     category: str = "Utility"
     permissions: List[str] = Field(default_factory=list)
     declared_permissions: List[str] = Field(default_factory=list)
-    enabled: bool = True
-    security_consent_needed: bool = False
     supported_platforms: List[str] = Field(
         default_factory=lambda: ["windows", "linux", "darwin"]
     )
@@ -156,7 +151,7 @@ class ExtensionBase(ABC):
         metadata: ExtensionMetadata,
         extension_path: Path,
         config: Dict[str, Any],
-        context=None,
+        context: Any = None,
     ):
         self.metadata = metadata
         self.extension_path = extension_path
@@ -166,25 +161,14 @@ class ExtensionBase(ABC):
         self.logger = logging.getLogger(f"pclink.extensions.{metadata.id}")
         self._venv_path: Optional[Path] = None
 
-    async def _verify_active(self):
-        from pclink.core.extension_manager import ExtensionManager
+    async def _verify_active(self) -> None:
+        from .extension_manager import ExtensionManager
 
         manager = ExtensionManager()
-        if (
-            self.metadata.id not in manager.extensions
-            and self.metadata.id not in manager.isolated_processes
-        ):
+        if not manager.is_extension_active(self.metadata.id):
             raise HTTPException(
                 status_code=410,
-                detail=_("Extension '{name}' has been unloaded.").format(
-                    name=self.metadata.id
-                ),
-            )
-
-        if not self.metadata.enabled:
-            raise HTTPException(
-                status_code=403,
-                detail=_("Extension '{name}' is currently disabled.").format(
+                detail=_("Extension '{name}' has been unloaded or is inactive.").format(
                     name=self.metadata.id
                 ),
             )

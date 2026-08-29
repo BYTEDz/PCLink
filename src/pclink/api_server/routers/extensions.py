@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
-import gettext
-import json
 import logging
 import os
 import shutil
 import tempfile
+import threading
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -18,11 +17,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from ...core.config import config_manager
 from ...core.extension_base import DANGEROUS_PERMISSIONS, ExtensionMetadata
 from ...core.extension_context import ExtensionContext
+from ...core.extension_db import extension_db
 from ...core.extension_manager import ExtensionManager
 from ...core.utils import resource_path
 
 log = logging.getLogger(__name__)
-_ = gettext.gettext
 
 extension_manager = ExtensionManager()
 
@@ -40,10 +39,10 @@ def _sanitize_permission_list(perms: List[Any]) -> List[str]:
     ]
 
 
-def _ensure_extensions_enabled():
+def _ensure_extensions_enabled() -> None:
     if not config_manager.get("allow_extensions", False):
         raise HTTPException(
-            status_code=403, detail=_("Extension system is globally disabled.")
+            status_code=403, detail="Extension system is globally disabled."
         )
 
 
@@ -63,6 +62,7 @@ def _resolve_extension_path_and_manifest(
 async def list_extensions():
     enabled_globally = config_manager.get("allow_extensions", False)
     discovered = extension_manager.discover_extensions()
+    db_states = extension_db.get_all_states()
     all_exts = []
 
     for eid in discovered:
@@ -72,41 +72,47 @@ async def list_extensions():
                 continue
 
             canonical_id = meta.get("id", eid)
-            is_loaded = (canonical_id in extension_manager.extensions) or (
-                canonical_id in extension_manager.isolated_processes
-            )
+            state = db_states.get(canonical_id) or {}
+
+            is_active = extension_manager.is_extension_active(canonical_id)
             response_meta = meta.copy()
             response_meta["id"] = canonical_id
-            response_meta["is_loaded"] = is_loaded
+            response_meta["is_loaded"] = is_active
+
+            response_meta["enabled"] = state.get("enabled", True)
+            response_meta["quarantined"] = state.get("quarantined", False)
+            response_meta["quarantine_reason"] = state.get("quarantine_reason")
+            response_meta["crash_count"] = state.get("crash_count", 0)
 
             telemetry = extension_manager.get_extension_telemetry(canonical_id)
             response_meta["pid"] = telemetry.get("pid")
             response_meta["cpu_percent"] = telemetry.get("cpu_percent", 0.0)
             response_meta["memory_mb"] = telemetry.get("memory_mb", 0.0)
 
-            raw_perms = response_meta.get("permissions", [])
-            clean_perms = _sanitize_permission_list(raw_perms)
-            response_meta["permissions"] = clean_perms
-
-            declared = response_meta.get("declared_permissions")
-            if declared:
-                response_meta["declared_permissions"] = _sanitize_permission_list(
-                    declared
+            declared_perms = _sanitize_permission_list(
+                response_meta.get(
+                    "declared_permissions", response_meta.get("permissions", [])
                 )
-            else:
-                response_meta["declared_permissions"] = clean_perms
-
-            response_meta["has_dangerous_perms"] = any(
-                p in DANGEROUS_PERMISSIONS for p in clean_perms
             )
-            response_meta["user_approved"] = not response_meta.get(
-                "security_consent_needed", False
+            granted_perms = _sanitize_permission_list(
+                state.get("granted_permissions", response_meta.get("permissions", []))
+            )
+
+            response_meta["declared_permissions"] = declared_perms
+            response_meta["permissions"] = granted_perms
+            response_meta["has_dangerous_perms"] = any(
+                p in DANGEROUS_PERMISSIONS for p in declared_perms
+            )
+            response_meta["user_approved"] = (
+                not state.get("quarantined", False)
+                and state.get("quarantine_reason") != "SECURITY_CONSENT_REQUIRED"
             )
 
             contributes = response_meta.get("contributes", {})
             response_meta["dashboard_widgets"] = contributes.get(
                 "dashboard_widgets", []
             )
+            response_meta["views"] = contributes.get("views", [])
 
             all_exts.append(response_meta)
         except Exception as e:
@@ -119,7 +125,7 @@ async def list_extensions():
 async def install_extension(file: UploadFile = File(...)):
     _ensure_extensions_enabled()
     if not file.filename.endswith(".zip"):
-        raise HTTPException(400, _("Only .zip allowed"))
+        raise HTTPException(400, "Only .zip files are allowed")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
         shutil.copyfileobj(file.file, tmp)
@@ -128,7 +134,7 @@ async def install_extension(file: UploadFile = File(...)):
     try:
         if extension_manager.install_extension(tmp_p):
             return {"status": "success"}
-        raise HTTPException(400, _("Install failed"))
+        raise HTTPException(400, "Installation failed")
     except PermissionError as e:
         raise HTTPException(403, str(e))
     finally:
@@ -140,9 +146,7 @@ async def install_extension(file: UploadFile = File(...)):
 async def install_extension_from_url(url: str = Query(...)):
     _ensure_extensions_enabled()
     if not url.startswith("http"):
-        raise HTTPException(400, _("Invalid URL"))
-
-    import threading
+        raise HTTPException(400, "Invalid URL")
 
     task_id = f"url-{abs(hash(url))}"
     extension_manager.install_states[task_id] = {
@@ -180,7 +184,7 @@ async def install_extension_from_url(url: str = Query(...)):
                 extension_manager.install_states[task_id] = {
                     "status": "failed",
                     "progress": 0,
-                    "error": _("Install failed"),
+                    "error": "Install failed",
                 }
         except Exception as e:
             extension_manager.install_states[task_id] = {
@@ -206,7 +210,7 @@ async def delete_extension(extension_id: str):
     try:
         if extension_manager.delete_extension(clean_id):
             return {"status": "success"}
-        raise HTTPException(500, _("Delete failed"))
+        raise HTTPException(500, "Delete failed")
     except PermissionError as e:
         raise HTTPException(403, str(e))
 
@@ -218,7 +222,7 @@ async def toggle_extension(extension_id: str, enabled: bool):
     try:
         if extension_manager.toggle_extension(clean_id, enabled):
             return {"status": "success"}
-        raise HTTPException(500, _("Toggle failed"))
+        raise HTTPException(500, "Toggle failed")
     except PermissionError as e:
         raise HTTPException(403, str(e))
 
@@ -227,48 +231,21 @@ async def toggle_extension(extension_id: str, enabled: bool):
 async def approve_extension_consent(
     extension_id: str, data: Optional[Dict[str, Any]] = Body(None)
 ):
-    """Grants consent and activates a quarantined extension with optional tailored capabilities."""
     _ensure_extensions_enabled()
     clean_id = urllib.parse.unquote(extension_id)
-    ext_dir = extension_manager._resolve_extension_dir(clean_id)
-    if not ext_dir:
-        raise HTTPException(404, f"Extension '{clean_id}' not found")
+    selected_perms = data.get("permissions") if data else None
 
-    manifest_file = ext_dir / "manifest.json"
-    try:
-        manifest_data = extension_manager.get_manifest(clean_id) or {}
-        declared = manifest_data.get(
-            "declared_permissions", manifest_data.get("permissions", [])
-        )
-
-        # Allow tailored permissions on approval
-        selected_perms = data.get("permissions") if data else None
-        if selected_perms is not None and isinstance(selected_perms, list):
-            manifest_data["permissions"] = [
-                str(p).strip()
-                for p in selected_perms
-                if str(p).strip() in declared or not declared
-            ]
-        else:
-            manifest_data["permissions"] = list(declared)
-
-        manifest_data["enabled"] = True
-        manifest_data["security_consent_needed"] = False
-
-        with open(manifest_file, "w", encoding="utf-8") as f:
-            json.dump(manifest_data, f, indent=2)
-
-        extension_manager._metadata_cache.pop(ext_dir.name, None)
-        extension_manager.load_extension(clean_id)
-
+    if extension_manager.approve_extension(
+        clean_id, tailored_permissions=selected_perms
+    ):
+        state = extension_db.get_state(clean_id) or {}
         return {
             "status": "success",
             "approved": True,
-            "permissions": manifest_data["permissions"],
+            "permissions": state.get("granted_permissions", []),
         }
-    except Exception as e:
-        log.error(f"Failed to approve extension '{clean_id}': {e}")
-        raise HTTPException(500, str(e))
+
+    raise HTTPException(500, "Failed to approve extension")
 
 
 @mgmt_router.post("/{extension_id}/permissions")
@@ -277,52 +254,33 @@ async def update_granular_permissions(
 ):
     _ensure_extensions_enabled()
     clean_id = urllib.parse.unquote(extension_id)
-    ext_dir = extension_manager._resolve_extension_dir(clean_id)
-    if not ext_dir:
-        raise HTTPException(404, f"Extension '{clean_id}' not found")
-
     new_perms = data.get("permissions")
     if new_perms is None or not isinstance(new_perms, list):
         raise HTTPException(400, "A valid list of permissions is required")
 
-    manifest_file = ext_dir / "manifest.json"
-    try:
-        manifest_data = extension_manager.get_manifest(clean_id) or {}
-        declared = set(
-            manifest_data.get(
-                "declared_permissions", manifest_data.get("permissions", [])
-            )
-        )
+    manifest_data = extension_manager.get_manifest(clean_id) or {}
+    declared = set(
+        manifest_data.get("declared_permissions", manifest_data.get("permissions", []))
+    )
 
-        sanitized_perms = [
-            str(p).strip()
-            for p in new_perms
-            if (str(p).strip() in declared or not declared)
-            and str(p).strip().lower() not in IMPLICIT_FRAMEWORK_FEATURES
-        ]
-        manifest_data["permissions"] = sanitized_perms
+    sanitized_perms = [
+        str(p).strip()
+        for p in new_perms
+        if (str(p).strip() in declared or not declared)
+        and str(p).strip().lower() not in IMPLICIT_FRAMEWORK_FEATURES
+    ]
 
-        with open(manifest_file, "w", encoding="utf-8") as f:
-            json.dump(manifest_data, f, indent=2)
+    extension_db.set_granted_permissions(clean_id, sanitized_perms)
 
-        extension_manager._metadata_cache.pop(ext_dir.name, None)
+    if extension_manager.is_extension_active(clean_id):
+        extension_manager.unload_extension(clean_id)
+        extension_manager.load_extension(clean_id)
 
-        is_active = (
-            extension_manager.get_extension(clean_id) is not None
-            or clean_id in extension_manager.isolated_processes
-        )
-        if is_active:
-            extension_manager.unload_extension(clean_id)
-            extension_manager.load_extension(clean_id)
-
-        return {
-            "status": "success",
-            "permissions": manifest_data["permissions"],
-            "declared_permissions": list(declared),
-        }
-    except Exception as e:
-        log.error(f"Failed to update permissions for '{clean_id}': {e}")
-        raise HTTPException(500, str(e))
+    return {
+        "status": "success",
+        "permissions": sanitized_perms,
+        "declared_permissions": list(declared),
+    }
 
 
 @mgmt_router.get("/{extension_id}/logs")
@@ -345,7 +303,7 @@ async def clear_logs(extension_id: str):
 async def get_pclink_sdk():
     sdk_path = resource_path("src/pclink/web_ui/static/pclink-sdk.js")
     if not sdk_path.exists():
-        raise HTTPException(404, _("SDK file missing"))
+        raise HTTPException(404, "SDK file missing")
     return FileResponse(sdk_path, media_type="application/javascript")
 
 
@@ -357,7 +315,7 @@ async def get_ui(
 ):
     ext_dir, manifest = _resolve_extension_path_and_manifest(extension_id)
     if not manifest or not ext_dir:
-        raise HTTPException(404, _("Extension manifest not found"))
+        raise HTTPException(404, "Extension manifest not found")
 
     ui_entry = "index.html"
     contributes = manifest.get("contributes", {})
@@ -369,10 +327,12 @@ async def get_ui(
             ui_entry = target_view["entry_point"]
     elif views and views[0].get("entry_point"):
         ui_entry = views[0]["entry_point"]
+    elif manifest.get("ui_entry"):
+        ui_entry = manifest.get("ui_entry")
 
     ui_p = (ext_dir / ui_entry).resolve()
     if not ui_p.is_relative_to(ext_dir.resolve()) or not ui_p.exists():
-        raise HTTPException(404, _("UI entry file missing"))
+        raise HTTPException(404, "UI entry file missing")
 
     res = FileResponse(ui_p, media_type="text/html")
     res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -396,7 +356,7 @@ async def get_widget_ui(
 ):
     ext_dir, manifest = _resolve_extension_path_and_manifest(extension_id)
     if not manifest or not ext_dir:
-        raise HTTPException(404, _("Extension not found"))
+        raise HTTPException(404, "Extension not found")
 
     contributes = manifest.get("contributes", {})
     widgets = contributes.get("dashboard_widgets", [])
@@ -448,11 +408,11 @@ async def get_icon(extension_id: str):
     ext_dir, manifest = _resolve_extension_path_and_manifest(extension_id)
     icon_rel = manifest.get("icon") if manifest else None
     if not icon_rel:
-        raise HTTPException(404, _("No icon specified in extension manifest"))
+        raise HTTPException(404, "No icon specified in extension manifest")
 
     icon_p = (ext_dir / icon_rel).resolve()
     if not icon_p.is_relative_to(ext_dir.resolve()) or not icon_p.exists():
-        raise HTTPException(404, _("Icon file not found"))
+        raise HTTPException(404, "Icon file not found")
 
     return FileResponse(icon_p)
 
@@ -464,10 +424,17 @@ async def broker_rpc_gateway(
     clean_id = urllib.parse.unquote(extension_id)
     manifest_data = extension_manager.get_manifest(clean_id)
     if not manifest_data:
-        log.error(f"[BROKER] Extension '{clean_id}' not found")
         raise HTTPException(404, f"Extension '{clean_id}' not found")
 
-    metadata = ExtensionMetadata(**manifest_data)
+    state = extension_db.get_state(clean_id) or {}
+    effective_permissions = state.get(
+        "granted_permissions", manifest_data.get("permissions", [])
+    )
+
+    metadata_dict = manifest_data.copy()
+    metadata_dict["permissions"] = effective_permissions
+
+    metadata = ExtensionMetadata(**metadata_dict)
     context = ExtensionContext(metadata)
 
     try:
@@ -475,10 +442,11 @@ async def broker_rpc_gateway(
     except Exception:
         body = {}
 
-    log.info(f"[BROKER] Executing {domain}.{method} for '{clean_id}' | Body: {body}")
-
     try:
-        if domain == "system" and method == "exec":
+        if domain == "event":
+            context.publish_event(method, body)
+            return {"success": True, "event": method}
+        elif domain == "system" and method == "exec":
             return context.exec.run(
                 command=body.get("command", ""),
                 timeout=body.get("timeout", 15),
@@ -516,7 +484,6 @@ async def broker_rpc_gateway(
                         body.get("key", ""), body.get("value")
                     )
                 }
-
         elif domain == "input":
             if method == "mouseMove":
                 context.input.mouse_move(body.get("dx", 0), body.get("dy", 0))
@@ -551,11 +518,11 @@ async def broker_rpc_gateway(
         raise HTTPException(400, f"Unsupported broker method '{domain}.{method}'")
 
     except PermissionError as e:
-        log.warning(f"[BROKER] Permission denied for '{clean_id}': {e}")
+        log.warning(f"Broker permission denied for '{clean_id}': {e}")
         raise HTTPException(403, str(e))
     except Exception as e:
         log.error(
-            f"[BROKER] Execution failed for '{clean_id}' ({domain}.{method}): {e}",
+            f"Broker execution failed for '{clean_id}' ({domain}.{method}): {e}",
             exc_info=True,
         )
         raise HTTPException(500, str(e))
@@ -572,15 +539,10 @@ async def proxy_isolated_extension_http(
     ext_dir = extension_manager._resolve_extension_dir(clean_id)
     target_id = ext_dir.name if ext_dir else clean_id
 
-    if (
-        target_id not in extension_manager.isolated_processes
-        and clean_id not in extension_manager.isolated_processes
-    ):
+    if not extension_manager.is_extension_active(target_id):
         raise HTTPException(
             status_code=404,
-            detail=_("Extension '{extension_id}' not active").format(
-                extension_id=clean_id
-            ),
+            detail=f"Extension '{clean_id}' is not active",
         )
 
     body = None
@@ -599,7 +561,7 @@ async def proxy_isolated_extension_http(
 
     if not res:
         raise HTTPException(
-            status_code=502, detail=_("Isolated extension process did not respond")
+            status_code=502, detail="Isolated extension process did not respond"
         )
 
     status_code = res.get("status_code", 200)

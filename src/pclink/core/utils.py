@@ -1,10 +1,7 @@
-# filepath: src/pclink/core/utils.py
-
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import datetime
-import gettext
 import importlib.resources
 import ipaddress
 import logging
@@ -21,16 +18,12 @@ import psutil
 from . import constants
 
 log = logging.getLogger(__name__)
-_ = gettext.gettext
 
 
 def resource_path(relative_path: Union[str, Path]) -> Path:
-    """Resolve absolute path for application resources."""
-    # Case 1: PyInstaller bundle
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         return Path(sys._MEIPASS) / relative_path
 
-    # Case 2: Development environment
     try:
         project_root = Path(__file__).resolve().parents[3]
         if (project_root / "pyproject.toml").exists():
@@ -38,7 +31,6 @@ def resource_path(relative_path: Union[str, Path]) -> Path:
     except Exception:
         pass
 
-    # Case 3: Installed package
     try:
         path_parts = Path(relative_path).parts
         if "pclink" in path_parts:
@@ -48,35 +40,25 @@ def resource_path(relative_path: Union[str, Path]) -> Path:
             package_rel = Path(relative_path)
         return importlib.resources.files("pclink") / package_rel
     except Exception as e:
-        log.error(
-            _("Could not find resource path for '{path}': {error}").format(
-                path=relative_path, error=e
-            )
-        )
+        log.error(f"Could not find resource path for '{relative_path}': {e}")
         return Path(relative_path)
 
 
 def run_preflight_checks() -> bool:
-    """Execute pre-flight environment checks."""
     try:
         constants.initialize_app_directories()
         generate_self_signed_cert(constants.CERT_FILE, constants.KEY_FILE)
 
-        # Optimize system limits
         if sys.platform == "linux":
             increase_open_files_limit()
 
         return True
     except Exception as e:
-        log.error(_("Preflight checks failed: {error}").format(error=e))
+        log.error(f"Preflight checks failed: {e}")
         return False
 
 
 def increase_open_files_limit(target: int = 4096):
-    """
-    Increases the maximum number of open file descriptors for the current process.
-    Required for extensions using select() when many connections are active.
-    """
     if sys.platform != "linux":
         return
 
@@ -88,23 +70,14 @@ def increase_open_files_limit(target: int = 4096):
             new_soft = min(target, hard)
             if new_soft > soft:
                 resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
-                log.info(
-                    _("Increased open files limit: {soft} -> {new_soft}").format(
-                        soft=soft, new_soft=new_soft
-                    )
-                )
+                log.info(f"Increased open files limit: {soft} -> {new_soft}")
     except Exception as e:
-        log.warning(_("Could not increase open files limit: {error}").format(error=e))
+        log.warning(f"Could not increase open files limit: {e}")
 
 
 def get_available_ips() -> List[str]:
-    """
-    Gets a list of all non-loopback IPv4 addresses on the host.
-    Returns a sorted list prioritizing local physical network IPs over virtual/ICS adapters.
-    """
     local_ips, other_ips = [], []
 
-    # Primary method: psutil with structured parsing
     try:
         try:
             if_stats = psutil.net_if_stats()
@@ -145,8 +118,7 @@ def get_available_ips() -> List[str]:
                             or ip_obj.is_link_local
                             or ip_obj.is_multicast
                             or ip_obj.is_unspecified
-                            or str(addr.address)
-                            == "192.168.137.1"  # Ignore Windows ICS gateway
+                            or str(addr.address) == "192.168.137.1"
                         ):
                             continue
 
@@ -159,9 +131,8 @@ def get_available_ips() -> List[str]:
                     except ValueError:
                         continue
     except Exception as e:
-        log.error(_("Could not get IP addresses using psutil: {error}").format(error=e))
+        log.error(f"Could not get IP addresses using psutil: {e}")
 
-    # Linux fallback: Try ip route command
     if not local_ips and not other_ips and sys.platform == "linux":
         try:
             result = subprocess.run(
@@ -188,7 +159,6 @@ def get_available_ips() -> List[str]:
         except (subprocess.SubprocessError, FileNotFoundError, ValueError):
             pass
 
-    # Universal fallback: socket connection
     if not local_ips and not other_ips:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -202,25 +172,20 @@ def get_available_ips() -> List[str]:
                     except ValueError:
                         pass
         except Exception as e:
-            log.error(
-                _("Socket fallback for IP address failed: {error}").format(error=e)
-            )
+            log.error(f"Socket fallback for IP address failed: {e}")
 
     result = sorted(list(set(local_ips))) + sorted(list(set(other_ips)))
 
     if not result:
-        log.warning(
-            _("Could not determine any valid IP address, defaulting to 127.0.0.1")
-        )
+        log.warning("Could not determine any valid IP address, defaulting to 127.0.0.1")
         return ["127.0.0.1"]
 
     return result
 
 
 def get_cert_fingerprint(cert_path: Path) -> Optional[str]:
-    """Generate SHA-256 hash for TLS certificate verification."""
     if not cert_path.is_file():
-        log.error(_("Certificate file does not exist: {path}").format(path=cert_path))
+        log.error(f"Certificate file does not exist: {cert_path}")
         return None
 
     try:
@@ -229,34 +194,26 @@ def get_cert_fingerprint(cert_path: Path) -> Optional[str]:
 
         cert_data = cert_path.read_bytes()
         if not cert_data:
-            log.error(_("Certificate file is empty: {path}").format(path=cert_path))
+            log.error(f"Certificate file is empty: {cert_path}")
             return None
 
         cert = x509.load_pem_x509_certificate(cert_data)
         fingerprint_hex = cert.fingerprint(hashes.SHA256()).hex()
-        log.debug(
-            _("Certificate fingerprint: {fingerprint}...").format(
-                fingerprint=fingerprint_hex[:16]
-            )
-        )
         return fingerprint_hex
 
     except ImportError as e:
-        log.error(_("Cryptography library not available: {error}").format(error=e))
+        log.error(f"Cryptography library not available: {e}")
         return None
     except Exception as e:
-        log.error(_("Error calculating cert fingerprint: {error}").format(error=e))
+        log.error(f"Error calculating cert fingerprint: {e}")
         return None
 
 
 def generate_self_signed_cert(cert_path: Path, key_path: Path):
-    """Bootstrap self-signed TLS credentials."""
     if cert_path.exists() and key_path.exists():
-        log.debug(_("Certificate and key already exist"))
         if get_cert_fingerprint(cert_path):
-            log.debug(_("Existing certificate is valid"))
             return
-        log.warning(_("Existing certificate is invalid, regenerating..."))
+        log.warning("Existing certificate is invalid, regenerating...")
 
     try:
         from cryptography import x509
@@ -265,12 +222,12 @@ def generate_self_signed_cert(cert_path: Path, key_path: Path):
         from cryptography.x509.oid import NameOID
     except ImportError:
         log.error(
-            _("Cryptography library required. Install with: pip install cryptography")
+            "Cryptography library required. Install with: pip install cryptography"
         )
         raise
 
     try:
-        log.info(_("Generating new self-signed certificate"))
+        log.info("Generating new self-signed certificate")
 
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -323,14 +280,12 @@ def generate_self_signed_cert(cert_path: Path, key_path: Path):
 
         fingerprint = get_cert_fingerprint(cert_path)
         if fingerprint:
-            log.info(_("Successfully generated certificate"))
+            log.info("Successfully generated certificate")
         else:
-            raise Exception(_("Certificate validation failed after generation"))
+            raise Exception("Certificate validation failed after generation")
 
     except Exception as e:
-        log.error(
-            _("Failed to generate self-signed certificate: {error}").format(error=e)
-        )
+        log.error(f"Failed to generate self-signed certificate: {e}")
         for path in [cert_path, key_path]:
             try:
                 if path.exists():
@@ -341,8 +296,6 @@ def generate_self_signed_cert(cert_path: Path, key_path: Path):
 
 
 class DummyTty:
-    """A dummy TTY-like object for environments where sys.stdout is None."""
-
     def __init__(self):
         self.encoding = "utf-8"
         self.errors = "strict"
@@ -387,13 +340,10 @@ class DummyTty:
 
 
 def open_directory(path: Union[str, Path]):
-    """Opens a directory in the system's file manager."""
     try:
         path = Path(path).resolve()
         if not path.exists():
-            log.warning(
-                _("Attempted to open non-existent directory: {path}").format(path=path)
-            )
+            log.warning(f"Attempted to open non-existent directory: {path}")
             return
 
         if sys.platform == "win32":
@@ -404,38 +354,30 @@ def open_directory(path: Union[str, Path]):
             try:
                 subprocess.run(["xdg-open", str(path)], check=False)
             except (FileNotFoundError, subprocess.SubprocessError):
-                log.error(_("Could not find xdg-open to open directory."))
+                log.error("Could not find xdg-open to open directory.")
     except Exception as e:
-        log.error(
-            _("Error opening directory {path}: {error}").format(path=path, error=e)
-        )
+        log.error(f"Error opening directory {path}: {e}")
 
 
 def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False):
-    """
-    Purges server configuration and data.
-    If wipe_auth is True, also deletes authentication credentials.
-    If wipe_extensions is True, also deletes the extensions directory.
-    """
     import shutil
     import time
 
     log.warning(
-        _(
-            "FACTORY RESET INITIATED (wipe_auth={wipe_auth}, wipe_extensions={wipe_extensions})"
-        ).format(wipe_auth=wipe_auth, wipe_extensions=wipe_extensions)
+        f"FACTORY RESET INITIATED (wipe_auth={wipe_auth}, wipe_extensions={wipe_extensions})"
     )
-    log.warning(_("FACTORY RESET INITIATED. PURGING SYSTEM DATA..."))
 
     items_to_delete = [
         constants.CONFIG_FILE,
         constants.APP_DATA_PATH / "devices.db",
+        constants.APP_DATA_PATH / "extensions.db",
+        constants.APP_DATA_PATH / "shares.db",
         constants.APP_DATA_PATH / "logs",
         constants.APP_DATA_PATH / ".extension_crashes",
     ]
 
     if wipe_auth:
-        log.warning(_("Wiping ALL authentication data (Password & SSL)..."))
+        log.warning("Wiping authentication configuration and certificates...")
         items_to_delete.extend(
             [
                 constants.APP_DATA_PATH / "web_auth.json",
@@ -445,8 +387,9 @@ def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False
         )
 
     if wipe_extensions:
-        log.warning(_("Wiping ALL installed extensions..."))
+        log.warning("Wiping installed extensions and extension storage...")
         items_to_delete.append(constants.APP_DATA_PATH / "extensions")
+        items_to_delete.append(constants.APP_DATA_PATH / "extension_data")
 
     for item in items_to_delete:
         try:
@@ -455,22 +398,18 @@ def perform_factory_reset(wipe_auth: bool = False, wipe_extensions: bool = False
                     shutil.rmtree(item)
                 else:
                     item.unlink()
-                log.debug(_("Purged: {item}").format(item=item))
+                log.debug(f"Purged: {item}")
         except Exception as e:
-            log.error(_("Failed to delete {item}: {error}").format(item=item, error=e))
+            log.error(f"Failed to delete {item}: {e}")
 
     if constants.TRANSFERS_PATH.exists():
         try:
             shutil.rmtree(constants.TRANSFERS_PATH)
-            log.debug(
-                _("Purged transfers directory: {path}").format(
-                    path=constants.TRANSFERS_PATH
-                )
-            )
+            log.debug(f"Purged transfers directory: {constants.TRANSFERS_PATH}")
         except Exception as e:
-            log.error(_("Failed to delete transfers path: {error}").format(error=e))
+            log.error(f"Failed to delete transfers path: {e}")
 
-    log.info(_("Factory reset sequence complete. Terminating process for restart."))
+    log.info("Factory reset sequence complete. Terminating process.")
 
     try:
         logging.shutdown()

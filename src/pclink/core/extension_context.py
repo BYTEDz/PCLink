@@ -2,19 +2,18 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
-import gettext
 import json
 import logging
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from .extension_base import ExtensionMetadata
 
 log = logging.getLogger(__name__)
-_ = gettext.gettext
 
 PERMISSION_ALIASES: Dict[str, set] = {
     "media.read": {"media", "media.read"},
@@ -34,11 +33,11 @@ class PermissionDeniedError(PermissionError):
 
 
 class ExtensionAPI:
-    def __init__(self, metadata: ExtensionMetadata, ipc_conn=None):
+    def __init__(self, metadata: ExtensionMetadata, ipc_conn: Any = None):
         self.metadata = metadata
         self.ipc_conn = ipc_conn
 
-    def _check_permission(self, permission: str):
+    def _check_permission(self, permission: str) -> None:
         granted_set = set(self.metadata.permissions)
         accepted_aliases = PERMISSION_ALIASES.get(permission, {permission})
 
@@ -47,9 +46,7 @@ class ExtensionAPI:
             and "fs.all" not in granted_set
         ):
             raise PermissionDeniedError(
-                _(
-                    "Permission denied: capability '{perm}' is not granted to extension '{ext_id}'."
-                ).format(perm=permission, ext_id=self.metadata.id)
+                f"Permission denied: capability '{permission}' is not granted to extension '{self.metadata.id}'."
             )
 
     def _call_ipc(self, api_name: str, method: str, kwargs: Dict[str, Any]) -> Any:
@@ -86,7 +83,7 @@ class ExecAPI(ExtensionAPI):
                 "exec", "run", {"command": command, "timeout": timeout, "cwd": cwd}
             )
 
-        kwargs = {
+        kwargs: Dict[str, Any] = {
             "shell": isinstance(command, str),
             "capture_output": True,
             "text": True,
@@ -128,9 +125,7 @@ class FsAPI(ExtensionAPI):
             base
         ):
             raise PermissionDeniedError(
-                _("File access outside allowed scope is forbidden: {path}").format(
-                    path=relative_path
-                )
+                f"File access outside allowed scope is forbidden: {relative_path}"
             )
         return target
 
@@ -221,6 +216,15 @@ class FetchAPI(ExtensionAPI):
 
 
 class StorageAPI(ExtensionAPI):
+    _locks: Dict[str, threading.RLock] = {}
+    _master_lock = threading.Lock()
+
+    def _get_extension_lock(self) -> threading.RLock:
+        with self._master_lock:
+            if self.metadata.id not in self._locks:
+                self._locks[self.metadata.id] = threading.RLock()
+            return self._locks[self.metadata.id]
+
     def _get_store_path(self) -> Path:
         from . import constants
 
@@ -231,30 +235,37 @@ class StorageAPI(ExtensionAPI):
     def get(self, key: str, default: Any = None) -> Any:
         self._check_permission("storage.local")
         p = self._get_store_path()
-        if not p.exists():
-            return default
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            return data.get(key, default)
-        except Exception:
-            return default
+        lock = self._get_extension_lock()
+        with lock:
+            if not p.exists():
+                return default
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                return data.get(key, default)
+            except Exception:
+                return default
 
     def set(self, key: str, value: Any) -> bool:
         self._check_permission("storage.local")
         p = self._get_store_path()
-        data = {}
-        if p.exists():
-            try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                data = {}
-        data[key] = value
-        p.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        return True
+        lock = self._get_extension_lock()
+        with lock:
+            data = {}
+            if p.exists():
+                try:
+                    data = json.loads(p.read_text(encoding="utf-8"))
+                except Exception:
+                    data = {}
+            data[key] = value
+
+            temp_path = p.with_suffix(".tmp")
+            temp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            temp_path.replace(p)
+            return True
 
 
 class InputAPI(ExtensionAPI):
-    def mouse_move(self, dx: int, dy: int):
+    def mouse_move(self, dx: int, dy: int) -> None:
         self._check_permission("input.inject")
         if self.ipc_conn:
             return self._call_ipc("input", "mouse_move", {"dx": dx, "dy": dy})
@@ -262,7 +273,7 @@ class InputAPI(ExtensionAPI):
 
         input_service.mouse_move(dx, dy)
 
-    def mouse_click(self, button: str = "left", clicks: int = 1):
+    def mouse_click(self, button: str = "left", clicks: int = 1) -> None:
         self._check_permission("input.inject")
         if self.ipc_conn:
             return self._call_ipc(
@@ -272,7 +283,9 @@ class InputAPI(ExtensionAPI):
 
         input_service.mouse_click(button, clicks)
 
-    def keyboard_press_key(self, key_str: str, modifiers: List[str] = None):
+    def keyboard_press_key(
+        self, key_str: str, modifiers: Optional[List[str]] = None
+    ) -> None:
         self._check_permission("input.inject")
         if self.ipc_conn:
             return self._call_ipc(
@@ -292,7 +305,7 @@ class MediaAPI(ExtensionAPI):
 
         return await media_service.get_media_info()
 
-    async def command(self, action: str):
+    async def command(self, action: str) -> None:
         self._check_permission("media.control")
         from ..services.media_service import media_service
 
@@ -300,7 +313,7 @@ class MediaAPI(ExtensionAPI):
 
 
 class PowerAPI(ExtensionAPI):
-    async def execute(self, action: str):
+    async def execute(self, action: str) -> None:
         self._check_permission("power.control")
         from ..services.system_service import system_service
 
@@ -336,14 +349,13 @@ class NotificationAPI(ExtensionAPI):
 
 class ThemeAPI(ExtensionAPI):
     def get_theme(self) -> str:
-        # Theme inspection is an automatic framework QoL feature and requires no permission check
         from ..core.config import config_manager
 
         return config_manager.get("theme", "dark")
 
 
 class ExtensionContext:
-    def __init__(self, metadata: ExtensionMetadata, ipc_conn=None):
+    def __init__(self, metadata: ExtensionMetadata, ipc_conn: Any = None):
         from . import constants
 
         self.metadata = metadata
@@ -371,12 +383,14 @@ class ExtensionContext:
     def notify(self, title: str, message: str, type: str = "info") -> bool:
         return self.notification.show(title, message, type)
 
-    def on(self, event_name: str, handler: Callable):
+    def on(self, event_name: str, handler: Callable) -> None:
         if event_name not in self._event_listeners:
             self._event_listeners[event_name] = []
         self._event_listeners[event_name].append(handler)
 
-    def publish_event(self, event_name: str, data: Dict[str, Any] = None):
+    def publish_event(
+        self, event_name: str, data: Optional[Dict[str, Any]] = None
+    ) -> None:
         if self.ipc_conn:
             try:
                 self.ipc_conn.send(
