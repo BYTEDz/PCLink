@@ -124,10 +124,10 @@ async def list_extensions():
 @mgmt_router.post("/install")
 async def install_extension(file: UploadFile = File(...)):
     _ensure_extensions_enabled()
-    if not file.filename.endswith(".zip"):
-        raise HTTPException(400, "Only .zip files are allowed")
+    if not file.filename.lower().endswith(".pclink"):
+        raise HTTPException(400, "Only .pclink extension packages are allowed")
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pclink") as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_p = Path(tmp.name)
 

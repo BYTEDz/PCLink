@@ -219,8 +219,11 @@ window.handleExtDrop = (event) => {
     const zone = document.getElementById('extDropZone');
     if (zone) zone.classList.remove('border-primary', 'bg-primary/5');
     const file = event.dataTransfer?.files?.[0];
-    if (file && file.name.endsWith('.zip')) window._doExtInstallFile(file);
-    else window.pclinkUI.showToast('Invalid', 'Only .zip bundles are supported', 'error');
+    if (file && file.name.toLowerCase().endsWith('.pclink')) {
+        window._doExtInstallFile(file);
+    } else {
+        window.pclinkUI.showToast('Invalid Package', 'Only .pclink packages are supported', 'error');
+    }
 };
 
 window.installExtFromUrl = async () => {

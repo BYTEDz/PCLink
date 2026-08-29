@@ -28,12 +28,12 @@
           ondragover="event.preventDefault(); this.classList.add('border-primary','bg-primary/5')"
           ondragleave="this.classList.remove('border-primary','bg-primary/5')" ondrop="window.handleExtDrop(event)">
           <i data-feather="upload-cloud" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
-          <p class="text-xs font-bold opacity-60">Drop <span class="text-primary">.zip</span> bundle here or click to
+          <p class="text-xs font-bold opacity-60">Drop <span class="text-primary">.pclink</span> bundle here or click to
             browse</p>
-          <input type="file" id="extFileInput" class="hidden" accept=".zip" onchange="window.handleExtFileSelect(this)">
+          <input type="file" id="extFileInput" class="hidden" accept=".pclink" onchange="window.handleExtFileSelect(this)">
         </div>
         <div class="flex gap-2">
-          <input type="url" id="extUrlInput" placeholder="https://example.com/extension.zip"
+          <input type="url" id="extUrlInput" placeholder="https://example.com/extension.pclink"
             class="input input-sm input-bordered flex-1 font-mono text-xs" />
           <button class="btn btn-sm btn-primary text-white font-bold" onclick="window.installExtFromUrl()">
             <i data-feather="link" class="w-3"></i> Install URL
