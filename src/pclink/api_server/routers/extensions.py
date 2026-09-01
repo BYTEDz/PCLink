@@ -2,13 +2,13 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import gettext
 import hashlib
 import json
 import logging
 import os
 import shutil
 import tempfile
-import threading
 import time
 import urllib.parse
 import urllib.request
@@ -26,6 +26,7 @@ from ...core.extension_manager import ExtensionManager
 from ...core.utils import resource_path
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 
 extension_manager = ExtensionManager()
 
@@ -34,6 +35,16 @@ runtime_router = APIRouter(tags=["extension-runtime"])
 
 IMPLICIT_FRAMEWORK_FEATURES = {"theme", "theme.read"}
 REPETITIVE_POLLING_PATHS = {"/downloads", "/status", "/sessions", "/stats"}
+
+MARKETPLACE_UPSTREAM_URLS = [
+    "https://raw.githubusercontent.com/BYTEDz/pclink-extensions/main/extensions.json",
+    "https://cdn.jsdelivr.net/gh/BYTEDz/pclink-extensions@main/extensions.json",
+    "https://fastly.jsdelivr.net/gh/BYTEDz/pclink-extensions@main/extensions.json",
+]
+
+_marketplace_cache: Optional[List[Dict[str, Any]]] = None
+_marketplace_cache_time: float = 0.0
+_MARKETPLACE_CACHE_TTL: float = 300.0
 
 
 def _sanitize_permission_list(perms: List[Any]) -> List[str]:
@@ -59,10 +70,18 @@ def _broadcast_extension_state_change() -> None:
         "type": "EXTENSIONS_STATE_CHANGED",
         "data": {"timestamp": time.time()},
     }
-    if mobile_manager.active_connections:
-        asyncio.create_task(mobile_manager.broadcast(event_payload))
-    if ui_manager.active_connections:
-        asyncio.create_task(ui_manager.broadcast(event_payload))
+
+    async def _do_broadcast():
+        if mobile_manager.active_connections:
+            await mobile_manager.broadcast(event_payload)
+        if ui_manager.active_connections:
+            await ui_manager.broadcast(event_payload)
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_do_broadcast())
+    except RuntimeError:
+        pass
 
 
 def _resolve_extension_path_and_manifest(
@@ -74,6 +93,66 @@ def _resolve_extension_path_and_manifest(
         ext_dir = (extension_manager.extensions_path / clean_id).resolve()
     manifest = extension_manager.get_manifest(clean_id)
     return ext_dir, manifest
+
+
+@mgmt_router.get("/marketplace")
+async def get_marketplace_catalog():
+    """Proxies official marketplace registry with multi-source fallback and caching."""
+    global _marketplace_cache, _marketplace_cache_time
+    now = time.time()
+    if _marketplace_cache is not None and (
+        now - _marketplace_cache_time < _MARKETPLACE_CACHE_TTL
+    ):
+        return {"extensions": _marketplace_cache}
+
+    def _fetch_from_upstreams() -> List[Dict[str, Any]]:
+        last_err = None
+        for upstream_url in MARKETPLACE_UPSTREAM_URLS:
+            try:
+                req = urllib.request.Request(
+                    upstream_url,
+                    headers={"User-Agent": "PCLink-Server"},
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if resp.status == 200:
+                        parsed = json.loads(resp.read().decode("utf-8"))
+                        if isinstance(parsed, list):
+                            return parsed
+            except Exception as e:
+                last_err = e
+                log.debug(f"Upstream fetch failed for {upstream_url}: {e}")
+                continue
+
+        if last_err:
+            raise last_err
+        return []
+
+    try:
+        catalog = await asyncio.to_thread(_fetch_from_upstreams)
+        if isinstance(catalog, list) and catalog:
+            _marketplace_cache = catalog
+            _marketplace_cache_time = now
+            return {"extensions": catalog}
+        return {"extensions": []}
+    except Exception as e:
+        log.error(f"Failed to fetch marketplace catalog from all upstreams: {e}")
+        if _marketplace_cache is not None:
+            return {"extensions": _marketplace_cache}
+        raise HTTPException(
+            status_code=502,
+            detail=_(
+                "Failed to retrieve marketplace catalog from upstream: {error}"
+            ).format(error=e),
+        )
+
+
+@mgmt_router.get("/install/status/{task_id}")
+async def get_install_task_status(task_id: str):
+    """Retrieves asynchronous package installation and download telemetry."""
+    state = extension_manager.install_states.get(task_id)
+    if not state:
+        raise HTTPException(status_code=404, detail=_("Install task not found"))
+    return state
 
 
 @mgmt_router.get("")
@@ -171,61 +250,114 @@ async def install_extension_from_url(
     if not url.startswith("http"):
         raise HTTPException(400, "Invalid URL")
 
-    task_id = f"url-{abs(hash(url))}"
+    task_id = f"url-{abs(hash(url + str(time.time())))}"
     extension_manager.install_states[task_id] = {
         "status": "downloading",
         "progress": 0,
+        "downloaded_bytes": 0,
+        "total_bytes": 0,
+        "stage": _("Downloading package"),
         "error": None,
     }
 
-    def download_and_install():
+    async def async_download_and_install():
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pclink") as tmp:
             tmp_p = Path(tmp.name)
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "PCLink-Server"})
-            hasher = hashlib.sha256() if sha256 else None
 
-            with urllib.request.urlopen(req, timeout=30) as response:
-                content_length = response.headers.get("content-length")
-                total_bytes = int(content_length) if content_length else None
-                downloaded = 0
+            def _download_sync():
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "PCLink-Server"}
+                )
+                hasher = hashlib.sha256() if sha256 else None
 
-                with open(tmp_p, "wb") as out_file:
-                    while True:
-                        chunk = response.read(8192)
-                        if not chunk:
-                            break
-                        out_file.write(chunk)
-                        if hasher:
-                            hasher.update(chunk)
-                        downloaded += len(chunk)
-                        if total_bytes:
-                            percent = int((downloaded / total_bytes) * 100)
+                with urllib.request.urlopen(req, timeout=45) as response:
+                    content_length = response.headers.get("content-length")
+                    total_bytes = int(content_length) if content_length else None
+                    downloaded = 0
+
+                    with open(tmp_p, "wb") as out_file:
+                        while True:
+                            chunk = response.read(16384)
+                            if not chunk:
+                                break
+                            out_file.write(chunk)
+                            if hasher:
+                                hasher.update(chunk)
+                            downloaded += len(chunk)
+                            percent = (
+                                int((downloaded / total_bytes) * 90)
+                                if total_bytes
+                                else 45
+                            )
                             extension_manager.install_states[task_id] = {
                                 "status": "downloading",
-                                "progress": min(percent, 99),
+                                "progress": min(percent, 90),
+                                "downloaded_bytes": downloaded,
+                                "total_bytes": total_bytes or 0,
+                                "stage": _("Downloading package"),
                                 "error": None,
                             }
+                return downloaded, total_bytes, hasher
+
+            downloaded, total_bytes, hasher = await asyncio.to_thread(_download_sync)
 
             if sha256 and hasher:
+                extension_manager.install_states[task_id] = {
+                    "status": "verifying",
+                    "progress": 93,
+                    "downloaded_bytes": downloaded,
+                    "total_bytes": total_bytes or downloaded,
+                    "stage": _("Verifying package integrity"),
+                    "error": None,
+                }
                 calculated_hash = hasher.hexdigest()
                 if calculated_hash.lower() != sha256.lower().strip():
                     raise ValueError(
-                        f"Integrity check failed. Expected SHA-256 '{sha256}', calculated '{calculated_hash}'"
+                        _(
+                            "Integrity check failed. Expected SHA-256 '{expected}', calculated '{calculated}'"
+                        ).format(expected=sha256, calculated=calculated_hash)
                     )
 
-            if not extension_manager.install_extension(tmp_p, task_id=task_id):
+            extension_manager.install_states[task_id] = {
+                "status": "installing",
+                "progress": 97,
+                "downloaded_bytes": downloaded,
+                "total_bytes": total_bytes or downloaded,
+                "stage": _("Extracting and registering extension"),
+                "error": None,
+            }
+
+            install_success = await asyncio.to_thread(
+                extension_manager.install_extension, tmp_p, task_id=task_id
+            )
+
+            if not install_success:
                 extension_manager.install_states[task_id] = {
                     "status": "failed",
                     "progress": 0,
-                    "error": "Install failed",
+                    "downloaded_bytes": downloaded,
+                    "total_bytes": total_bytes or downloaded,
+                    "stage": _("Extension installation failed"),
+                    "error": _("Extension installation failed"),
                 }
             else:
+                extension_manager.install_states[task_id] = {
+                    "status": "completed",
+                    "progress": 100,
+                    "downloaded_bytes": downloaded,
+                    "total_bytes": total_bytes or downloaded,
+                    "stage": _("Installation complete"),
+                    "error": None,
+                }
                 _broadcast_extension_state_change()
         except Exception as e:
             extension_manager.install_states[task_id] = {
                 "status": "failed",
                 "progress": 0,
+                "downloaded_bytes": 0,
+                "total_bytes": 0,
+                "stage": _("Extension installation failed"),
                 "error": str(e),
             }
         finally:
@@ -235,7 +367,7 @@ async def install_extension_from_url(
                 except OSError:
                     pass
 
-    threading.Thread(target=download_and_install, name=f"downloader-{task_id}").start()
+    asyncio.create_task(async_download_and_install())
     return {"status": "success", "task_id": task_id}
 
 
@@ -607,7 +739,6 @@ async def proxy_isolated_extension_http(
 
     subpath_clean = "/" + subpath.lstrip("/")
 
-    # Suppress routine polling endpoints from flooding the log buffer
     if not (request.method == "GET" and subpath_clean in REPETITIVE_POLLING_PATHS):
         extension_manager.record_extension_log(
             target_id, f"HTTP {request.method} {subpath_clean}"
