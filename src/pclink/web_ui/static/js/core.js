@@ -87,7 +87,13 @@ class PCLinkWebUI {
     renderIcons() {
         if (window.feather) {
             if (this._featherTimeout) clearTimeout(this._featherTimeout);
-            this._featherTimeout = setTimeout(() => feather.replace(), 10);
+            this._featherTimeout = setTimeout(() => {
+                try {
+                    feather.replace();
+                } catch (e) {
+                    console.debug("Feather render caught non-fatal exception:", e);
+                }
+            }, 10);
         }
     }
 
@@ -103,18 +109,15 @@ class PCLinkWebUI {
             document.addEventListener(type, () => { this.lastActivity = Date.now(); }, { passive: true });
         });
 
-        // Web UI Global Keyboard Navigation Shortcuts & Ctrl+K Command Palette
         document.addEventListener('keydown', (e) => {
             const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable;
 
-            // Ctrl + K or Cmd + K: Toggle Command Palette
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
                 e.preventDefault();
                 window.openCommandPalette();
                 return;
             }
 
-            // Esc: Close Side Panel or Open Modals
             if (e.key === 'Escape') {
                 window.closeSidePanel();
                 const cmdModal = document.getElementById('commandPaletteModal');
@@ -122,7 +125,6 @@ class PCLinkWebUI {
                 return;
             }
 
-            // Alt + 1..9: Jump directly to tabs
             if (e.altKey && !isNaN(e.key) && parseInt(e.key) >= 1 && parseInt(e.key) <= 9) {
                 e.preventDefault();
                 const tabList = ['dashboard', 'devices', 'phone-files', 'desktop-streaming', 'services', 'links-management', 'extensions', 'settings', 'logs'];
@@ -131,7 +133,6 @@ class PCLinkWebUI {
                 return;
             }
 
-            // R: Refresh Active Tab (if not typing in input)
             if (!isInput && e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 this.loadTabData(this.getCurrentTab());
@@ -139,7 +140,7 @@ class PCLinkWebUI {
         });
 
         setInterval(async () => {
-            if (Date.now() - this.lastActivity > 900000) { // 15 Minutes
+            if (Date.now() - this.lastActivity > 900000) {
                 await fetch('/auth/logout', { method: 'POST' });
                 window.location.reload();
             }
@@ -271,7 +272,9 @@ window.confirmDialog = function (message, { title = 'Confirm', danger = false, r
         const iconColor = danger ? 'text-error' : 'text-primary';
         iconEl.innerHTML = `<i data-feather="${iconName}" class="w-5 h-5 ${iconColor}"></i>`;
         okBtn.className = `btn btn-sm font-bold text-white ${danger ? 'btn-error' : 'btn-primary'}`;
-        if (window.feather) feather.replace();
+        if (window.feather) {
+            try { feather.replace(); } catch (e) { }
+        }
 
         if (requiredWord) {
             inputWrapper.classList.remove('hidden');
@@ -347,7 +350,6 @@ window.filterCommandPalette = function (query) {
     const q = (query || '').toLowerCase().trim();
 
     const items = [
-        // Category: NAVIGATION
         { title: 'Dashboard', category: 'NAVIGATION', icon: 'home', tab: 'dashboard' },
         { title: 'Devices', category: 'NAVIGATION', icon: 'smartphone', tab: 'devices' },
         { title: 'Phone Files', category: 'NAVIGATION', icon: 'folder', tab: 'phone-files' },
@@ -362,7 +364,6 @@ window.filterCommandPalette = function (query) {
         { title: 'User Guide', category: 'NAVIGATION', icon: 'book-open', tab: 'guide' },
         { title: 'About PCLink', category: 'NAVIGATION', icon: 'help-circle', tab: 'about' },
 
-        // Category: FIREWALL & ACCESS
         { title: 'Toggle File Access (Read)', category: 'FIREWALL & ACCESS', icon: 'folder', tab: 'services', targetId: '[data-perm="files_read"]' },
         { title: 'Toggle File Access (Write)', category: 'FIREWALL & ACCESS', icon: 'edit-3', tab: 'services', targetId: '[data-perm="files_write"]' },
         { title: 'Toggle Remote Input & Clipboard', category: 'FIREWALL & ACCESS', icon: 'mouse-pointer', tab: 'services', targetId: '[data-perm="input"]' },
@@ -376,7 +377,6 @@ window.filterCommandPalette = function (query) {
         { title: 'Toggle Desktop Streaming', category: 'FIREWALL & ACCESS', icon: 'monitor', tab: 'services', targetId: '[data-perm="desktop_streaming"]' },
         { title: 'Toggle Terminal & Shell', category: 'FIREWALL & ACCESS', icon: 'terminal', tab: 'services', targetId: '[data-perm="terminal"]' },
 
-        // Category: SETTINGS & CONFIG
         { title: 'Server Port Configuration', category: 'SETTINGS & CONFIG', icon: 'settings', tab: 'settings', targetId: 'serverPortInput' },
         { title: 'Start with System Autostart', category: 'SETTINGS & CONFIG', icon: 'power', tab: 'settings', targetId: 'autoStartCheckbox' },
         { title: 'Change Master Password', category: 'SETTINGS & CONFIG', icon: 'key', tab: 'settings', targetId: 'currentPassword' },
@@ -386,18 +386,16 @@ window.filterCommandPalette = function (query) {
         { title: 'Open Host Config Location', category: 'SETTINGS & CONFIG', icon: 'folder', action: () => window.openConfigFolder() },
         { title: 'Factory Reset Server', category: 'SETTINGS & CONFIG', icon: 'refresh-ccw', action: () => window.resetServerRequest() },
 
-        // Category: DAEMON CONTROLS
         { title: 'Start Daemon Server', category: 'DAEMON CONTROLS', icon: 'play', action: () => window.startRemoteServer() },
         { title: 'Stop Daemon Server', category: 'DAEMON CONTROLS', icon: 'pause', action: () => window.stopRemoteServer() },
         { title: 'Restart Daemon Server', category: 'DAEMON CONTROLS', icon: 'refresh-cw', action: () => window.restartRemoteServer() },
         { title: 'Shutdown Server Process', category: 'DAEMON CONTROLS', icon: 'power', action: () => window.shutdownServer() },
 
-        // Category: ACTIONS & UTILITIES
         { title: 'Pair New Device', category: 'ACTIONS & UTILITIES', icon: 'plus-circle', action: () => window.openPairingPanel() },
         { title: 'Notification Center', category: 'ACTIONS & UTILITIES', icon: 'bell', action: () => window.openNotificationPanel() },
         { title: 'Export Diagnostics Specs (JSON)', category: 'ACTIONS & UTILITIES', icon: 'download', action: () => window.downloadSystemSpecs() },
-        { title: 'Run System Diagnostics', category: 'ACTIONS & UTILITIES', icon: 'tool', tab: 'repairTab', action: () => { window.pclinkUI.switchTab('repairTab'); if(window.repairModule) window.repairModule.runDiagnostics(); } },
-        { title: 'Auto-Heal Server', category: 'ACTIONS & UTILITIES', icon: 'cpu', tab: 'repairTab', action: () => { window.pclinkUI.switchTab('repairTab'); if(window.repairModule) window.repairModule.executeAutoHeal(); } },
+        { title: 'Run System Diagnostics', category: 'ACTIONS & UTILITIES', icon: 'tool', tab: 'repairTab', action: () => { window.pclinkUI.switchTab('repairTab'); if (window.repairModule) window.repairModule.runDiagnostics(); } },
+        { title: 'Auto-Heal Server', category: 'ACTIONS & UTILITIES', icon: 'cpu', tab: 'repairTab', action: () => { window.pclinkUI.switchTab('repairTab'); if (window.repairModule) window.repairModule.executeAutoHeal(); } },
         { title: 'Clear System Logs', category: 'ACTIONS & UTILITIES', icon: 'trash-2', action: () => window.clearLogs() },
         { title: 'Download System Logs', category: 'ACTIONS & UTILITIES', icon: 'download', action: () => window.downloadLogs() }
     ];
@@ -409,7 +407,6 @@ window.filterCommandPalette = function (query) {
         return;
     }
 
-    // Group items by category
     const groups = {};
     filtered.forEach((item, flatIdx) => {
         if (!groups[item.category]) groups[item.category] = [];
@@ -443,7 +440,9 @@ window.filterCommandPalette = function (query) {
     window._paletteSelectedIndex = 0;
     window.highlightPaletteSelection();
 
-    if (window.feather) feather.replace();
+    if (window.feather) {
+        try { feather.replace(); } catch (e) { }
+    }
 };
 
 window.highlightPaletteSelection = function () {
@@ -569,7 +568,9 @@ window.handleFactoryResetCore = async function (event) {
             localStorage.clear();
             const overlay = document.getElementById('resetSuccessOverlay');
             if (overlay) overlay.classList.remove('hidden');
-            if (window.feather) feather.replace();
+            if (window.feather) {
+                try { feather.replace(); } catch (e) { }
+            }
             window.toggleResetModalCore(false);
         } else {
             const data = await response.json();
@@ -585,7 +586,9 @@ window.handleFactoryResetCore = async function (event) {
         localStorage.clear();
         const overlay = document.getElementById('resetSuccessOverlay');
         if (overlay) overlay.classList.remove('hidden');
-        if (window.feather) feather.replace();
+        if (window.feather) {
+            try { feather.replace(); } catch (e) { }
+        }
         window.toggleResetModalCore(false);
     }
 };
@@ -614,7 +617,9 @@ window.openSidePanel = function (title, body, footer = '') {
     panel.classList.add('open');
     if (backdrop) backdrop.classList.remove('hidden');
     if (backdrop) backdrop.classList.add('open');
-    if (window.feather) feather.replace();
+    if (window.feather) {
+        try { feather.replace(); } catch (e) { }
+    }
 };
 
 window.closeSidePanel = function () {
@@ -644,7 +649,9 @@ window.toggleSidePanelFullscreen = function () {
     if (!panel) return;
     const isFullscreen = panel.classList.toggle('fullscreen');
     if (btn) btn.innerHTML = isFullscreen ? '<i data-feather="minimize-2" class="w-3 h-3"></i>' : '<i data-feather="maximize-2" class="w-3 h-3"></i>';
-    if (window.feather) feather.replace();
+    if (window.feather) {
+        try { feather.replace(); } catch (e) { }
+    }
 };
 
 window.toggleApiKeyVisibility = function () { if (window.pclinkUI) { window.pclinkUI.apiKeyVisible = !window.pclinkUI.apiKeyVisible; window.pclinkUI.updateApiKeyDisplay(); } };

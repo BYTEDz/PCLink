@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from ...core.extension_manager import ExtensionManager
 from ...services.macro_service import macro_service
 
 log = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class ParameterOption(BaseModel):
 class ParameterDefinition(BaseModel):
     name: str
     label_key: Optional[str] = None
-    type: Literal["string", "select", "hidden", "multiselect"]
+    type: Literal["string", "select", "hidden", "multiselect", "number", "boolean"]
     required: bool = True
     options: List[ParameterOption] = []
     default_value: Optional[Any] = None
@@ -244,6 +245,60 @@ AVAILABLE_ACTIONS = [
 ]
 
 
+def _collect_dynamic_extension_macro_actions() -> List[ActionDefinition]:
+    """Ingests custom macro actions contributed by active installed extensions."""
+    ext_manager = ExtensionManager()
+    custom_actions = []
+
+    for ext_id in ext_manager.discover_extensions():
+        if not ext_manager.is_extension_active(ext_id):
+            continue
+
+        manifest = ext_manager.get_manifest(ext_id)
+        if not manifest:
+            continue
+
+        contributed = manifest.get("contributes", {}).get("macro_actions", [])
+        for act in contributed:
+            act_id = act.get("id")
+            if not act_id:
+                continue
+
+            params = []
+            for p in act.get("parameters", []):
+                options = [
+                    ParameterOption(
+                        name_key=opt.get("label", k), value=opt.get("value", k)
+                    )
+                    for k, opt in enumerate(p.get("options", []))
+                    if isinstance(opt, dict)
+                ]
+                params.append(
+                    ParameterDefinition(
+                        name=p.get("name", "param"),
+                        label_key=p.get("name", "param"),
+                        type=p.get("type", "string"),
+                        required=p.get("required", True),
+                        default_value=p.get("default_value"),
+                        options=options,
+                    )
+                )
+
+            custom_actions.append(
+                ActionDefinition(
+                    type=f"ext:{ext_id}:{act_id}",
+                    name_key=act.get("name", act_id),
+                    description_key=act.get(
+                        "description", f"Provided by {manifest.get('name', ext_id)}"
+                    ),
+                    icon=manifest.get("icon") or "extension",
+                    parameters=params,
+                )
+            )
+
+    return custom_actions
+
+
 @router.get("/", response_model=List[Dict[str, Any]])
 async def get_macros():
     return macro_service.get_macros()
@@ -263,12 +318,14 @@ async def delete_macro(macro_id: str):
 
 @router.get("/available-actions", response_model=List[ActionDefinition])
 async def get_available_actions():
-    return sorted(AVAILABLE_ACTIONS, key=lambda x: x.name_key)
+    base_actions = list(AVAILABLE_ACTIONS)
+    dynamic_extension_actions = _collect_dynamic_extension_macro_actions()
+    all_actions = base_actions + dynamic_extension_actions
+    return sorted(all_actions, key=lambda x: x.name_key)
 
 
 @router.post("/execute")
 async def execute_macro(request: Request, macro: Macro):
-    # Sync notification handler from app state to service
     tray_manager = getattr(request.app.state, "tray_manager", None)
     if tray_manager:
         macro_service.set_notification_handler(tray_manager.show_notification)
@@ -289,7 +346,6 @@ async def run_macro(macro_id: str, request: Request):
     if tray_manager:
         macro_service.set_notification_handler(tray_manager.show_notification)
 
-    # Run in background
     asyncio.create_task(macro_service.execute_macro(macro["name"], macro["actions"]))
     return {"status": "started"}
 

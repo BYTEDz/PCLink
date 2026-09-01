@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import asyncio
+import hashlib
 import json
 import logging
 import os
 import shutil
 import tempfile
 import threading
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -30,6 +33,7 @@ mgmt_router = APIRouter(tags=["extension-management"])
 runtime_router = APIRouter(tags=["extension-runtime"])
 
 IMPLICIT_FRAMEWORK_FEATURES = {"theme", "theme.read"}
+REPETITIVE_POLLING_PATHS = {"/downloads", "/status", "/sessions", "/stats"}
 
 
 def _sanitize_permission_list(perms: List[Any]) -> List[str]:
@@ -45,6 +49,20 @@ def _ensure_extensions_enabled() -> None:
         raise HTTPException(
             status_code=403, detail="Extension system is globally disabled."
         )
+
+
+def _broadcast_extension_state_change() -> None:
+    """Dispatches real-time WebSocket state update to connected mobile and web clients."""
+    from ...api_server.ws_manager import mobile_manager, ui_manager
+
+    event_payload = {
+        "type": "EXTENSIONS_STATE_CHANGED",
+        "data": {"timestamp": time.time()},
+    }
+    if mobile_manager.active_connections:
+        asyncio.create_task(mobile_manager.broadcast(event_payload))
+    if ui_manager.active_connections:
+        asyncio.create_task(ui_manager.broadcast(event_payload))
 
 
 def _resolve_extension_path_and_manifest(
@@ -114,6 +132,7 @@ async def list_extensions():
                 "dashboard_widgets", []
             )
             response_meta["views"] = contributes.get("views", [])
+            response_meta["macro_actions"] = contributes.get("macro_actions", [])
 
             all_exts.append(response_meta)
         except Exception as e:
@@ -134,6 +153,7 @@ async def install_extension(file: UploadFile = File(...)):
 
     try:
         if extension_manager.install_extension(tmp_p):
+            _broadcast_extension_state_change()
             return {"status": "success"}
         raise HTTPException(400, "Installation failed")
     except PermissionError as e:
@@ -144,7 +164,9 @@ async def install_extension(file: UploadFile = File(...)):
 
 
 @mgmt_router.post("/install/url")
-async def install_extension_from_url(url: str = Query(...)):
+async def install_extension_from_url(
+    url: str = Query(...), sha256: Optional[str] = Query(None)
+):
     _ensure_extensions_enabled()
     if not url.startswith("http"):
         raise HTTPException(400, "Invalid URL")
@@ -161,6 +183,8 @@ async def install_extension_from_url(url: str = Query(...)):
             tmp_p = Path(tmp.name)
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "PCLink-Server"})
+            hasher = hashlib.sha256() if sha256 else None
+
             with urllib.request.urlopen(req, timeout=30) as response:
                 content_length = response.headers.get("content-length")
                 total_bytes = int(content_length) if content_length else None
@@ -172,6 +196,8 @@ async def install_extension_from_url(url: str = Query(...)):
                         if not chunk:
                             break
                         out_file.write(chunk)
+                        if hasher:
+                            hasher.update(chunk)
                         downloaded += len(chunk)
                         if total_bytes:
                             percent = int((downloaded / total_bytes) * 100)
@@ -181,12 +207,21 @@ async def install_extension_from_url(url: str = Query(...)):
                                 "error": None,
                             }
 
+            if sha256 and hasher:
+                calculated_hash = hasher.hexdigest()
+                if calculated_hash.lower() != sha256.lower().strip():
+                    raise ValueError(
+                        f"Integrity check failed. Expected SHA-256 '{sha256}', calculated '{calculated_hash}'"
+                    )
+
             if not extension_manager.install_extension(tmp_p, task_id=task_id):
                 extension_manager.install_states[task_id] = {
                     "status": "failed",
                     "progress": 0,
                     "error": "Install failed",
                 }
+            else:
+                _broadcast_extension_state_change()
         except Exception as e:
             extension_manager.install_states[task_id] = {
                 "status": "failed",
@@ -210,6 +245,7 @@ async def delete_extension(extension_id: str):
     clean_id = urllib.parse.unquote(extension_id)
     try:
         if extension_manager.delete_extension(clean_id):
+            _broadcast_extension_state_change()
             return {"status": "success"}
         raise HTTPException(500, "Delete failed")
     except PermissionError as e:
@@ -222,6 +258,7 @@ async def toggle_extension(extension_id: str, enabled: bool):
     clean_id = urllib.parse.unquote(extension_id)
     try:
         if extension_manager.toggle_extension(clean_id, enabled):
+            _broadcast_extension_state_change()
             return {"status": "success"}
         raise HTTPException(500, "Toggle failed")
     except PermissionError as e:
@@ -240,6 +277,7 @@ async def approve_extension_consent(
         clean_id, tailored_permissions=selected_perms
     ):
         state = extension_db.get_state(clean_id) or {}
+        _broadcast_extension_state_change()
         return {
             "status": "success",
             "approved": True,
@@ -276,6 +314,8 @@ async def update_granular_permissions(
     if extension_manager.is_extension_active(clean_id):
         extension_manager.unload_extension(clean_id)
         extension_manager.load_extension(clean_id)
+
+    _broadcast_extension_state_change()
 
     return {
         "status": "success",
@@ -566,9 +606,12 @@ async def proxy_isolated_extension_http(
         pass
 
     subpath_clean = "/" + subpath.lstrip("/")
-    extension_manager.record_extension_log(
-        target_id, f"HTTP {request.method} {subpath_clean}"
-    )
+
+    # Suppress routine polling endpoints from flooding the log buffer
+    if not (request.method == "GET" and subpath_clean in REPETITIVE_POLLING_PATHS):
+        extension_manager.record_extension_log(
+            target_id, f"HTTP {request.method} {subpath_clean}"
+        )
 
     res = extension_manager.dispatch_ipc_http_request(
         extension_id=target_id,

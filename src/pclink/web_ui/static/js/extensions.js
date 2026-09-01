@@ -84,7 +84,7 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions) {
                         : 'Quarantined'));
             chips.push(`
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-warning/10 border border-warning/30 text-[10px] font-bold text-warning uppercase tracking-wider">
-                    <i data-feather="shield-alert" class="w-2.5 h-2.5"></i> ${reasonLabel}
+                    <i data-feather="alert-triangle" class="w-2.5 h-2.5"></i> ${reasonLabel}
                 </span>
             `);
         }
@@ -298,7 +298,7 @@ window.filterStoreExtensions = function () {
                         <i data-feather="check" class="w-3 h-3"></i> Installed
                     </span>
                 ` : `
-                    <button class="btn btn-xs btn-primary text-white font-bold gap-1 shadow-xs px-3 shrink-0" onclick="window.installFromMarketplace('${pkg.download_url}')">
+                    <button class="btn btn-xs btn-primary text-white font-bold gap-1 shadow-xs px-3 shrink-0" onclick="window.installFromMarketplace('${pkg.download_url}', '${pkg.sha256 || ''}')">
                         <i data-feather="download" class="w-3 h-3"></i> Install
                     </button>
                 `}
@@ -310,11 +310,17 @@ window.filterStoreExtensions = function () {
     this.renderIcons();
 };
 
-window.installFromMarketplace = async function (downloadUrl) {
+window.installFromMarketplace = async function (downloadUrl, sha256 = '') {
     if (!downloadUrl) return;
     window.pclinkUI.showToast('Installing', 'Downloading package from marketplace...', 'info');
+
+    let endpoint = `/ui/extensions/install/url?url=${encodeURIComponent(downloadUrl)}`;
+    if (sha256) {
+        endpoint += `&sha256=${encodeURIComponent(sha256)}`;
+    }
+
     try {
-        const res = await window.pclinkUI.webUICall(`/ui/extensions/install/url?url=${encodeURIComponent(downloadUrl)}`, { method: 'POST' });
+        const res = await window.pclinkUI.webUICall(endpoint, { method: 'POST' });
         if (res.ok) {
             window.pclinkUI.showToast('Installed', 'Package installed. Review permissions if required.', 'success');
             await window.pclinkUI.loadExtensions();

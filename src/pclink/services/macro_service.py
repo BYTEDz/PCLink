@@ -9,6 +9,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional
 
 from ..core import constants
+from ..core.extension_manager import ExtensionManager
 from .app_service import app_service
 from .file_service import file_service
 from .input_service import input_service
@@ -20,7 +21,7 @@ log = logging.getLogger(__name__)
 
 
 class MacroService:
-    """Orchestrates multi-step actions across various PCLink services."""
+    """Orchestrates multi-step actions across various PCLink services and active extensions."""
 
     def __init__(self):
         self._notification_handler: Optional[Callable[[str, str], None]] = None
@@ -39,9 +40,8 @@ class MacroService:
             with self.macros_file.open("r", encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):
-                    # Migration: Convert old list-based format to dict-based (indexed by ID)
                     self._macros = {m.get("id", str(uuid.uuid4())): m for m in data}
-                    self._save_macros()  # Standardize format
+                    self._save_macros()
                 else:
                     self._macros = data
             log.info(f"Loaded {len(self._macros)} macros from {self.macros_file}")
@@ -99,6 +99,28 @@ class MacroService:
                 raise
 
     async def _execute_step(self, action_type: str, payload: Dict[str, Any]):
+        if action_type.startswith("ext:"):
+            # Format: ext:<extension_id>:<action_id>
+            parts = action_type.split(":", 2)
+            if len(parts) == 3:
+                _, ext_id, action_id = parts
+                ext_manager = ExtensionManager()
+                if not ext_manager.is_extension_active(ext_id):
+                    raise RuntimeError(
+                        f"Extension '{ext_id}' is not active or unloaded."
+                    )
+
+                # Dispatch macro action execution event to extension worker
+                ext_manager.dispatch_event(
+                    f"macro:{action_id}",
+                    {"action_id": action_id, "payload": payload},
+                )
+                ext_manager.record_extension_log(
+                    ext_id,
+                    f"Macro step executed: {action_id} payload={json.dumps(payload)}",
+                )
+                return
+
         if action_type == "launch_app":
             cmd = payload.get("command")
             if not cmd:
@@ -166,7 +188,6 @@ class MacroService:
             path = payload.get("path")
             if not path:
                 raise ValueError("Missing file path")
-            # We don't have 'open' in file_service yet, but we can reuse the logic
             import os
             import subprocess
             import sys
@@ -183,5 +204,4 @@ class MacroService:
             raise ValueError(f"Unknown action type: {action_type}")
 
 
-# Global instance
 macro_service = MacroService()
