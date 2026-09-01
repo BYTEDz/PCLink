@@ -72,10 +72,8 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions) {
             }
         }
 
-        // Unified expressive chip components
         const chips = [];
 
-        // Quarantine status chip
         if (isQuarantined) {
             const reasonLabel = ext.quarantine_reason === 'SECURITY_CONSENT_REQUIRED'
                 ? 'Consent Required'
@@ -91,7 +89,6 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions) {
             `);
         }
 
-        // Live process telemetry chips (only for subprocess workers)
         if (isLoaded && isWorker && ext.pid) {
             chips.push(`
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-base-200 border border-base-300 text-[10px] font-mono font-medium text-base-content/80">
@@ -116,7 +113,6 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions) {
             `);
         }
 
-        // Crash history chip
         if (ext.crash_count > 0) {
             chips.push(`
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-error/10 border border-error/30 text-[10px] font-bold text-error">
@@ -125,7 +121,6 @@ PCLinkWebUI.prototype.renderExtensions = function (extensions) {
             `);
         }
 
-        // Client contribution chips
         const viewsCount = (ext.views || []).length;
         const widgetsCount = (ext.dashboard_widgets || []).length;
         if (viewsCount > 0) {
@@ -268,33 +263,42 @@ window.filterStoreExtensions = function () {
         const iconUrl = pkg.icon_url || null;
 
         return `
-        <div class="card bg-base-100 border border-base-300 shadow-xs p-4 flex flex-col justify-between h-full space-y-3">
+        <div class="card bg-base-100 border border-base-300 shadow-xs p-4 flex flex-col justify-between h-full space-y-3 hover:border-primary/50 transition-all">
             <div>
                 <div class="flex items-start gap-3">
-                    <div class="p-2 bg-primary/10 rounded-xl text-primary shrink-0">
+                    <div class="p-2 bg-primary/10 rounded-xl text-primary shrink-0 flex items-center justify-center">
                         ${iconUrl ? `<img src="${iconUrl}" class="w-6 h-6 object-contain" onerror="this.outerHTML='<i data-feather=\\\'package\\\' class=\\\'w-6 h-6\\\'></i>'; if(window.feather) feather.replace();"/>` : `<i data-feather="package" class="w-6 h-6"></i>`}
                     </div>
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center justify-between gap-1">
-                            <h4 class="font-bold text-xs truncate">${window.pclinkUI.escapeHTML(pkg.name)}</h4>
-                            <span class="badge badge-ghost badge-xs font-mono font-bold">v${pkg.version}</span>
+                            <h4 class="font-bold text-xs leading-tight truncate">${window.pclinkUI.escapeHTML(pkg.name)}</h4>
+                            <span class="text-[9px] font-mono opacity-50">v${pkg.version}</span>
                         </div>
-                        <p class="text-[10px] opacity-60 line-clamp-2 mt-1">${window.pclinkUI.escapeHTML(pkg.description || 'No description available.')}</p>
+                        <p class="text-[10px] opacity-60 line-clamp-2 mt-0.5">${window.pclinkUI.escapeHTML(pkg.description || 'No description available.')}</p>
                     </div>
                 </div>
 
                 <div class="flex items-center gap-1.5 mt-3 flex-wrap">
-                    <span class="badge badge-primary badge-outline badge-xs font-bold">${pkg.category || 'Utility'}</span>
-                    <span class="text-[9px] opacity-40 font-bold">${window.pclinkUI.formatFileSize(pkg.file_size || 0)}</span>
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-[10px] font-semibold text-primary">
+                        <i data-feather="tag" class="w-2.5 h-2.5"></i> ${pkg.category || 'Utility'}
+                    </span>
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-base-200 border border-base-300 text-[10px] font-mono text-base-content/70">
+                        <i data-feather="hard-drive" class="w-2.5 h-2.5 opacity-50"></i> ${window.pclinkUI.formatFileSize(pkg.file_size || 0)}
+                    </span>
                 </div>
             </div>
 
-            <div class="pt-3 border-t border-base-200 flex justify-between items-center">
-                <span class="text-[9px] opacity-40 font-mono">By ${window.pclinkUI.escapeHTML(pkg.author || 'BYTEDz')}</span>
+            <div class="pt-3 border-t border-base-200 flex justify-between items-center gap-2">
+                <span class="text-[10px] font-medium text-base-content/50 flex items-center gap-1 truncate">
+                    <i data-feather="user" class="w-3 h-3 opacity-40 shrink-0"></i>
+                    <span class="truncate">${window.pclinkUI.escapeHTML(pkg.author || 'BYTEDz')}</span>
+                </span>
                 ${isInstalled ? `
-                    <span class="badge badge-success text-white badge-xs font-bold py-2 px-3">Installed</span>
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-success/15 border border-success/30 text-success text-[10px] font-bold uppercase tracking-wider shrink-0">
+                        <i data-feather="check" class="w-3 h-3"></i> Installed
+                    </span>
                 ` : `
-                    <button class="btn btn-xs btn-primary text-white font-bold gap-1" onclick="window.installFromMarketplace('${pkg.download_url}')">
+                    <button class="btn btn-xs btn-primary text-white font-bold gap-1 shadow-xs px-3 shrink-0" onclick="window.installFromMarketplace('${pkg.download_url}')">
                         <i data-feather="download" class="w-3 h-3"></i> Install
                     </button>
                 `}
@@ -303,7 +307,7 @@ window.filterStoreExtensions = function () {
         `;
     }).join('');
 
-    if (window.feather) feather.replace();
+    this.renderIcons();
 };
 
 window.installFromMarketplace = async function (downloadUrl) {
