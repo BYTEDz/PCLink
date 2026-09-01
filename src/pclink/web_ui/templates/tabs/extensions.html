@@ -1,60 +1,128 @@
-<!-- Extensions -->
+<!-- Extensions Management & Marketplace -->
 <div class="tab-content" id="extensions">
-  <div class="w-full space-y-4">
-    <div id="extGlobalDisabledAlert" class="alert alert-warning hidden">
-      <i data-feather="alert-triangle" class="w-5 shrink-0"></i>
-      <div>
-        <h4 class="font-black text-sm">Extensions are globally disabled</h4>
-        <p class="text-xs opacity-80">Enable them via <button class="underline font-black"
-            onclick="document.querySelector('[data-tab=services]').click()">Access Control → Firewall</button> first.
-        </p>
+  <div class="w-full space-y-4 relative min-h-[calc(100vh-8rem)]" id="extTabWrapper"
+    ondragenter="window.handleExtTabDragEnter(event)" ondragover="window.handleExtTabDragOver(event)"
+    ondragleave="window.handleExtTabDragLeave(event)" ondrop="window.handleExtTabDrop(event)">
+
+    <!-- Full-Tab Drag & Drop Overlay -->
+    <div id="extDropOverlay"
+      class="absolute inset-0 bg-primary/10 backdrop-blur-[2px] border-2 border-dashed border-primary/60 rounded-2xl z-[60] flex flex-col items-center justify-center pointer-events-none opacity-0 transition-all duration-200 scale-[0.99]">
+      <div class="bg-base-100 p-8 rounded-3xl shadow-2xl border border-primary/20 flex flex-col items-center gap-3">
+        <div class="bg-primary text-white p-4 rounded-2xl shadow-lg">
+          <i data-feather="package" class="w-8 h-8"></i>
+        </div>
+        <div class="text-center">
+          <p class="font-black uppercase tracking-wider text-xs text-primary">Drop Package to Install</p>
+          <p class="text-[10px] font-bold opacity-40 mt-0.5">Release to start installation (.pclink)</p>
+        </div>
       </div>
     </div>
-    <div id="extSafeModeAlert" class="alert alert-error hidden">
-      <i data-feather="shield-off" class="w-5 shrink-0"></i>
+
+    <!-- Hidden File Input Trigger -->
+    <input type="file" id="extFileInput" class="hidden" accept=".pclink" onchange="window.handleExtFileSelect(this)">
+
+    <!-- Global Warnings & Safe Mode Alerts -->
+    <div id="extGlobalDisabledAlert"
+      class="alert alert-warning border border-warning/30 bg-warning/10 shadow-sm hidden">
+      <i data-feather="alert-triangle" class="w-5 h-5 shrink-0 text-warning"></i>
+      <div>
+        <h4 class="font-black text-sm">Extensions Subsystem Disabled Globally</h4>
+        <p class="text-xs opacity-75">Enable the Extensions feature switch under <button class="underline font-bold"
+            onclick="window.pclinkUI.switchTab('services')">Access Control → Firewall</button> to activate background
+          workers.</p>
+      </div>
+    </div>
+
+    <div id="extSafeModeAlert" class="alert alert-error border border-error/30 bg-error/10 shadow-sm hidden">
+      <i data-feather="shield-off" class="w-5 h-5 shrink-0 text-error"></i>
       <div>
         <h4 class="font-black text-sm">Safe Mode Active</h4>
-        <p class="text-xs opacity-80">Extensions were disabled after repeated startup crashes. Delete the crash lock
-          file and restart to recover.</p>
+        <p class="text-xs opacity-75">Extensions have been halted due to repeated startup failures. Check system logs to
+          diagnose the issue.</p>
       </div>
     </div>
-    <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
-      <div class="card-body p-5">
-        <h3 class="card-title text-xs font-bold uppercase opacity-50 tracking-widest mb-3"><i data-feather="package"
-            class="w-4"></i> Install Extension</h3>
-        <div id="extDropZone"
-          class="border-2 border-dashed border-base-300 rounded-xl p-6 text-center transition-colors hover:border-primary cursor-pointer mb-3"
-          onclick="document.getElementById('extFileInput').click()"
-          ondragover="event.preventDefault(); this.classList.add('border-primary','bg-primary/5')"
-          ondragleave="this.classList.remove('border-primary','bg-primary/5')" ondrop="window.handleExtDrop(event)">
-          <i data-feather="upload-cloud" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
-          <p class="text-xs font-bold opacity-60">Drop <span class="text-primary">.pclink</span> bundle here or click to
-            browse</p>
-          <input type="file" id="extFileInput" class="hidden" accept=".pclink" onchange="window.handleExtFileSelect(this)">
+
+    <!-- Unified Fixed Header & Controls Bar -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 w-full">
+      <div class="flex items-center gap-3">
+        <div class="p-2 bg-primary/10 rounded-xl text-primary shrink-0">
+          <i data-feather="package" class="w-5 h-5"></i>
         </div>
-        <div class="flex gap-2">
-          <input type="url" id="extUrlInput" placeholder="https://example.com/extension.pclink"
-            class="input input-sm input-bordered flex-1 font-mono text-xs" />
-          <button class="btn btn-sm btn-primary text-white font-bold" onclick="window.installExtFromUrl()">
-            <i data-feather="link" class="w-3"></i> Install URL
+        <div>
+          <h2 class="text-base font-black uppercase tracking-tight">Extensions Manager</h2>
+          <p class="text-[10px] font-bold opacity-50 uppercase tracking-widest">Runtime Governance & Package Repository
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 shrink-0">
+        <div class="tabs tabs-boxed bg-base-300/60 p-1 rounded-xl font-bold text-xs">
+          <button class="sub-tab tab tab-xs font-black uppercase tracking-wider active bg-primary text-white"
+            id="extSubTab-installed" onclick="window.switchExtSubTab('installed', this)">
+            Installed (<span id="extInstalledCount">0</span>)
+          </button>
+          <button class="sub-tab tab tab-xs font-black uppercase tracking-wider opacity-60" id="extSubTab-store"
+            onclick="window.switchExtSubTab('store', this)">
+            Marketplace
           </button>
         </div>
-        <div id="extInstallProgress" class="hidden mt-3">
-          <div class="flex items-center gap-3 p-3 bg-base-200 rounded-lg border border-base-300">
-            <span class="loading loading-spinner loading-sm text-primary"></span>
-            <span class="text-xs font-bold" id="extInstallMsg">Installing...</span>
-          </div>
-        </div>
+
+        <button class="btn btn-xs btn-primary text-white font-bold gap-1 shadow-sm"
+          onclick="window.openInstallPackagePanel()" title="Install .pclink package or from URL">
+          <i data-feather="plus" class="w-3.5 h-3.5"></i> Install
+        </button>
       </div>
     </div>
-    <div class="flex justify-between items-center">
-      <span class="text-[10px] font-black uppercase opacity-30 tracking-widest">Installed</span>
-      <button class="btn btn-xs btn-ghost border-base-300" onclick="window.loadExtensions()">
-        <i data-feather="refresh-cw" class="w-3"></i>
-      </button>
+
+    <!-- Subtab 1: Installed Extensions -->
+    <div id="extView-installed" class="space-y-3">
+      <div class="flex items-center justify-between gap-3 h-9">
+        <div class="relative flex-1 max-w-sm">
+          <i data-feather="search" class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 opacity-40"></i>
+          <input type="text" id="extSearchInput" class="input input-sm input-bordered w-full pl-8 text-xs font-bold"
+            placeholder="Filter installed extensions..." oninput="window.filterInstalledExtensions()">
+        </div>
+        <button class="btn btn-sm btn-ghost border-base-300 gap-1 font-bold h-9 min-h-0"
+          onclick="window.loadExtensions()">
+          <i data-feather="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+        </button>
+      </div>
+
+      <div id="extList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        <div class="text-center py-10 opacity-50 col-span-full"><span class="loading loading-spinner"></span></div>
+      </div>
     </div>
-    <div id="extList" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <div class="text-center py-10 opacity-50"><span class="loading loading-spinner"></span></div>
+
+    <!-- Subtab 2: Marketplace Catalog -->
+    <div id="extView-store" class="space-y-3 hidden">
+      <div class="flex items-center justify-between gap-3 h-9">
+        <div class="relative flex-1 max-w-sm">
+          <i data-feather="search" class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 opacity-40"></i>
+          <input type="text" id="storeSearchInput" class="input input-sm input-bordered w-full pl-8 text-xs font-bold"
+            placeholder="Search marketplace..." oninput="window.filterStoreExtensions()">
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="storeCategoryFilter" class="select select-sm select-bordered text-xs font-bold h-9 min-h-0"
+            onchange="window.filterStoreExtensions()">
+            <option value="all">All Categories</option>
+            <option value="Utility">Utility</option>
+            <option value="Media">Media</option>
+            <option value="Security">Security</option>
+            <option value="Productivity">Productivity</option>
+            <option value="System">System</option>
+            <option value="Developer">Developer</option>
+          </select>
+          <button class="btn btn-sm btn-ghost border-base-300 h-9 min-h-0" onclick="window.fetchMarketplaceCatalog()"
+            title="Refresh Catalog">
+            <i data-feather="refresh-cw" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </div>
+
+      <div id="storeList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        <div class="text-center py-10 opacity-50 col-span-full"><span class="loading loading-spinner"></span></div>
+      </div>
     </div>
+
   </div>
 </div>

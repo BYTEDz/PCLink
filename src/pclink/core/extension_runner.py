@@ -21,8 +21,28 @@ from typing import Any, Dict
 from .extension_base import ExtensionMetadata, StaticExtension
 from .extension_context import ExtensionContext
 
-log = logging.getLogger("pclink.extension_worker")
 _ = gettext.gettext
+
+
+class WorkerIpcLogHandler(logging.Handler):
+    """Captures child worker logging output and transmits records across the IPC pipe to the host."""
+
+    def __init__(self, ipc_conn):
+        super().__init__()
+        self.ipc_conn = ipc_conn
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            self.ipc_conn.send(
+                {
+                    "type": "LOG",
+                    "message": msg,
+                    "level": record.levelname,
+                }
+            )
+        except Exception:
+            pass
 
 
 def run_extension_process(
@@ -39,6 +59,17 @@ def run_extension_process(
             pythoncom.CoInitialize()
         except Exception:
             pass
+
+    # Configure worker logger to pipe entries back to host server
+    root_worker_logger = logging.getLogger()
+    root_worker_logger.setLevel(logging.INFO)
+    ipc_handler = WorkerIpcLogHandler(ipc_conn)
+    ipc_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
+        )
+    )
+    root_worker_logger.addHandler(ipc_handler)
 
     try:
         ext_path = Path(extension_path_str)
@@ -163,7 +194,9 @@ def run_extension_process(
                             else:
                                 handler(event_data)
                         except Exception as e:
-                            log.error(f"Event handler error for '{event_name}': {e}")
+                            logging.getLogger(
+                                f"pclink.extensions.{extension_id}"
+                            ).error(f"Event handler error for '{event_name}': {e}")
 
                 elif cmd_type == "HTTP_REQUEST":
                     req_id = cmd.get("req_id")

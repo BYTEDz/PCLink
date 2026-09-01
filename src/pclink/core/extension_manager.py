@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 import zipfile
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -76,7 +77,7 @@ class ExtensionManager:
             self.extensions: Dict[str, StaticExtension] = {}
             self.isolated_processes: Dict[str, Dict[str, Any]] = {}
             self._pending_http_requests: Dict[str, Any] = {}
-            self.logs: Dict[str, List[str]] = {}
+            self.logs: Dict[str, deque] = {}
             self.failed_extensions: Dict[str, float] = {}
             self.install_states: Dict[str, Dict[str, Any]] = {}
             self._metadata_cache: Dict[str, tuple[float, Dict[str, Any]]] = {}
@@ -140,6 +141,28 @@ class ExtensionManager:
             except OSError:
                 pass
 
+    def record_extension_log(
+        self, identifier: str, message: str, level: str = "INFO"
+    ) -> None:
+        """Appends a log entry to the extension circular buffer and mirrors to Python logging."""
+        ext_dir = self._resolve_extension_dir(identifier)
+        target_id = ext_dir.name if ext_dir else identifier
+
+        clean_msg = message.strip()
+        if not clean_msg:
+            return
+
+        with self._lock:
+            if target_id not in self.logs:
+                self.logs[target_id] = deque(maxlen=500)
+
+            timestamp = time.strftime("%H:%M:%S")
+            formatted_entry = f"{timestamp} - [{level}] {clean_msg}"
+            self.logs[target_id].append(formatted_entry)
+
+        log_level = getattr(logging, level.upper(), logging.INFO)
+        logging.getLogger(f"pclink.extensions.{target_id}").log(log_level, clean_msg)
+
     def _resolve_effective_resource_limits(
         self, declared_limits: ResourceLimits
     ) -> ResourceLimits:
@@ -200,12 +223,11 @@ class ExtensionManager:
                     try:
                         p = psutil.Process(pid)
 
-                        # Memory limit quota supervisor
                         rss_mb = p.memory_info().rss / (1024 * 1024)
                         if rss_mb > limits.max_memory_mb:
-                            log.warning(
-                                f"Extension '{ext_id}' exceeded memory quota ({rss_mb:.1f}MB > {limits.max_memory_mb}MB). Terminating worker."
-                            )
+                            log_msg = f"Extension '{ext_id}' exceeded memory quota ({rss_mb:.1f}MB > {limits.max_memory_mb}MB). Terminating worker."
+                            log.warning(log_msg)
+                            self.record_extension_log(ext_id, log_msg, level="ERROR")
                             self._handle_worker_crash(
                                 ext_id,
                                 reason="OOM_LIMIT_EXCEEDED",
@@ -213,13 +235,12 @@ class ExtensionManager:
                             )
                             continue
 
-                        # Check for dead worker state
                         if not p.is_running() or (
                             proc_obj and proc_obj.exitcode is not None
                         ):
-                            log.warning(
-                                f"Extension worker '{ext_id}' died unexpectedly."
-                            )
+                            log_msg = f"Extension worker '{ext_id}' died unexpectedly."
+                            log.warning(log_msg)
+                            self.record_extension_log(ext_id, log_msg, level="ERROR")
                             self._handle_worker_crash(
                                 ext_id,
                                 reason="PROCESS_TERMINATED",
@@ -227,9 +248,11 @@ class ExtensionManager:
                             )
 
                     except psutil.NoSuchProcess:
-                        log.warning(
+                        log_msg = (
                             f"Worker PID {pid} for extension '{ext_id}' disappeared."
                         )
+                        log.warning(log_msg)
+                        self.record_extension_log(ext_id, log_msg, level="ERROR")
                         self._handle_worker_crash(
                             ext_id,
                             reason="PROCESS_VANISHED",
@@ -266,9 +289,9 @@ class ExtensionManager:
         self._crash_timestamps[extension_id] = window
 
         if len(window) >= MAX_CRASHES_IN_WINDOW:
-            log.error(
-                f"Circuit breaker tripped for extension '{extension_id}' ({len(window)} crashes in {CRASH_WINDOW_SECONDS}s). Quarantining extension."
-            )
+            log_msg = f"Circuit breaker tripped for extension '{extension_id}' ({len(window)} crashes in {CRASH_WINDOW_SECONDS}s). Quarantining extension."
+            log.error(log_msg)
+            self.record_extension_log(extension_id, log_msg, level="ERROR")
             extension_db.set_quarantined(
                 extension_id,
                 quarantined=True,
@@ -444,6 +467,10 @@ class ExtensionManager:
             log.info(
                 f"Extension '{metadata.id}' installed (quarantined={needs_consent})."
             )
+            self.record_extension_log(
+                metadata.id,
+                f"Package installed successfully (quarantined={needs_consent}).",
+            )
 
             if not needs_consent:
                 return self.load_extension(metadata.id, task_id=task_id)
@@ -550,6 +577,10 @@ class ExtensionManager:
                 log.info(
                     f"Loaded presentation extension: {metadata.name} (v{metadata.version})"
                 )
+                self.record_extension_log(
+                    canonical_id,
+                    f"Presentation layer initialized (v{metadata.version}).",
+                )
                 return True
 
             # Tier 2: Supervised Worker Process
@@ -560,6 +591,9 @@ class ExtensionManager:
         except Exception as e:
             log.error(f"Error loading extension '{extension_id}': {e}", exc_info=True)
             self.failed_extensions[extension_id] = time.time()
+            self.record_extension_log(
+                extension_id, f"Initialization error: {e}", level="ERROR"
+            )
             return False
 
     def _spawn_worker_process(
@@ -628,9 +662,41 @@ class ExtensionManager:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
             )
             proc = proc_sub
             worker_pid = proc_sub.pid
+
+            def _read_worker_stream(stream, log_level):
+                try:
+                    for line in iter(stream.readline, ""):
+                        if not line:
+                            break
+                        self.record_extension_log(
+                            extension_id, line.strip(), level=log_level
+                        )
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+
+            threading.Thread(
+                target=_read_worker_stream,
+                args=(proc_sub.stdout, "INFO"),
+                daemon=True,
+                name=f"ext-stdout-{extension_id}",
+            ).start()
+            threading.Thread(
+                target=_read_worker_stream,
+                args=(proc_sub.stderr, "ERROR"),
+                daemon=True,
+                name=f"ext-stderr-{extension_id}",
+            ).start()
+
         else:
             log.error(
                 f"Unsupported backend runtime '{runtime}' for extension '{extension_id}'."
@@ -651,11 +717,23 @@ class ExtensionManager:
                     ready = True
                     break
                 elif status in ("error", "crash"):
+                    err_detail = msg.get("error", "Unknown worker crash")
                     log.error(
-                        f"Worker for extension '{extension_id}' failed: {msg.get('error')}"
+                        f"Worker for extension '{extension_id}' failed: {err_detail}"
+                    )
+                    self.record_extension_log(
+                        extension_id,
+                        f"Worker startup error: {err_detail}",
+                        level="ERROR",
                     )
                     _kill_process_tree(worker_pid)
                     return False
+                elif msg_type == "LOG":
+                    self.record_extension_log(
+                        extension_id,
+                        msg.get("message", ""),
+                        level=msg.get("level", "INFO"),
+                    )
                 elif msg_type == "CONTEXT_CALL":
                     api_name = msg.get("api")
                     method_name = msg.get("method")
@@ -675,11 +753,18 @@ class ExtensionManager:
                 log.error(
                     f"Worker process for '{extension_id}' exited during startup handshake."
                 )
+                self.record_extension_log(
+                    extension_id,
+                    "Worker process terminated during handshake.",
+                    level="ERROR",
+                )
                 return False
 
         if not ready:
             _kill_process_tree(worker_pid)
-            log.error(f"Startup handshake for extension '{extension_id}' timed out.")
+            timeout_msg = f"Startup handshake for extension '{extension_id}' timed out after {limits.execution_timeout_sec}s."
+            log.error(timeout_msg)
+            self.record_extension_log(extension_id, timeout_msg, level="ERROR")
             return False
 
         worker_entry = {
@@ -705,6 +790,9 @@ class ExtensionManager:
         log.info(
             f"Spawned supervisor worker for extension '{metadata.name}' (PID={worker_pid})."
         )
+        self.record_extension_log(
+            extension_id, f"Supervisor worker active (PID={worker_pid})."
+        )
         return True
 
     def _ipc_event_loop(
@@ -720,7 +808,14 @@ class ExtensionManager:
                 msg = host_pipe.recv()
                 msg_type = msg.get("type")
 
-                if msg_type == "HTTP_RESPONSE":
+                if msg_type == "LOG":
+                    self.record_extension_log(
+                        extension_id,
+                        msg.get("message", ""),
+                        level=msg.get("level", "INFO"),
+                    )
+
+                elif msg_type == "HTTP_RESPONSE":
                     req_id = msg.get("req_id")
                     if req_id:
                         self._pending_http_requests[req_id] = msg
@@ -747,6 +842,9 @@ class ExtensionManager:
                 break
             except Exception as e:
                 log.error(f"IPC loop exception for '{extension_id}': {e}")
+                self.record_extension_log(
+                    extension_id, f"IPC communication fault: {e}", level="ERROR"
+                )
                 break
 
     def dispatch_ipc_http_request(
@@ -864,6 +962,8 @@ class ExtensionManager:
             if ext_dir.exists():
                 shutil.rmtree(ext_dir)
             extension_db.delete_state(ext_dir.name)
+            with self._lock:
+                self.logs.pop(ext_dir.name, None)
             log.info(f"Deleted extension bundle: '{identifier}'.")
             return True
         except Exception as e:
@@ -951,9 +1051,13 @@ class ExtensionManager:
     def get_extension_logs(self, identifier: str) -> List[str]:
         ext_dir = self._resolve_extension_dir(identifier)
         target_id = ext_dir.name if ext_dir else identifier
-        return self.logs.get(target_id, [])
+        with self._lock:
+            logs_deque = self.logs.get(target_id)
+            return list(logs_deque) if logs_deque else []
 
     def clear_extension_logs(self, identifier: str) -> None:
         ext_dir = self._resolve_extension_dir(identifier)
         target_id = ext_dir.name if ext_dir else identifier
-        self.logs.pop(target_id, None)
+        with self._lock:
+            if target_id in self.logs:
+                self.logs[target_id].clear()

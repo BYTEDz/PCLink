@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
+import json
 import logging
 import os
 import shutil
@@ -156,7 +157,7 @@ async def install_extension_from_url(url: str = Query(...)):
     }
 
     def download_and_install():
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pclink") as tmp:
             tmp_p = Path(tmp.name)
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "PCLink-Server"})
@@ -442,6 +443,13 @@ async def broker_rpc_gateway(
     except Exception:
         body = {}
 
+    body_summary = json.dumps(body) if body else ""
+    log_msg = f"[EXTENSION BROKER: {clean_id}] -> {domain}.{method}({body_summary})"
+    log.info(log_msg)
+    extension_manager.record_extension_log(
+        clean_id, f"Broker request: {domain}.{method} {body_summary}".strip()
+    )
+
     try:
         if domain == "event":
             context.publish_event(method, body)
@@ -519,11 +527,17 @@ async def broker_rpc_gateway(
 
     except PermissionError as e:
         log.warning(f"Broker permission denied for '{clean_id}': {e}")
+        extension_manager.record_extension_log(
+            clean_id, f"Permission denied for {domain}.{method}: {e}", level="WARNING"
+        )
         raise HTTPException(403, str(e))
     except Exception as e:
         log.error(
             f"Broker execution failed for '{clean_id}' ({domain}.{method}): {e}",
             exc_info=True,
+        )
+        extension_manager.record_extension_log(
+            clean_id, f"Error in {domain}.{method}: {e}", level="ERROR"
         )
         raise HTTPException(500, str(e))
 
@@ -552,6 +566,10 @@ async def proxy_isolated_extension_http(
         pass
 
     subpath_clean = "/" + subpath.lstrip("/")
+    extension_manager.record_extension_log(
+        target_id, f"HTTP {request.method} {subpath_clean}"
+    )
+
     res = extension_manager.dispatch_ipc_http_request(
         extension_id=target_id,
         method=request.method,
