@@ -10,10 +10,11 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 import psutil
 
@@ -86,41 +87,95 @@ def _get_volume_label(mountpoint: str, device: str) -> str:
 class NetworkMonitor:
     def __init__(self):
         self.last_update = time.time()
+        self._lock = threading.Lock()
         try:
-            self.last_io = psutil.net_io_counters()
+            self.last_io = self._get_filtered_io()
         except Exception:
             self.last_io = None
         self.last_speed = {"upload_mbps": 0.0, "download_mbps": 0.0}
 
-    def get_speed(self) -> Dict[str, float]:
-        if not self.last_io:
-            return self.last_speed
-
-        now = time.time()
+    def _get_filtered_io(self) -> Optional[Tuple[int, int]]:
+        """Sum I/O counters strictly across active physical network adapters, excluding loopback."""
         try:
-            curr_io = psutil.net_io_counters()
+            per_nic = psutil.net_io_counters(pernic=True)
+            stats = psutil.net_if_stats()
         except Exception:
+            return None
+
+        total_sent = 0
+        total_recv = 0
+        has_matched = False
+
+        ignored_prefixes = (
+            "lo",
+            "br-",
+            "docker",
+            "veth",
+            "virbr",
+            "vmnet",
+            "tun",
+            "tap",
+            "wg",
+            "tailscale",
+        )
+
+        for iface, io in per_nic.items():
+            iface_lower = iface.lower()
+            if iface_lower.startswith(ignored_prefixes) or any(
+                x in iface_lower
+                for x in [
+                    "loopback",
+                    "virtual",
+                    "vethernet",
+                    "hyper-v",
+                    "wsl",
+                    "default switch",
+                ]
+            ):
+                continue
+
+            if iface in stats and not stats[iface].isup:
+                continue
+
+            total_sent += io.bytes_sent
+            total_recv += io.bytes_recv
+            has_matched = True
+
+        if not has_matched:
+            global_io = psutil.net_io_counters(pernic=False)
+            if global_io:
+                return global_io.bytes_sent, global_io.bytes_recv
+            return 0, 0
+
+        return total_sent, total_recv
+
+    def get_speed(self) -> Dict[str, float]:
+        with self._lock:
+            now = time.time()
+            delta = now - self.last_update
+            if delta < 0.4:
+                return self.last_speed
+
+            curr_io = self._get_filtered_io()
+            if not curr_io or not self.last_io:
+                self.last_io = curr_io
+                self.last_update = now
+                return self.last_speed
+
+            curr_sent, curr_recv = curr_io
+            last_sent, last_recv = self.last_io
+
+            up_mbps = ((curr_sent - last_sent) * 8 / delta) / 1_000_000
+            down_mbps = ((curr_recv - last_recv) * 8 / delta) / 1_000_000
+
+            self.last_speed = {
+                "upload_mbps": round(max(0.0, up_mbps), 2),
+                "download_mbps": round(max(0.0, down_mbps), 2),
+            }
+            self.last_update = now
+            self.last_io = curr_io
+
             return self.last_speed
-
-        delta = now - self.last_update
-        if delta < 0.2:
-            return self.last_speed
-
-        up_mbps = (
-            (curr_io.bytes_sent - self.last_io.bytes_sent) * 8 / delta
-        ) / 1_000_000
-        down_mbps = (
-            (curr_io.bytes_recv - self.last_io.bytes_recv) * 8 / delta
-        ) / 1_000_000
-
-        self.last_speed = {
-            "upload_mbps": round(max(0.0, up_mbps), 2),
-            "download_mbps": round(max(0.0, down_mbps), 2),
-        }
-        self.last_update = now
-        self.last_io = curr_io
-
-        return self.last_speed
 
 
 def _get_current_user() -> str:
@@ -734,7 +789,6 @@ class SystemService:
             CoUninitialize()
 
     async def _get_volume_linux_fallback(self) -> Dict[str, Any]:
-        # 1. Try pactl (PulseAudio / PipeWire-Pulse)
         if shutil.which("pactl"):
             try:
                 res = await self.run_command(
@@ -752,7 +806,6 @@ class SystemService:
             except Exception:
                 pass
 
-        # 2. Try wpctl (Native PipeWire / WirePlumber)
         if shutil.which("wpctl"):
             try:
                 res = await self.run_command(
@@ -768,7 +821,6 @@ class SystemService:
             except Exception:
                 pass
 
-        # 3. Try amixer (ALSA Fallback)
         if shutil.which("amixer"):
             for control in ["Master", "PCM", "Speaker"]:
                 try:
@@ -847,7 +899,6 @@ class SystemService:
             CoUninitialize()
 
     async def _set_volume_linux(self, level: int):
-        # 1. PipeWire / PulseAudio via pactl
         if shutil.which("pactl"):
             try:
                 if level == 0:
@@ -868,7 +919,6 @@ class SystemService:
             except Exception as e:
                 log.debug(f"pactl volume control failed: {e}")
 
-        # 2. Native PipeWire via wpctl (WirePlumber)
         if shutil.which("wpctl"):
             try:
                 vol_scalar = f"{level / 100.0:.2f}"
@@ -890,7 +940,6 @@ class SystemService:
             except Exception as e:
                 log.debug(f"wpctl volume control failed: {e}")
 
-        # 3. ALSA Fallback via amixer
         if shutil.which("amixer"):
             for control in ["Master", "PCM", "Speaker"]:
                 try:
