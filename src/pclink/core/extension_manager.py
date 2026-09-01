@@ -20,6 +20,7 @@ from . import constants
 from .extension_base import (
     DANGEROUS_PERMISSIONS,
     ExtensionMetadata,
+    ResourceLimits,
     StaticExtension,
 )
 from .extension_context import ExtensionContext
@@ -139,6 +140,38 @@ class ExtensionManager:
             except OSError:
                 pass
 
+    def _resolve_effective_resource_limits(
+        self, declared_limits: ResourceLimits
+    ) -> ResourceLimits:
+        """
+        Enforces platform security bounds on manifest-declared resource limits.
+        Prevents extensions from bypassing supervisor termination via inflated quotas.
+        """
+        server_min_memory_mb = 32
+        server_max_memory_mb = 1024
+        server_min_timeout_sec = 5
+        server_max_timeout_sec = 60
+        server_max_cpu_percent = 100
+
+        effective_mem = max(
+            server_min_memory_mb,
+            min(declared_limits.max_memory_mb, server_max_memory_mb),
+        )
+        effective_timeout = max(
+            server_min_timeout_sec,
+            min(declared_limits.execution_timeout_sec, server_max_timeout_sec),
+        )
+        effective_cpu = max(
+            5,
+            min(declared_limits.max_cpu_percent, server_max_cpu_percent),
+        )
+
+        return ResourceLimits(
+            max_memory_mb=effective_mem,
+            max_cpu_percent=effective_cpu,
+            execution_timeout_sec=effective_timeout,
+        )
+
     def _start_watchdog(self) -> None:
         if not self._watchdog_running:
             self._watchdog_running = True
@@ -160,7 +193,9 @@ class ExtensionManager:
                     pid = info["pid"]
                     proc_obj = info.get("process")
                     metadata: ExtensionMetadata = info["metadata"]
-                    limits = metadata.backend.resource_limits
+                    limits = self._resolve_effective_resource_limits(
+                        metadata.backend.resource_limits
+                    )
 
                     try:
                         p = psutil.Process(pid)
@@ -215,12 +250,10 @@ class ExtensionManager:
         now = time.time()
         self.unload_extension(extension_id)
 
-        # Record crash in database
         extension_db.record_crash(
             extension_id, exit_code=-1, error_summary=error_summary
         )
 
-        # Sliding window circuit breaker
         if extension_id not in self._crash_timestamps:
             self._crash_timestamps[extension_id] = []
 
@@ -392,7 +425,6 @@ class ExtensionManager:
                         return False
                 zf.extractall(target_dir)
 
-            # Security Quarantine Gate: Register into SQLite state table
             has_dangerous = any(
                 p in DANGEROUS_PERMISSIONS for p in metadata.permissions
             )
@@ -490,7 +522,6 @@ class ExtensionManager:
                     else None,
                 )
 
-            # Enforce state from SQLite database
             if state.get("quarantined") or not state.get("enabled"):
                 log.info(
                     f"Skipping inactive extension '{canonical_id}' (quarantined={state.get('quarantined')}, enabled={state.get('enabled')})."
@@ -501,10 +532,9 @@ class ExtensionManager:
             if not ext_dir:
                 return False
 
-            # Assign effective permissions stored in database
             metadata.permissions = state.get("granted_permissions", [])
 
-            # Tier 1: Web / RFW Presentation Only
+            # Tier 1: Presentation Only (no backend worker)
             if metadata.backend.runtime == "none":
                 context = ExtensionContext(metadata)
                 instance = StaticExtension(
@@ -541,9 +571,10 @@ class ExtensionManager:
         task_id: Optional[str] = None,
     ) -> bool:
         runtime = metadata.backend.runtime
-        limits = metadata.backend.resource_limits
+        limits = self._resolve_effective_resource_limits(
+            metadata.backend.resource_limits
+        )
 
-        # Node runtime host pre-flight verification
         if runtime == "node" and not shutil.which("node"):
             log.error(
                 f"Node.js runtime not found on host for extension '{extension_id}'."
@@ -610,7 +641,6 @@ class ExtensionManager:
         ready = False
         context = ExtensionContext(metadata, ipc_conn=host_pipe)
 
-        # Handshake loop with timeout
         while time.time() - start_time < limits.execution_timeout_sec:
             if host_pipe.poll(0.1):
                 msg = host_pipe.recv()
