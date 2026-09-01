@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.8.0] - 2026-09-02
+
+## ⚠️ Breaking Change: Extensions Manifest V2
+
+The PCLink extension system has been fully upgraded to Manifest V2, introducing a more secure, capable, and reliable extension architecture.
+
+**Important:** This is a breaking change. All extensions built for the previous manifest version are no longer compatible and will need to be updated to Manifest V2.
+
+### Features & Additions
+
+* **Upgraded Extension System to Manifest V2** — New extension architecture with improved security, capability management, resource controls, lifecycle handling, and integrity verification.
+* Added security consent and capability mapping for extensions.
+* Added real-time extension state updates and integrity checks during installation.
+* Added effective resource limit enforcement for extensions.
+* Added theme-aware extension icon support and improved extension rendering.
+* Added dynamic widget height reporting to the PCLink SDK.
+* Improved extension management with drag-and-drop installation, better alerts, and unified controls for installed extensions and marketplace browsing.
+* Extension packages now use the `.pclink` format instead of `.zip`.
+* Implemented web asset caching for improved performance.
+* Improved local IP resolution.
+* Enhanced network speed monitoring with improved I/O filtering and thread safety.
+* Enhanced media controls with WinRT and playerctl support.
+
+### Bug Fixes
+
+* Fixed FerrumCast extraction on Windows.
+* Fixed various extension installation and file-handling issues.
+* Improved extension lifecycle and state management.
+* Fixed various UI and rendering issues.
+
+### Refactoring & Improvements
+
+* Improved extension rendering logic and UI components.
+* Refactored extension lifecycle and state management.
+* Improved logging and error handling.
+* General performance, stability, and reliability improvements.
+
+### For Extension Developers
+
+If you maintain a PCLink extension, **you must migrate it to Manifest V2**. Extensions using the previous manifest format will no longer function after this update.
+
+Please update your extension's manifest and take advantage of the new security, capability, SDK, and resource-management features provided by Manifest V2.
+
 ## [4.7.0] - 2026-08-04
 
 ## Features & Additions
