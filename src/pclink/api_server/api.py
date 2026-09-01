@@ -40,7 +40,6 @@ log = logging.getLogger(__name__)
 _ = gettext.gettext
 
 
-# --- FastAPI App Factory ---
 def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -74,11 +73,13 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
         from .routers.websocket_routes import broadcast_updates_task
         from ..services.system_service import system_service
         from .ws_manager import mobile_manager, ui_manager
+        from ..web_ui.router import prewarm_web_cache
 
         asyncio.create_task(system_service.start_background_collection())
         asyncio.create_task(
             broadcast_updates_task(mobile_manager, ui_manager, app.state)
         )
+        asyncio.create_task(prewarm_web_cache())
 
         # Reset extension crash counter
         app.state.extension_manager.mark_startup_success()
@@ -163,14 +164,14 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     app.state.host_port = getattr(controller_instance, "port", 38080)
     from .routers.dependencies import MOBILE_API, WEB_AUTH
 
-    # Extension System (Initialize Early for State Setup)
+    # Extension System
     from ..core.extension_manager import ExtensionManager
 
     extension_manager = ExtensionManager()
     extension_manager.app = app
     app.state.extension_manager = extension_manager
 
-    # Hardened CORS Middleware: Restrict cross-origin access to local/LAN IP addresses with credential support
+    # Hardened CORS Middleware
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?",

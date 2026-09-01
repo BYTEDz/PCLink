@@ -76,6 +76,7 @@ def increase_open_files_limit(target: int = 4096):
 
 
 def get_available_ips() -> List[str]:
+    """Resolves local network IP addresses reliably without blocking or relying on external DNS routes."""
     local_ips, other_ips = [], []
 
     try:
@@ -136,16 +137,15 @@ def get_available_ips() -> List[str]:
     if not local_ips and not other_ips and sys.platform == "linux":
         try:
             result = subprocess.run(
-                ["ip", "route", "get", "8.8.8.8"],
+                ["ip", "-4", "addr", "show", "scope", "global"],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=2,
             )
             if result.returncode == 0:
-                match = re.search(
-                    r"src\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", result.stdout
-                )
-                if match:
+                for match in re.finditer(
+                    r"inet\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", result.stdout
+                ):
                     ip = match.group(1)
                     try:
                         ip_obj = ipaddress.IPv4Address(ip)
@@ -156,28 +156,18 @@ def get_available_ips() -> List[str]:
                                 other_ips.append(ip)
                     except ValueError:
                         pass
-        except (subprocess.SubprocessError, FileNotFoundError, ValueError):
+        except Exception:
             pass
-
-    if not local_ips and not other_ips:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.connect(("8.8.8.8", 80))
-                ip = s.getsockname()[0]
-                if ip and ip != "192.168.137.1":
-                    try:
-                        ip_obj = ipaddress.IPv4Address(ip)
-                        if not ip_obj.is_loopback and not ip_obj.is_unspecified:
-                            local_ips.append(ip)
-                    except ValueError:
-                        pass
-        except Exception as e:
-            log.error(f"Socket fallback for IP address failed: {e}")
 
     result = sorted(list(set(local_ips))) + sorted(list(set(other_ips)))
 
     if not result:
-        log.warning("Could not determine any valid IP address, defaulting to 127.0.0.1")
+        try:
+            hostname_ip = socket.gethostbyname(socket.gethostname())
+            if hostname_ip and not hostname_ip.startswith("127."):
+                return [hostname_ip]
+        except Exception:
+            pass
         return ["127.0.0.1"]
 
     return result

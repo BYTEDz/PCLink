@@ -3,7 +3,6 @@
 
 import asyncio
 import logging
-import socket
 import sys
 import time
 from typing import Optional
@@ -17,7 +16,7 @@ from ...core import constants
 from ...core.config import config_manager
 from ...core.extension_manager import ExtensionManager
 from ...core.logging import memory_log_handler
-from ...core.utils import get_cert_fingerprint
+from ...core.utils import get_available_ips, get_cert_fingerprint
 from ...core.version import __version__
 from ...services.discovery_service import DiscoveryService
 from ...services.pairing_service import pairing_service
@@ -78,20 +77,12 @@ async def heartbeat():
 @core_router.get("/qr-payload", response_model=QrPayload)
 async def get_qr_payload(request: Request):
     fingerprint = get_cert_fingerprint(constants.CERT_FILE)
-
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            local_ip = s.getsockname()[0]
-    except Exception:
-        try:
-            local_ip = socket.gethostbyname(socket.gethostname())
-        except Exception:
-            local_ip = "127.0.0.1"
+    available_ips = get_available_ips()
+    primary_ip = available_ips[0] if available_ips else "127.0.0.1"
 
     return QrPayload(
         protocol="https",
-        ip=local_ip,
+        ip=primary_ip,
         port=getattr(request.app.state, "host_port", 38080),
         certFingerprint=fingerprint,
     )
@@ -99,10 +90,17 @@ async def get_qr_payload(request: Request):
 
 @core_router.get("/updates/check")
 async def check_for_updates():
-    try:
-        response = requests.get(
-            "https://api.github.com/repos/BYTEDz/pclink/releases/latest", timeout=10
+    """Non-blocking update check with short timeout to prevent event loop stalls on offline networks."""
+
+    def _fetch_release_info():
+        return requests.get(
+            "https://api.github.com/repos/BYTEDz/pclink/releases/latest",
+            timeout=3.0,
+            headers={"User-Agent": "PCLink-Server"},
         )
+
+    try:
+        response = await asyncio.to_thread(_fetch_release_info)
         if response.status_code == 200:
             release_data = response.json()
             latest_version = release_data.get("tag_name", "").lstrip("v")
@@ -127,8 +125,8 @@ async def check_for_updates():
             }
         return {"update_available": False, "error": "Failed to check for updates"}
     except Exception as e:
-        log.error(f"Update check failed: {e}")
-        return {"update_available": False, "error": str(e)}
+        log.debug(f"Offline or unreachable network during update check: {e}")
+        return {"update_available": False, "offline": True, "error": str(e)}
 
 
 @mgmt_router.post("/notifications/show", dependencies=[WEB_AUTH])

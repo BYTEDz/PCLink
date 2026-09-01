@@ -9,8 +9,8 @@
         const originalWarn = console.warn;
         console.warn = (...args) => { if (typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return; originalWarn(...args); };
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="/ui/cache/tailwindcss.js?v={{ server_version }}"></script>
+    <link href="/ui/cache/daisyui.min.css?v={{ server_version }}" rel="stylesheet" type="text/css" />
     <link rel="stylesheet" href="/ui/static/style.css?v={{ server_version }}">
     <link rel="icon" type="image/svg+xml" href="/ui/assets/pclink.svg">
 </head>
@@ -76,7 +76,6 @@
     {% include 'modals/success_overlay.html' %}
 
     <script>
-        /* ensure login page matches saved preference */
         const savedTheme = localStorage.getItem('pclink_theme') || 'system';
         if (savedTheme === 'system') {
             const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -85,8 +84,8 @@
             document.documentElement.setAttribute('data-theme', savedTheme);
         }
     </script>
+    <script src="/ui/static/feather.min.js?v={{ server_version }}"></script>
     <script src="/ui/static/auth.js?v={{ server_version }}"></script>
-    <script src="https://unpkg.com/feather-icons"></script>
     <script>if (window.feather) feather.replace();</script>
 </body>
 

@@ -24,12 +24,12 @@ def get_app_data_path(app_name: str) -> Path:
 
 # --- Application Metadata ---
 APP_NAME = __app_name__
-APP_AUMID = "BYTEDz.PCLink"  # AppUserModelID for Windows notifications
+APP_AUMID = "BYTEDz.PCLink"
 
 # --- Core Application Settings ---
 DEFAULT_PORT = 38080
 CONTROL_PORT = 9876
-DEVICE_TIMEOUT = 300  # in seconds
+DEVICE_TIMEOUT = 300
 
 # --- File Names ---
 CONFIG_FILENAME = "config.json"
@@ -38,8 +38,8 @@ CERT_FILENAME = "cert.pem"
 KEY_FILENAME = "key.pem"
 
 # --- Application Paths ---
-# Base directory for all application data, configurations, and certificates.
 APP_DATA_PATH = get_app_data_path(APP_NAME)
+WEB_CACHE_PATH = APP_DATA_PATH / "web_cache"
 
 # Full paths to configuration and data files.
 CERT_FILE = APP_DATA_PATH / CERT_FILENAME
@@ -49,28 +49,23 @@ MACROS_FILE = APP_DATA_PATH / MACROS_FILENAME
 ASSETS_PATH = Path(__file__).parent.parent / "assets"
 
 # --- Transfer Paths ---
-# Unified location for temporary transfer data
 TRANSFERS_PATH = APP_DATA_PATH / "transfers"
 UPLOADS_PATH = TRANSFERS_PATH / "uploads"
 DOWNLOADS_PATH = TRANSFERS_PATH / "downloads"
 
 # --- Platform-Specific Paths ---
-# These paths are used for platform-specific integrations like autostart.
 AUTOSTART_PATH = None
 DESKTOP_FILE_PATH = None
 
 if sys.platform == "linux":
     AUTOSTART_PATH = Path.home() / ".config" / "autostart"
     DESKTOP_FILE_PATH = AUTOSTART_PATH / f"{APP_NAME.lower()}.desktop"
-# NOTE: Add other platforms like 'win32' or 'darwin' here as needed.
 
 
 def initialize_app_directories():
-    """
-    Creates required application directories.
-    Ensure all necessary folders exist on-disk before they are accessed.
-    """
+    """Creates required application directories on disk."""
     APP_DATA_PATH.mkdir(parents=True, exist_ok=True)
+    WEB_CACHE_PATH.mkdir(parents=True, exist_ok=True)
     UPLOADS_PATH.mkdir(parents=True, exist_ok=True)
     DOWNLOADS_PATH.mkdir(parents=True, exist_ok=True)
     if AUTOSTART_PATH:

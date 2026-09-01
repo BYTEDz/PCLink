@@ -18,7 +18,7 @@ from . import constants
 from .config import config_manager
 from .startup import StartupManager
 from .state import connected_devices
-from .utils import DummyTty
+from .utils import DummyTty, get_available_ips, get_cert_fingerprint
 from .web_auth import web_auth_manager
 
 log = logging.getLogger(__name__)
@@ -122,24 +122,13 @@ class ServerController:
         try:
             import json
 
-            from .utils import get_cert_fingerprint
-
             fingerprint = get_cert_fingerprint(constants.CERT_FILE)
-
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.connect(("8.8.8.8", 80))
-                local_ip = s.getsockname()[0]
-                s.close()
-            except Exception:
-                try:
-                    local_ip = socket.gethostbyname(socket.gethostname())
-                except Exception:
-                    local_ip = "127.0.0.1"
+            available_ips = get_available_ips()
+            primary_ip = available_ips[0] if available_ips else "127.0.0.1"
 
             payload = {
                 "protocol": "https",
-                "ip": local_ip,
+                "ip": primary_ip,
                 "port": self.get_port(),
                 "certFingerprint": fingerprint,
             }
@@ -229,7 +218,6 @@ class ServerController:
                         else _("Unknown cause")
                     )
 
-                    # Log whenever status changes or every 5 minutes if persistent
                     if (
                         current_status != last_reported_status
                         or (now - last_pressure_log_time) > 300
