@@ -20,8 +20,6 @@ PCLinkWebUI.prototype.loadDevices = async function() {
     }
 };
 
-// static/js/devices.js
-
 PCLinkWebUI.prototype.formatDeviceName = function(name) {
     if (!name) return '';
     const parts = name.split(' ');
@@ -43,31 +41,60 @@ PCLinkWebUI.prototype.displayDevices = function() {
         const permCount = perms.length;
         const isApproved = device.is_approved !== false;
         const isOnline = device.is_online === true;
+        const isRelay = device.is_relay === true;
 
         const badgeClass = isApproved ? 'badge-ghost opacity-70' : 'badge-warning font-black';
         const badgeText = isApproved ? `${permCount} Perms` : 'Discovery Mode';
 
+        let connectionBadge = '';
+        let iconBg = 'bg-base-300 opacity-50 text-base-content';
+        let subText = `${this.escapeHTML(device.ip || 'N/A')}`;
+
+        if (isOnline) {
+            if (isRelay) {
+                iconBg = 'bg-primary/10 text-primary';
+                subText += ' • Cellular / WAN';
+                connectionBadge = `
+                    <span class="badge badge-primary text-white badge-xs font-bold uppercase text-[8px] flex items-center gap-1 shadow-sm shrink-0">
+                        <i data-feather="globe" class="w-2.5 h-2.5"></i> Remote
+                    </span>
+                `;
+            } else {
+                iconBg = 'bg-success/10 text-success';
+                subText += ' • Local Wi-Fi';
+                connectionBadge = `
+                    <span class="badge badge-success text-white badge-xs font-bold uppercase text-[8px] flex items-center gap-1 shadow-sm shrink-0">
+                        <i data-feather="wifi" class="w-2.5 h-2.5"></i> Local
+                    </span>
+                `;
+            }
+        } else {
+            connectionBadge = '<span class="text-[9px] shrink-0 font-black uppercase opacity-30">Offline</span>';
+        }
+
         const statusDot = isOnline
-            ? '<span class="relative flex h-1.5 w-1.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span><span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-success"></span></span>'
+            ? (isRelay
+                ? '<span class="relative flex h-1.5 w-1.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span><span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary"></span></span>'
+                : '<span class="relative flex h-1.5 w-1.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span><span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-success"></span></span>')
             : '<span class="h-1.5 w-1.5 rounded-full bg-base-300"></span>';
 
         return `
         <div class="card bg-base-100 border ${isApproved ? 'border-base-300' : 'border-warning/30 bg-warning/5'} shadow-sm transition-all hover:border-primary hover:shadow-md cursor-pointer w-full h-full flex flex-col" onclick="openDevicePanel('${device.id}')">
             <div class="card-body p-4 flex-row items-center justify-between gap-3 w-full flex-1">
-                <div class="flex items-center gap-3 w-full min-w-0"> <!-- Replaced overflow-hidden with min-w-0 -->
+                <div class="flex items-center gap-3 w-full min-w-0">
                     <div class="relative shrink-0">
-                        <div class="${isApproved ? (isOnline ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary') : 'bg-warning/20 text-warning-content'} p-2.5 rounded-xl">
-                            <i data-feather="${isApproved ? 'smartphone' : 'radio'}" class="w-5 h-5"></i>
+                        <div class="${isApproved ? iconBg : 'bg-warning/20 text-warning-content'} p-2.5 rounded-xl">
+                            <i data-feather="${isApproved ? (isRelay ? 'globe' : 'smartphone') : 'radio'}" class="w-5 h-5"></i>
                         </div>
                         ${isApproved ? `<div class="absolute -top-1 -right-1 bg-base-100 p-0.5 rounded-full">${statusDot}</div>` : ''}
                     </div>
                     <div class="overflow-hidden flex-1 min-w-0">
                         <div class="flex items-center gap-2">
                             <h4 class="font-bold text-base leading-tight truncate">${this.formatDeviceName(device.name)}</h4>
-                            ${isApproved ? `<span class="text-[9px] shrink-0 font-black uppercase ${isOnline ? 'text-success' : 'opacity-30'}">${isOnline ? 'Online' : 'Offline'}</span>` : ''}
+                            ${isApproved ? connectionBadge : ''}
                         </div>
                         <div class="flex items-center gap-2 mt-1">
-                            <span class="text-[10px] font-bold uppercase opacity-50 tracking-wider truncate">${device.ip}</span>
+                            <span class="text-[10px] font-bold uppercase opacity-50 tracking-wider truncate">${subText}</span>
                             <span class="badge badge-xs shrink-0 ${badgeClass}">${badgeText}</span>
                         </div>
                     </div>
@@ -216,27 +243,36 @@ window.openDevicePanel = async function (deviceId) {
 
     const isApproved = device.is_approved !== false;
     const isOnline = device.is_online === true;
+    const isRelay = device.is_relay === true;
 
     const title = `<i data-feather="smartphone" class="text-primary w-4"></i> Device Details — ${window.pclinkUI.formatDeviceName(device.name)}`;
+
+    let statusHtml = '<span class="h-2 w-2 rounded-full bg-base-300 shrink-0"></span><span class="text-xs font-bold truncate opacity-50">Offline</span>';
+    if (isOnline) {
+        if (isRelay) {
+            statusHtml = '<span class="h-2 w-2 rounded-full bg-primary animate-pulse shrink-0"></span><span class="text-xs font-bold text-primary truncate flex items-center gap-1"><i data-feather="globe" class="w-3 h-3"></i> Online • Cellular / WAN</span>';
+        } else {
+            statusHtml = '<span class="h-2 w-2 rounded-full bg-success animate-pulse shrink-0"></span><span class="text-xs font-bold text-success truncate flex items-center gap-1"><i data-feather="wifi" class="w-3 h-3"></i> Online • Local Wi-Fi</span>';
+        }
+    }
 
     const body = `
         <div class="space-y-6">
             <div class="flex items-center gap-4 p-4 bg-base-200/50 rounded-2xl border border-base-300/50 flex-wrap">
-                <div class="${isApproved ? (isOnline ? 'bg-success/10 text-success' : 'bg-primary/10 text-primary') : 'bg-warning/20 text-warning-content'} p-3 rounded-xl shrink-0">
-                    <i data-feather="${isApproved ? 'smartphone' : 'radio'}" class="w-6 h-6"></i>
+                <div class="${isApproved ? (isOnline ? (isRelay ? 'bg-primary/10 text-primary' : 'bg-success/10 text-success') : 'bg-base-300 opacity-50 text-base-content') : 'bg-warning/20 text-warning-content'} p-3 rounded-xl shrink-0">
+                    <i data-feather="${isApproved ? (isRelay ? 'globe' : 'smartphone') : 'radio'}" class="w-6 h-6"></i>
                 </div>
                 <div class="overflow-hidden min-w-0 flex-1">
                     <h3 class="font-bold text-lg leading-tight truncate">${window.pclinkUI.formatDeviceName(device.name)}</h3>
-                    <p class="text-xs opacity-50 font-mono truncate">${device.ip}</p>
+                    <p class="text-xs opacity-60 font-mono truncate">${device.ip} ${isRelay ? '• Cloud Relay' : '• Local LAN'}</p>
                 </div>
             </div>
 
             <div class="grid grid-cols-2 gap-3">
                 <div class="p-3 bg-base-200/30 rounded-xl border border-base-300/30 flex flex-col justify-center">
-                    <span class="text-[9px] font-black uppercase opacity-40 block mb-1 tracking-widest truncate">Status</span>
-                    <div class="flex items-center gap-2">
-                        ${isOnline ? '<span class="h-2 w-2 rounded-full bg-success animate-pulse shrink-0"></span>' : '<span class="h-2 w-2 rounded-full bg-base-300 shrink-0"></span>'}
-                        <span class="text-xs font-bold truncate">${isOnline ? 'Online' : 'Offline'}</span>
+                    <span class="text-[9px] font-black uppercase opacity-40 block mb-1 tracking-widest truncate">Transport</span>
+                    <div class="flex items-center gap-1.5">
+                        ${statusHtml}
                     </div>
                 </div>
                 <div class="p-3 bg-base-200/30 rounded-xl border border-base-300/30 flex flex-col justify-center">
@@ -273,6 +309,7 @@ window.openDevicePanel = async function (deviceId) {
     `;
 
     window.openSidePanel(title, body, footer);
+    if (window.feather) feather.replace();
 };
 
 window.openPermissions = async function (deviceId) {
@@ -312,6 +349,7 @@ window.openPermissions = async function (deviceId) {
         <button class="btn btn-sm btn-primary px-6 font-bold uppercase text-xs" onclick="window.closeSidePanel()">Done</button>
     `;
     window.openSidePanel(title, body, footer);
+    if (window.feather) feather.replace();
 };
 
 window.applyPermissionTemplate = function (tplName, containerId) {
@@ -435,7 +473,6 @@ window.openPairingPanel = async function() {
     const footer = `<button class="btn btn-sm btn-primary w-full font-bold uppercase tracking-widest text-[10px]" onclick="window.closeSidePanel()">Done</button>`;
 
     window.openSidePanel(title, body, footer);
-    // Give DOM a moment to render the container
     setTimeout(() => window.refreshPairingQR(), 150);
 };
 

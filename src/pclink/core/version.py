@@ -1,16 +1,15 @@
 # src/pclink/core/version.py
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
+# Copyright (C) 2026 AZHAR ZOUHIR / BYTEDz
 
-
-__version__ = "4.8.0"
+__version__ = "5.0.0"
 __app_name__ = "PCLink"
 
 
 class VersionInfo:
     def __init__(self, version_str):
         self.version = version_str
-        self.copyright = "Copyright © 2025 Azhar Zouhir / BYTEDz"
+        self.copyright = "Copyright © 2026 Azhar Zouhir / BYTEDz"
         self.description = "Remote PC Control Server"
         self.license_info = "GNU Affero General Public License v3 or later"
         self.license = (
@@ -23,14 +22,10 @@ class VersionInfo:
 
     @property
     def simple_version(self):
-        """Returns the base version (e.g., '0.8.0') without any pre-release tags."""
+        """Returns the base version (e.g., '5.0.0') without pre-release tags."""
         return self.version.split("-")[0]
 
     def get_windows_version_info(self):
-        """
-        Returns a dictionary with version parts formatted for Windows resources.
-        Converts '0.8.0-hotfix2' into a valid '0.8.0.0' format.
-        """
         ver_parts = self.simple_version.split(".") + ["0"] * (
             4 - len(self.simple_version.split("."))
         )

@@ -32,6 +32,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "auto_open_webui": True,
     "transfer_cleanup_threshold": 7,
     "keyboard_layout": "auto",
+    # Remote Access Tunnel settings (Decoupled & vendor-agnostic)
+    "enable_remote_access": True,
+    "remote_access_token": "",
+    "remote_access_url": "",
     # Default permissions assigned to a new device upon pairing
     "default_device_permissions": [
         "files_read",
@@ -78,10 +82,8 @@ def _deep_merge_and_sanitize(
     for k, v in user.items():
         if k in res:
             default_val = res[k]
-            # Type safety check: Ensure user value matches expected type of default setting
             if isinstance(default_val, dict) and isinstance(v, dict):
                 if k == "services":
-                    # Strictly limit services to canonical keys defined in default["services"]
                     res[k] = {
                         s_key: v.get(s_key, default_val.get(s_key, True))
                         for s_key in default_val.keys()
@@ -92,7 +94,6 @@ def _deep_merge_and_sanitize(
             elif type(default_val) is type(v):
                 res[k] = v
             elif isinstance(default_val, int) and isinstance(v, str) and v.isdigit():
-                # Auto-coerce numeric strings to integers (e.g. port "38080" -> 38080)
                 res[k] = int(v)
             else:
                 log.warning(
@@ -148,12 +149,11 @@ class ConfigManager:
             )
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Retrieve value from active configuration, guaranteeing ONLY canonical keys for 'services'."""
+        """Retrieve value from active configuration, guaranteeing canonical keys."""
         with self._lock:
             val = self._json_cache.get(key, default)
             if key == "services" and isinstance(val, dict):
                 canonical_keys = DEFAULT_SETTINGS["services"].keys()
-                # Filter out any legacy non-canonical keys
                 return {
                     k: val.get(k, DEFAULT_SETTINGS["services"][k])
                     for k in canonical_keys
@@ -168,7 +168,6 @@ class ConfigManager:
 
             try:
                 if key == "services" and isinstance(value, dict):
-                    # Purge legacy non-canonical keys before saving
                     canonical_keys = DEFAULT_SETTINGS["services"].keys()
                     value = {
                         k: value.get(k, DEFAULT_SETTINGS["services"][k])

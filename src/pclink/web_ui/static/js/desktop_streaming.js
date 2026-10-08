@@ -217,16 +217,16 @@ window.runDesktopStreamingDiagnostics = async () => {
                     let badgeClass = "badge badge-success text-white font-bold text-[10px]";
 
                     if (enc === 'x264') {
-                        label = "x264 Encoder";
-                        desc = "Software (High CPU Fallback)";
+                        label = "Software H.264 Encoder";
+                        desc = "CPU-based encoding fallback";
                         isHardware = false;
                         badgeClass = "badge badge-warning text-black font-bold text-[10px]";
                     } else if (enc === 'vah264') {
                         label = "VA-API H.264";
-                        desc = "Intel/AMD GPU Driver";
+                        desc = "Intel/AMD Hardware Encoder";
                     } else if (enc === 'nvenc') {
                         label = "NVIDIA NVENC H.264";
-                        desc = "NVIDIA GPU Driver";
+                        desc = "NVIDIA Dedicated Hardware Encoder";
                     }
 
                     encCard.innerHTML = `
@@ -245,16 +245,16 @@ window.runDesktopStreamingDiagnostics = async () => {
                     codecAlertBox.classList.remove('hidden');
                     if (hasGPU) {
                         codecAlertBox.className = "alert border border-success/20 bg-success/10 text-success p-3 mt-4 flex text-xs font-bold";
-                        codecNoticeText.innerHTML = `System supports hardware accelerated desktop streaming! Extremely low latency and minimal CPU usage guaranteed.`;
+                        codecNoticeText.innerHTML = `Hardware acceleration is active! Streaming with low latency and minimal CPU load.`;
                     } else {
                         codecAlertBox.className = "alert border border-warning/20 bg-warning/10 text-warning p-3 mt-4 flex text-xs font-bold";
-                        codecNoticeText.innerHTML = `No hardware-accelerated video encoders detected. Falling back to software encoding (x264), which may utilize high CPU when active.`;
+                        codecNoticeText.innerHTML = `No hardware-accelerated encoders found. Falling back to software encoding, which may use more CPU.`;
                     }
                 }
             } else {
                 encodersContainer.innerHTML = `
                     <div class="text-center py-6 col-span-2 opacity-50 text-xs font-bold text-error">
-                        No encoders detected. Ensure GStreamer and plugins are installed correctly.
+                        No compatible video encoders found. Please check your system graphics drivers and media codecs.
                     </div>
                 `;
             }
@@ -290,37 +290,35 @@ window.runDesktopStreamingDiagnostics = async () => {
                 statusTitle.className = "font-black text-sm text-success";
                 statusTitle.textContent = "System Fully Supported";
                 statusDesc.className = "text-xs text-success/80 mt-0.5 font-medium";
-                statusDesc.textContent = "Your system satisfies all requirements. FerrumCast is ready to desktop streaming with hardware acceleration.";
+                statusDesc.textContent = "Your system meets all requirements. Desktop streaming is ready with hardware acceleration.";
             } else if (data.status === 'missing_binary') {
                 statusBanner.className = "alert border border-warning/20 bg-warning/5 shadow-md border-l-8 border-l-warning transition-all duration-300 flex p-4";
                 statusIcon.innerHTML = `<i data-feather="alert-triangle" class="w-6 h-6 text-warning"></i>`;
                 statusTitle.className = "font-black text-sm text-warning";
-                statusTitle.textContent = "Native Engine Missing";
+                statusTitle.textContent = "Streaming Engine Missing";
                 statusDesc.className = "text-xs text-warning/80 mt-0.5 font-medium";
-                statusDesc.textContent = "The native FerrumCast binary is missing. Compile the Rust project and place the binary into src/pclink/assets/bin/ferrumcast.";
+                statusDesc.textContent = "The streaming engine component is missing. Please download or activate a build using Engine Versions above.";
             } else if (data.status === 'binary_failure') {
                 statusBanner.className = "alert border border-error/20 bg-error/5 shadow-md border-l-8 border-l-error transition-all duration-300 flex p-4";
                 statusIcon.innerHTML = `<i data-feather="x-circle" class="w-6 h-6 text-error"></i>`;
                 statusTitle.className = "font-black text-sm text-error";
-                statusTitle.textContent = "Native Engine Failure";
+                statusTitle.textContent = "Streaming Engine Error";
                 statusDesc.className = "text-xs text-error/80 mt-0.5 font-medium";
-                const errMsg = data.probe_error || "FerrumCast failed to launch";
-                let helpText = "Ensure the required Visual C++ runtime and GStreamer runtime are installed.";
+                const errMsg = data.probe_error || "Streaming engine failed to initialize";
+                let helpText = "Ensure your system graphics drivers and media codecs are up to date.";
                 if (errMsg.includes("timeout")) {
-                    helpText = "GStreamer initialization is hanging or stuck. Recompile FerrumCast with proper Windows dependencies or use a pre-built Windows package.";
+                    helpText = "Engine initialization timed out. Please check media subsystem dependencies or switch to another build version.";
                 } else if (errMsg.includes("0xC000228A") || errMsg.includes("3221225786") || errMsg.includes("assembly")) {
-                    helpText = "GStreamer Windows build is missing runtime manifests. This requires recompilation with proper Windows SDK/MSVC setup.";
-                } else if (errMsg.includes("GLib-GObject-CRITICAL") || errMsg.includes("type")) {
-                    helpText = "GLib type system initialization failed. GStreamer may not be properly built for this Windows version.";
+                    helpText = "System media libraries are missing. Please verify system runtime dependencies.";
                 }
                 statusDesc.textContent = errMsg.split('\n')[0] + " — " + helpText;
             } else if (data.status === 'wayland_missing_portal') {
                 statusBanner.className = "alert border border-error/20 bg-error/5 shadow-md border-l-8 border-l-error transition-all duration-300 flex p-4";
                 statusIcon.innerHTML = `<i data-feather="x-circle" class="w-6 h-6 text-error"></i>`;
                 statusTitle.className = "font-black text-sm text-error";
-                statusTitle.textContent = "Wayland Portal Missing";
+                statusTitle.textContent = "Desktop Portal Missing";
                 statusDesc.className = "text-xs text-error/80 mt-0.5 font-medium";
-                statusDesc.textContent = "You are running Wayland without xdg-desktop-portal. Screen capture permissions cannot be prompted.";
+                statusDesc.textContent = "Desktop screen sharing portal is not detected. Screen capture permissions cannot be requested.";
             } else {
                 statusBanner.className = "alert border border-info/20 bg-info/5 shadow-md border-l-8 border-l-info transition-all duration-300 flex p-4";
                 statusIcon.innerHTML = `<i data-feather="info" class="w-6 h-6 text-info"></i>`;
@@ -369,7 +367,7 @@ window.updateDesktopStreamingUIStatus = (active) => {
             liveStatus.className = "text-3xl font-black tracking-tight text-success";
             liveStatus.textContent = "ACTIVE";
         }
-        if (liveSub) liveSub.textContent = "GStreamer pipeline is running natively";
+        if (liveSub) liveSub.textContent = "Streaming engine is active and broadcasting";
 
         toggleBtn.className = "btn btn-error text-white font-bold w-full";
         toggleBtn.innerHTML = `<i data-feather="square" class="w-4 h-4"></i> Stop Preview`;
@@ -388,7 +386,7 @@ window.updateDesktopStreamingUIStatus = (active) => {
         toggleBtn.className = "btn btn-primary text-white font-bold w-full";
         toggleBtn.innerHTML = `<i data-feather="play" class="w-4 h-4"></i> Start Web Preview`;
 
-        // Clean up WebRTC objects when stream is killed
+        // Clean up WebRTC objects when stream is stopped
         stopWebRTC();
     }
 
@@ -442,7 +440,7 @@ window.toggleDesktopStreamingSession = async (event) => {
         };
 
         try {
-            window.pclinkUI.showToast('Starting Stream', 'Initializing GStreamer engine...', 'info');
+            window.pclinkUI.showToast('Starting Stream', 'Initializing streaming engine...', 'info');
             const res = await window.pclinkUI.webUICall('/desktop-streaming/start', {
                 method: 'POST',
                 body: JSON.stringify(body)
@@ -469,7 +467,7 @@ window.resetDesktopStreamingPortalSession = async () => {
         if (res.ok) {
             const data = await res.json();
             if (data.success) {
-                window.pclinkUI.showToast('Session Reset', 'Screen share restore token cleared. Next preview will prompt for screen choice.', 'success');
+                window.pclinkUI.showToast('Session Reset', 'Screen share permission token cleared. Next preview will prompt for screen selection.', 'success');
             } else {
                 window.pclinkUI.showToast('No Token', 'No active cached portal session token to clear.', 'warning');
             }
@@ -481,7 +479,7 @@ window.resetDesktopStreamingPortalSession = async () => {
     }
 };
 
-// --- FerrumCast Multi-Version Manager JS ---
+// --- Multi-Version Engine Manager JS ---
 window._fcVersionData = { installed: [], releases: [] };
 
 window.openFerrumCastVersionModal = async () => {
@@ -508,7 +506,7 @@ window.openFerrumCastVersionModal = async () => {
         </div>
 
         <div id="fcSectionInstalled" class="space-y-3">
-            <p class="text-[11px] opacity-70">Local FerrumCast binaries available on this system.</p>
+            <p class="text-[11px] opacity-70">Local streaming engine binaries available on this system.</p>
             <div id="fcInstalledList" class="divide-y divide-base-300 max-h-96 overflow-y-auto pr-1">
                 <div class="text-center py-6 opacity-40 text-xs">
                     <span class="loading loading-spinner loading-xs mr-2"></span> Inspecting binary builds...
@@ -517,7 +515,7 @@ window.openFerrumCastVersionModal = async () => {
         </div>
 
         <div id="fcSectionReleases" class="space-y-3 hidden">
-            <p class="text-[11px] opacity-70">Published builds from official GitHub repository.</p>
+            <p class="text-[11px] opacity-70">Published builds from official repository.</p>
             <div id="fcReleasesList" class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
                 <div class="text-center py-6 opacity-40 text-xs">
                     <span class="loading loading-spinner loading-xs mr-2"></span> Fetching releases...
@@ -623,7 +621,7 @@ window.loadFcVersionsData = async () => {
             }
         }
 
-        // Render GitHub Releases cleanly
+        // Render Releases cleanly
         if (relList) {
             relList.innerHTML = '';
             if (data.releases && data.releases.length > 0) {
@@ -673,7 +671,7 @@ window.loadFcVersionsData = async () => {
         }
 
     } catch (e) {
-        window.pclinkUI.showToast('Error', 'Failed to load FerrumCast version info', 'error');
+        window.pclinkUI.showToast('Error', 'Failed to load streaming engine version info', 'error');
     }
 
     if (window.feather) feather.replace();
@@ -725,13 +723,13 @@ window.toggleFcReleaseNotes = (idx) => {
 
 window.selectFcVersion = async (tag) => {
     try {
-        window.setFcModalStatus(`Switching active version to ${tag}...`);
+        window.setFcModalStatus(`Switching active build to ${tag}...`);
         const res = await window.pclinkUI.webUICall('/desktop-streaming/ferrumcast/select', {
             method: 'POST',
             body: JSON.stringify({ tag })
         });
         if (res.ok) {
-            window.pclinkUI.showToast('Version Active', `Switched FerrumCast engine to ${tag}`, 'success');
+            window.pclinkUI.showToast('Version Active', `Switched streaming engine to ${tag}`, 'success');
             await window.loadFcVersionsData();
             await window.runDesktopStreamingDiagnostics();
         } else {
@@ -754,13 +752,13 @@ window.downloadFcVersion = async (tag, url, btnId = null) => {
     }
 
     try {
-        window.setFcModalStatus(`Downloading and unpacking FerrumCast ${tag}... (this may take a moment)`);
+        window.setFcModalStatus(`Downloading and preparing streaming engine ${tag}... (this may take a moment)`);
         const res = await window.pclinkUI.webUICall('/desktop-streaming/ferrumcast/download', {
             method: 'POST',
             body: JSON.stringify({ tag, download_url: url })
         });
         if (res.ok) {
-            window.pclinkUI.showToast('Update Complete', `FerrumCast ${tag} installed and activated`, 'success');
+            window.pclinkUI.showToast('Update Complete', `Streaming engine ${tag} installed and activated`, 'success');
             await window.loadFcVersionsData();
             await window.runDesktopStreamingDiagnostics();
             window.switchFcModalTab('installed');
@@ -784,7 +782,7 @@ window.downloadFcVersion = async (tag, url, btnId = null) => {
 };
 
 window.deleteFcVersion = async (tag) => {
-    if (!confirm(`Delete cached FerrumCast binary ${tag}?`)) return;
+    if (!confirm(`Delete cached binary build ${tag}?`)) return;
     try {
         window.setFcModalStatus(`Deleting ${tag}...`);
         const res = await window.pclinkUI.webUICall(`/desktop-streaming/ferrumcast/versions/${encodeURIComponent(tag)}`, {

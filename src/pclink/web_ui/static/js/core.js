@@ -60,6 +60,7 @@ class PCLinkWebUI {
             if (activeTab === 'dashboard') { this.updateActivity(); this.updateServerStatus(); }
             else if (['devices', 'phone-files'].includes(activeTab)) { this.loadDevices(); }
             else if (activeTab === 'logs') { this.loadLogs(); }
+            else if (activeTab === 'remote-access' && window.loadRemoteAccessTab) { window.loadRemoteAccessTab(true); }
         }, 5000);
 
         setInterval(() => {
@@ -188,6 +189,7 @@ class PCLinkWebUI {
             case 'extensions': await this.loadExtensions(); break;
             case 'macros': await this.loadMacros(); break;
             case 'links-management': if (window.refreshLinks) await window.refreshLinks(); break;
+            case 'remote-access': if (window.loadRemoteAccessTab) await window.loadRemoteAccessTab(); break;
         }
         this.renderIcons();
     }
@@ -343,6 +345,29 @@ window.openCommandPalette = function () {
     window.filterCommandPalette('');
 };
 
+window.setPaletteHover = function (idx) {
+    if (window._paletteSelectedIndex === idx) return;
+    window._paletteSelectedIndex = idx;
+    window.highlightPaletteSelection(false);
+};
+
+window.highlightPaletteSelection = function (shouldScroll = true) {
+    const container = document.getElementById('cmdPaletteResults');
+    if (!container) return;
+    const items = container.querySelectorAll('.cmd-item');
+    items.forEach((el) => {
+        const flatIdx = parseInt(el.getAttribute('data-flat-idx'));
+        if (flatIdx === window._paletteSelectedIndex) {
+            el.classList.add('bg-base-200', 'border-l-2', 'border-l-primary', 'pl-3.5');
+            if (shouldScroll) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        } else {
+            el.classList.remove('bg-base-200', 'border-l-2', 'border-l-primary', 'pl-3.5');
+        }
+    });
+};
+
 window.filterCommandPalette = function (query) {
     const container = document.getElementById('cmdPaletteResults');
     if (!container) return;
@@ -352,6 +377,7 @@ window.filterCommandPalette = function (query) {
     const items = [
         { title: 'Dashboard', category: 'NAVIGATION', icon: 'home', tab: 'dashboard' },
         { title: 'Devices', category: 'NAVIGATION', icon: 'smartphone', tab: 'devices' },
+        { title: 'Remote Access (Connect from Anywhere)', category: 'NAVIGATION', icon: 'globe', tab: 'remote-access' },
         { title: 'Phone Files', category: 'NAVIGATION', icon: 'folder', tab: 'phone-files' },
         { title: 'Desktop Streaming', category: 'NAVIGATION', icon: 'monitor', tab: 'desktop-streaming' },
         { title: 'Access Control / Firewall', category: 'NAVIGATION', icon: 'shield', tab: 'services' },
@@ -393,6 +419,8 @@ window.filterCommandPalette = function (query) {
 
         { title: 'Pair New Device', category: 'ACTIONS & UTILITIES', icon: 'plus-circle', action: () => window.openPairingPanel() },
         { title: 'Notification Center', category: 'ACTIONS & UTILITIES', icon: 'bell', action: () => window.openNotificationPanel() },
+        { title: 'Disconnect Remote Access', category: 'ACTIONS & UTILITIES', icon: 'trash-2', action: () => window.unlinkRemoteAccess() },
+        { title: 'Reconnect Remote Access', category: 'ACTIONS & UTILITIES', icon: 'refresh-cw', action: () => { window.pclinkUI.switchTab('remote-access'); window.reconnectRemoteAccess(); } },
         { title: 'Export Diagnostics Specs (JSON)', category: 'ACTIONS & UTILITIES', icon: 'download', action: () => window.downloadSystemSpecs() },
         { title: 'Run System Diagnostics', category: 'ACTIONS & UTILITIES', icon: 'tool', tab: 'repairTab', action: () => { window.pclinkUI.switchTab('repairTab'); if (window.repairModule) window.repairModule.runDiagnostics(); } },
         { title: 'Auto-Heal Server', category: 'ACTIONS & UTILITIES', icon: 'cpu', tab: 'repairTab', action: () => { window.pclinkUI.switchTab('repairTab'); if (window.repairModule) window.repairModule.executeAutoHeal(); } },
@@ -422,7 +450,10 @@ window.filterCommandPalette = function (query) {
                 <div class="px-2 pt-2 pb-1 text-[10px] font-black uppercase tracking-widest text-primary/70">${escapeFn(catName)}</div>
                 <div class="space-y-1">
                     ${groupItems.map(item => `
-                        <div class="cmd-item p-2.5 rounded-xl hover:bg-base-200/80 cursor-pointer flex items-center justify-between text-xs font-semibold transition-all group/item" data-flat-idx="${item.flatIdx}" onclick="window.executePaletteItem(${item.flatIdx})">
+                        <div class="cmd-item p-2.5 rounded-xl cursor-pointer flex items-center justify-between text-xs font-semibold transition-all group/item"
+                             data-flat-idx="${item.flatIdx}"
+                             onmouseenter="window.setPaletteHover(${item.flatIdx})"
+                             onclick="window.executePaletteItem(${item.flatIdx})">
                             <div class="flex items-center gap-3 min-w-0">
                                 <i data-feather="${item.icon}" class="w-4 h-4 text-base-content/60 group-hover/item:text-primary transition-colors shrink-0"></i>
                                 <span class="truncate text-base-content/90 group-hover/item:text-base-content">${escapeFn(item.title)}</span>
@@ -443,21 +474,6 @@ window.filterCommandPalette = function (query) {
     if (window.feather) {
         try { feather.replace(); } catch (e) { }
     }
-};
-
-window.highlightPaletteSelection = function () {
-    const container = document.getElementById('cmdPaletteResults');
-    if (!container) return;
-    const items = container.querySelectorAll('.cmd-item');
-    items.forEach((el) => {
-        const flatIdx = parseInt(el.getAttribute('data-flat-idx'));
-        if (flatIdx === window._paletteSelectedIndex) {
-            el.classList.add('bg-base-200', 'border-l-2', 'border-l-primary', 'pl-3.5');
-            el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        } else {
-            el.classList.remove('bg-base-200', 'border-l-2', 'border-l-primary', 'pl-3.5');
-        }
-    });
 };
 
 window.executePaletteItem = function (idx) {

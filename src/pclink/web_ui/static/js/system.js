@@ -34,6 +34,23 @@ PCLinkWebUI.prototype.loadServerStatus = async function () {
         if (el) el.textContent = window.location.hostname;
     }
 
+    // Query live Remote Access daemon status for Dashboard widget
+    try {
+        const relayRes = await this.webUICall('/ui/relay/status');
+        if (relayRes.ok) {
+            const rData = await relayRes.json();
+            if (rData.is_revoked || rData.tunnel_status === 'revoked') {
+                this.updateDashboardRemoteAccess(null, 'Expired');
+            } else if (rData.has_token && !rData.enabled) {
+                this.updateDashboardRemoteAccess(rData.relay_url, 'Paused');
+            } else if (rData.running && rData.has_token) {
+                this.updateDashboardRemoteAccess(rData.relay_url, 'Active');
+            } else {
+                this.updateDashboardRemoteAccess(null, 'Local Only');
+            }
+        }
+    } catch (_) {}
+
     // 1. Fetch system telemetry directly via HTTP
     try {
         const sysRes = await this.webUICall('/info/system');
@@ -82,6 +99,48 @@ PCLinkWebUI.prototype.loadServerStatus = async function () {
 
     await this.updateServerStatus();
     this.updateActivity();
+};
+
+PCLinkWebUI.prototype.updateDashboardRemoteAccess = function (remoteUrl, overrideStatus) {
+    const badge = document.getElementById('dashRemoteBadge');
+    const urlEl = document.getElementById('dashRemoteUrl');
+    const actionBtn = document.getElementById('dashRemoteAction');
+
+    if (!badge || !urlEl) return;
+
+    if (overrideStatus === 'Active' || (!overrideStatus && remoteUrl && remoteUrl.trim())) {
+        badge.className = 'badge badge-success text-white badge-xs font-bold uppercase text-[8px]';
+        badge.textContent = 'Active';
+        urlEl.textContent = 'Remote Ready';
+        if (actionBtn) {
+            actionBtn.textContent = 'Manage';
+            actionBtn.setAttribute('onclick', "window.pclinkUI.switchTab('remote-access')");
+        }
+    } else if (overrideStatus === 'Paused') {
+        badge.className = 'badge badge-warning text-white badge-xs font-bold uppercase text-[8px]';
+        badge.textContent = 'Paused';
+        urlEl.textContent = 'Tunnel Off';
+        if (actionBtn) {
+            actionBtn.textContent = 'Resume';
+            actionBtn.setAttribute('onclick', "window.pclinkUI.switchTab('remote-access')");
+        }
+    } else if (overrideStatus === 'Expired') {
+        badge.className = 'badge badge-error text-white badge-xs font-bold uppercase text-[8px]';
+        badge.textContent = 'Expired';
+        urlEl.textContent = 'Re-link Needed';
+        if (actionBtn) {
+            actionBtn.textContent = 'Renew';
+            actionBtn.setAttribute('onclick', "window.pclinkUI.switchTab('remote-access')");
+        }
+    } else {
+        badge.className = 'badge badge-neutral badge-xs font-bold uppercase text-[8px]';
+        badge.textContent = 'Local Only';
+        urlEl.textContent = '--';
+        if (actionBtn) {
+            actionBtn.textContent = 'Configure';
+            actionBtn.setAttribute('onclick', "window.pclinkUI.switchTab('remote-access')");
+        }
+    }
 };
 
 PCLinkWebUI.prototype.updateActivity = function () {
@@ -189,9 +248,30 @@ PCLinkWebUI.prototype.connectWebSocket = function () {
                 if (title.includes("Disconnected") && !this.notificationSettings.deviceDisconnect) return;
                 this.showToast(data.data.title, data.data.message || data.data.body);
                 this.addNotification(data.data.title, data.data.message || data.data.body, 'info');
+            } else if (data.type === 'devices_changed') {
+                // Instantly refresh Fleet on Dashboard and Devices tab upon connection/disconnection
+                this.loadDevices();
+                const activeTab = this.getCurrentTab();
+                if (activeTab === 'dashboard') {
+                    this.loadServerStatus();
+                }
+            } else if (data.type === 'UPDATE_STATE' || data.type === 'TUNNEL_STATE_CHANGED') {
+                if (typeof window.loadRemoteAccessTab === 'function') {
+                    window.loadRemoteAccessTab(false);
+                }
+                if (data.relay_url !== undefined && typeof this.updateDashboardRemoteAccess === 'function') {
+                    this.updateDashboardRemoteAccess(data.relay_url);
+                }
+            } else if (data.type === 'TUNNEL_SETUP_PROGRESS') {
+                if (typeof window.updateTunnelSetupProgressUI === 'function') {
+                    window.updateTunnelSetupProgressUI(data.data);
+                }
             } else if (data.type === 'update') {
                 if (data.data) {
                     if (data.data.system) this.updateDashboardTelemetry(data.data.system);
+                    if (data.data.relay_url !== undefined && typeof this.updateDashboardRemoteAccess === 'function') {
+                        this.updateDashboardRemoteAccess(data.data.relay_url);
+                    }
                 }
             } else if (data.type === 'server_status') {
                 this.updateConnectionStatus();

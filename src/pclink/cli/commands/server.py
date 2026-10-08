@@ -103,15 +103,40 @@ def status():
         response.raise_for_status()
         data = response.json()
 
-        state = data.get("status", "unknown").title()
+        is_crashed = data.get("crashed", False)
+        state = "CRASHED" if is_crashed else data.get("status", "unknown").title()
         port = data.get("port")
         mobile_api = _("Enabled") if data.get("mobile_api_enabled") else _("Disabled")
-        state_color = "green" if state.lower() == "running" else "yellow"
+        state_color = (
+            "red"
+            if is_crashed
+            else ("green" if state.lower() == "running" else "yellow")
+        )
+
+        # Resolve live Remote Access runtime state
+        relay_state = data.get("remote_access_state", "unlinked")
+        masked_host = data.get("remote_access_host")
+
+        if relay_state == "active":
+            host_suffix = f" ({masked_host})" if masked_host else ""
+            relay_display = click.style(
+                _("Active (Cloud Relay Connected)"), fg="green", bold=True
+            ) + click.style(host_suffix, dim=True)
+        elif relay_state == "paused":
+            relay_display = click.style(_("Paused (Standby)"), fg="yellow")
+        elif relay_state == "offline":
+            relay_display = click.style(_("Offline (Tunnel Disconnected)"), fg="red")
+        else:
+            relay_display = click.style(_("Local Wi-Fi Only (Unlinked)"), fg="cyan")
 
         click.echo(
             click.style(_("PCLink Operational Status: "), bold=True)
             + click.style(state, fg=state_color, bold=True)
         )
+        if is_crashed and data.get("error"):
+            click.secho(f"  • Crash Reason: {data.get('error')}", fg="red", bold=True)
+            click.secho(f"  • Recovery Portal: https://localhost:{port}/", fg="cyan")
+
         click.echo(
             click.style(_("  • Web UI Port: "), bold=True)
             + click.style(str(port), fg="cyan")
@@ -120,6 +145,7 @@ def status():
             click.style(_("  • Mobile API: "), bold=True)
             + click.style(mobile_api, fg="cyan")
         )
+        click.echo(click.style(_("  • Remote Access: "), bold=True) + relay_display)
     except Exception:
         click.secho(_("PCLink daemon is not currently active."), fg="yellow")
 
@@ -127,6 +153,18 @@ def status():
 @click.command(name="ui", help=_("Launch the Web UI dashboard in the default browser."))
 def ui():
     if is_server_running():
+        try:
+            status_data = requests.get(f"{CONTROL_API_URL}/status", timeout=1).json()
+            if status_data.get("crashed"):
+                click.secho(
+                    _(
+                        "⚠️ Main server encountered an error. Launching Recovery Center in browser..."
+                    ),
+                    fg="yellow",
+                    bold=True,
+                )
+        except Exception:
+            pass
         _open_browser()
     else:
         click.secho(

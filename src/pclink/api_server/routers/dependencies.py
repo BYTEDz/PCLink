@@ -71,8 +71,14 @@ def extract_token(
 
 async def verify_web_session(request: Request) -> bool:
     """Verifies active web admin session or internal CLI access."""
-    # 1. Check for Internal/CLI authentication (only from localhost)
-    if request.client and request.client.host in ("127.0.0.1", "::1"):
+    is_wan_relay = "cf-ray" in request.headers or "cf-connecting-ip" in request.headers
+
+    # 1. Check for Internal/CLI authentication (strictly localhost without WAN proxy headers)
+    if (
+        not is_wan_relay
+        and request.client
+        and request.client.host in ("127.0.0.1", "::1")
+    ):
         if request.headers.get("X-Internal-Auth") == "true":
             return True
 

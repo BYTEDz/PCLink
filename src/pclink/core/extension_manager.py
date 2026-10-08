@@ -133,7 +133,20 @@ class ExtensionManager:
         else:
             self._crash_file.write_text(str(crash_count + 1))
 
+    def reset_safe_mode(self) -> bool:
+        """Clears safe mode state, unlinks crash counter, and re-loads extensions."""
+        self.safe_mode = False
+        if self._crash_file.exists():
+            try:
+                self._crash_file.unlink()
+                log.info("Safe mode reset: crash counter removed.")
+            except OSError:
+                pass
+        self.load_all_extensions()
+        return True
+
     def mark_startup_success(self) -> None:
+        self.safe_mode = False
         if self._crash_file.exists():
             try:
                 self._crash_file.unlink()

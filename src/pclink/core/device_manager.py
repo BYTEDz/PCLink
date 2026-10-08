@@ -4,8 +4,10 @@
 
 import gettext
 import logging
+import shutil
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -201,20 +203,62 @@ class DeviceManager:
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = db_path or (constants.APP_DATA_PATH / "devices.db")
         self._lock = threading.RLock()
+        self._is_recovering: bool = False
         self._init_database()
+
+    def _recover_corrupted_db(self, exc: Exception):
+        """Quarantine corrupted database files and re-create a clean database schema."""
+        if self._is_recovering:
+            return
+        self._is_recovering = True
+        try:
+            log.critical(
+                f"SQLite database corruption detected ({exc}). Initiating auto-recovery on {self.db_path}..."
+            )
+            timestamp = int(time.time())
+            for suffix in ["", "-wal", "-shm"]:
+                p = Path(f"{self.db_path}{suffix}")
+                if p.exists():
+                    try:
+                        backup = Path(f"{self.db_path}.corrupt.{timestamp}{suffix}")
+                        shutil.move(str(p), str(backup))
+                        log.warning(
+                            f"Quarantined corrupted DB component: {p} -> {backup}"
+                        )
+                    except Exception as move_err:
+                        log.error(f"Failed to quarantine file {p}: {move_err}")
+
+            self._create_tables()
+            log.info("Database auto-recovery completed successfully.")
+        finally:
+            self._is_recovering = False
 
     def _get_connection(self) -> sqlite3.Connection:
         """Helper to create SQLite connections with WAL mode and row factory configured."""
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        return conn
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            return conn
+        except sqlite3.DatabaseError as e:
+            err_msg = str(e).lower()
+            if any(k in err_msg for k in ("not a database", "malformed", "corrupt")):
+                self._recover_corrupted_db(e)
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA journal_mode=WAL;")
+                conn.execute("PRAGMA synchronous=NORMAL;")
+                return conn
+            raise
 
     def _init_database(self):
         """Init sqlite, create tables, and perform automatic column migration for version updates."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._create_tables()
 
+    def _create_tables(self):
+        """Ensures all requisite schema tables and indexes exist."""
         with self._get_connection() as conn:
             conn.execute(
                 """

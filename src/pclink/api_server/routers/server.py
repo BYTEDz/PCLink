@@ -2,11 +2,15 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import asyncio
+import gettext
+import hmac
 import logging
+import secrets
 import sys
 import time
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
+from pclink.core.capabilities import resolve_server_capabilities
 import psutil
 import requests
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -30,8 +34,13 @@ from .dependencies import WEB_AUTH
 from .transfers import cleanup_stale_sessions
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
+
 mgmt_router = APIRouter(tags=["Server Management"])
 core_router = APIRouter(tags=["Server Core"])
+
+# Ephemeral physical claim session store with 3-minute TTL
+_active_claim_session: Dict[str, Any] = {"secret": None, "expires_at": 0.0}
 
 
 class QrPayload(BaseModel):
@@ -39,6 +48,16 @@ class QrPayload(BaseModel):
     ip: str
     port: int
     certFingerprint: Optional[str] = None
+    availableIps: List[str] = []
+    serverId: Optional[str] = None
+    claimSecret: Optional[str] = None
+    remoteAccessUrl: Optional[str] = None
+
+
+class RemoteAccessActivatePayload(BaseModel):
+    token: str
+    hostname: str
+    claim_secret: Optional[str] = None
 
 
 class AnnouncePayload(BaseModel):
@@ -55,6 +74,8 @@ async def server_status(request: Request):
     mobile_api_enabled = (
         getattr(controller, "mobile_api_enabled", False) if controller else False
     )
+    ext_manager = getattr(request.app.state, "extension_manager", None)
+    is_safe_mode = getattr(ext_manager, "safe_mode", False) if ext_manager else False
 
     return {
         "status": "running",
@@ -62,6 +83,8 @@ async def server_status(request: Request):
         "web_ui_running": True,
         "mobile_api_enabled": mobile_api_enabled,
         "version": __version__,
+        "safe_mode": is_safe_mode,
+        "capabilities": resolve_server_capabilities(),
         "server_id": DiscoveryService.generate_server_id(),
         "port": getattr(request.app.state, "host_port", 38080),
         "platform": sys.platform,
@@ -79,13 +102,221 @@ async def get_qr_payload(request: Request):
     fingerprint = get_cert_fingerprint(constants.CERT_FILE)
     available_ips = get_available_ips()
     primary_ip = available_ips[0] if available_ips else "127.0.0.1"
+    server_id = DiscoveryService.generate_server_id()
+
+    # Generate single-use claim secret valid for 3 minutes
+    claim_secret = secrets.token_hex(32)
+    _active_claim_session["secret"] = claim_secret
+    _active_claim_session["expires_at"] = time.time() + 180.0
 
     return QrPayload(
         protocol="https",
         ip=primary_ip,
         port=getattr(request.app.state, "host_port", 38080),
         certFingerprint=fingerprint,
+        availableIps=available_ips,
+        serverId=server_id,
+        claimSecret=claim_secret,
+        relayUrl=config_manager.get("remote_access_url", ""),
     )
+
+
+@core_router.post("/relay/activate")
+async def activate_remote_access_tunnel(
+    request: Request, payload: RemoteAccessActivatePayload
+):
+    """
+    Zero-config out-of-band activation endpoint.
+    Accepts EITHER:
+    1. Valid authenticated & approved device API Key (Paired Wi-Fi route).
+    2. Valid ephemeral physical claim_secret (QR scan route).
+    """
+    is_authorized = False
+
+    # Route A: Authenticated paired device (LAN auto-discovery or on-demand re-handshake)
+    from .dependencies import extract_token
+
+    token = extract_token(request)
+    if token:
+        from ...core.device_manager import device_manager
+
+        device = device_manager.get_device_by_api_key(token)
+        if device and device.is_approved:
+            is_authorized = True
+            log.info(
+                f"Remote Access tunnel activation authorized via paired device '{device.device_name}'"
+            )
+
+    # Route B: Physical QR claim secret (Initial pairing route)
+    if not is_authorized and payload.claim_secret:
+        now = time.time()
+        stored_secret = _active_claim_session.get("secret")
+        expires_at = _active_claim_session.get("expires_at", 0.0)
+
+        if stored_secret and now <= expires_at:
+            if hmac.compare_digest(stored_secret, payload.claim_secret):
+                is_authorized = True
+                _active_claim_session["secret"] = None
+                _active_claim_session["expires_at"] = 0.0
+                log.info(
+                    "Remote Access tunnel activation authorized via QR claim secret"
+                )
+
+    if not is_authorized:
+        raise HTTPException(
+            status_code=403,
+            detail=_(
+                "Unauthorized: Valid claim secret or paired device authentication required"
+            ),
+        )
+
+    from ...services.tunnel_service import tunnel_service
+
+    success = await tunnel_service.activate_with_token(payload.token, payload.hostname)
+    if not success:
+        raise HTTPException(
+            status_code=500, detail=_("Failed to activate tunnel process")
+        )
+
+    full_url = f"https://{payload.hostname.replace('https://', '').rstrip('/')}"
+    try:
+        from ..ws_manager import mobile_manager, ui_manager
+
+        update_msg = {
+            "type": "UPDATE_STATE",
+            "relay_url": full_url,
+            "remote_access_url": full_url,
+        }
+        asyncio.create_task(mobile_manager.broadcast(update_msg))
+        asyncio.create_task(ui_manager.broadcast(update_msg))
+    except Exception:
+        pass
+
+    return {
+        "status": "activated",
+        "hostname": payload.hostname,
+        "message": _("Remote Access activated successfully"),
+    }
+
+
+@core_router.post("/relay/unlink")
+@mgmt_router.post("/ui/relay/unlink")
+async def unlink_remote_access_endpoint(request: Request):
+    """
+    Stops the tunnel and purges saved remote credentials from local configuration.
+    Accepts either an active browser session or an authorized paired mobile device.
+    """
+    from .dependencies import extract_token, verify_web_session
+
+    is_authorized = False
+
+    token = extract_token(request)
+    if token:
+        from ...core.device_manager import device_manager
+
+        device = device_manager.get_device_by_api_key(token)
+        if device and device.is_approved:
+            is_authorized = True
+
+    if not is_authorized:
+        try:
+            if await verify_web_session(request):
+                is_authorized = True
+        except Exception:
+            pass
+
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    from ...services.tunnel_service import tunnel_service
+
+    tunnel_service.unlink_credentials(reason="Explicit client unlink request")
+
+    return {"status": "success", "message": _("Remote Access credentials cleared")}
+
+
+@mgmt_router.get("/ui/relay/status", dependencies=[WEB_AUTH])
+async def get_ui_remote_access_status():
+    """Returns runtime telemetry, active URL, token existence, and configuration state of the Remote Access tunnel."""
+    from ...services.tunnel_service import tunnel_service
+
+    status = tunnel_service.get_status()
+    status["enabled"] = config_manager.get("enable_remote_access", True)
+    status["relay_url"] = config_manager.get("remote_access_url", "")
+    status["server_port"] = config_manager.get("server_port", 38080)
+    status["has_token"] = bool(config_manager.get("remote_access_token", ""))
+    return status
+
+
+@mgmt_router.get("/ui/relay/ping", dependencies=[WEB_AUTH])
+async def ping_ui_remote_access():
+    """Server-side edge latency probe that avoids browser cross-origin (CORS) blocks."""
+    from ...services.tunnel_service import tunnel_service
+
+    if not tunnel_service.is_running():
+        return {"status": "offline", "latency_ms": None}
+
+    relay_url = config_manager.get("remote_access_url", "").strip()
+    if not relay_url:
+        return {"status": "unconfigured", "latency_ms": None}
+
+    clean_url = f"{relay_url.rstrip('/')}/heartbeat"
+
+    def _probe():
+        start = time.perf_counter()
+        try:
+            resp = requests.get(
+                clean_url,
+                timeout=4.0,
+                headers={"User-Agent": "PCLink-Server/1.0"},
+            )
+            latency = int((time.perf_counter() - start) * 1000)
+            return resp.status_code, latency
+        except Exception as e:
+            log.debug(f"Relay ping probe error: {e}")
+            return None, None
+
+    status_code, latency = await asyncio.to_thread(_probe)
+    if status_code == 200:
+        return {"status": "online", "latency_ms": latency}
+    elif status_code == 530:
+        return {"status": "paused", "latency_ms": None}
+    elif status_code in (404, 410):
+        return {"status": "unlinked", "latency_ms": None}
+    else:
+        # If the tunnel daemon process has confirmed edge connection, report online
+        if tunnel_service._tunnel_status == "active":
+            return {"status": "online", "latency_ms": None}
+        return {"status": "offline", "latency_ms": None}
+
+
+@mgmt_router.post("/ui/relay/toggle", dependencies=[WEB_AUTH])
+async def toggle_ui_remote_access(request: Request):
+    """Enables or terminates the Remote Access tunnel process on demand."""
+    data = await request.json()
+    enabled = bool(data.get("enabled", False))
+    config_manager.set("enable_remote_access", enabled)
+
+    controller = getattr(request.app.state, "controller", None)
+    if controller:
+        if enabled:
+            controller.start_relay_tunnel()
+        else:
+            controller.stop_relay_tunnel()
+
+    return {"status": "success", "enabled": enabled}
+
+
+@mgmt_router.post("/ui/relay/reconnect", dependencies=[WEB_AUTH])
+async def reconnect_ui_remote_access(request: Request):
+    """Restarts the tunnel engine and re-verifies ingress."""
+    controller = getattr(request.app.state, "controller", None)
+    if controller:
+        controller.stop_relay_tunnel()
+        await asyncio.sleep(1.0)
+        controller.start_relay_tunnel()
+        return {"status": "success", "message": _("Remote Access reconnect initiated")}
+    raise HTTPException(status_code=500, detail=_("Server controller unavailable"))
 
 
 @core_router.get("/updates/check")
@@ -169,6 +400,8 @@ async def load_server_settings(request: Request):
             "notifications": config_manager.get("notifications", {}),
             "server_port": config_manager.get("server_port", 38080),
             "theme": config_manager.get("theme", "system"),
+            "enable_remote_access": config_manager.get("enable_remote_access", True),
+            "remote_access_url": config_manager.get("remote_access_url", ""),
         }
     except Exception as e:
         log.error(f"Failed to load settings: {e}")
@@ -217,6 +450,9 @@ async def save_server_settings(request: Request):
 
         if "bridge_enabled" in data:
             config_manager.set("bridge_enabled", data["bridge_enabled"])
+
+        if "enable_remote_access" in data:
+            config_manager.set("enable_remote_access", data["enable_remote_access"])
 
         log.info(f"Server settings updated: {list(data.keys())}")
         return {"status": "success", "message": "Settings saved successfully"}
@@ -493,11 +729,16 @@ async def announce_device(request: Request, payload: AnnouncePayload):
 
 @mgmt_router.post("/open-data-dir")
 async def open_data_dir(request: Request):
+    is_wan_relay = "cf-ray" in request.headers or "cf-connecting-ip" in request.headers
     client_ip = request.client.host if request.client else None
-    if client_ip not in ("127.0.0.1", "::1", "localhost"):
-        log.warning(f"BLOCKED: Remote attempt to open data directory from {client_ip}")
+
+    if is_wan_relay or client_ip not in ("127.0.0.1", "::1", "localhost"):
+        log.warning(
+            f"BLOCKED: Remote attempt to open data directory from {client_ip} (CF: {is_wan_relay})"
+        )
         raise HTTPException(
-            status_code=403, detail="Local access only via host machine."
+            status_code=403,
+            detail=_("WAN access denied: endpoint is restricted to local host"),
         )
 
     from ...core.utils import open_directory

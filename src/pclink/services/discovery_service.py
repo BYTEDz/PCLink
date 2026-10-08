@@ -52,6 +52,7 @@ class DiscoveryService:
         except Exception:
             _ver = "unknown"
 
+        from ..core.config import config_manager
         from ..core.utils import get_available_ips
 
         payload = {
@@ -63,6 +64,7 @@ class DiscoveryService:
             "server_id": self.server_id,
             "version": _ver,
             "ips": get_available_ips(),
+            "remote_access_url": config_manager.get("remote_access_url", ""),
         }
         return json.dumps(payload).encode("utf-8")
 

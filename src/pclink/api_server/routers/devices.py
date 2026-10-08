@@ -20,12 +20,27 @@ async def get_connected_devices(
         False, description="Include unapproved/pending devices"
     ),
 ):
-    """List all devices and their online/approval status."""
+    """List all devices, online status, and connection transport (LAN vs Remote WAN)."""
     devices = []
 
     # 1. Fetch devices from DB (permissions are automatically normalized to canonical keys)
     for device in device_manager.get_all_devices():
         if device.is_approved or include_unapproved:
+            is_online = device.device_id in mobile_manager.device_connections
+            is_relay = False
+
+            if is_online:
+                # Direct check: non-private WAN IP implies Cloudflare Relay / Cellular WAN
+                ip = (device.current_ip or "").strip()
+                if ip:
+                    is_private = (
+                        ip.startswith("192.168.")
+                        or ip.startswith("10.")
+                        or ip.startswith("172.")
+                        or ip in ("127.0.0.1", "localhost", "::1")
+                    )
+                    is_relay = not is_private
+
             devices.append(
                 {
                     "id": device.device_id,
@@ -36,7 +51,11 @@ async def get_connected_devices(
                     "last_seen": device.last_seen.isoformat(),
                     "permissions": ",".join(device.permissions),
                     "is_approved": device.is_approved,
-                    "is_online": device.device_id in mobile_manager.device_connections,
+                    "is_online": is_online,
+                    "is_relay": is_relay,
+                    "connection_type": "relay"
+                    if is_relay
+                    else ("lan" if is_online else "offline"),
                 }
             )
 

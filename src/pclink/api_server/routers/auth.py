@@ -1,4 +1,5 @@
 # src/pclink/api_server/routers/auth.py
+import gettext
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
@@ -9,6 +10,7 @@ from ...core.web_auth import web_auth_manager
 from .dependencies import WEB_AUTH
 
 log = logging.getLogger(__name__)
+_ = gettext.gettext
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -120,18 +122,28 @@ class FactoryResetPayload(BaseModel):
 @router.post("/factory-reset")
 async def factory_reset(payload: FactoryResetPayload, request: Request):
     """Destructive operation: wipes server configuration and logic."""
-    # Safety Check: Request must originate from local machine
+    is_wan_relay = "cf-ray" in request.headers or "cf-connecting-ip" in request.headers
     client_ip = request.client.host if request.client else None
-    if client_ip not in ("127.0.0.1", "::1", "localhost"):
-        log.warning(f"BLOCKED: Factory reset attempt from external IP: {client_ip}")
+
+    # Safety Check: Must strictly originate from local host directly, never via WAN tunnel
+    if is_wan_relay or client_ip not in ("127.0.0.1", "::1", "localhost"):
+        log.warning(
+            f"BLOCKED: Factory reset attempt via external/WAN route: {client_ip} (CF: {is_wan_relay})"
+        )
         raise HTTPException(
-            status_code=403, detail="Factory reset only allowed from local machine."
+            status_code=403,
+            detail=_("WAN access denied: endpoint is restricted to local host"),
         )
 
     # Verify Password
     if not web_auth_manager.verify_password(payload.password):
         log.error(f"BLOCKED: Failed password for factory reset from {client_ip}")
         raise HTTPException(status_code=401, detail="Invalid password.")
+
+    # Stop active tunnel before wipe so no background cloudflared processes remain
+    from ...services.tunnel_service import tunnel_service
+
+    tunnel_service.stop()
 
     from ...core.utils import perform_factory_reset
 

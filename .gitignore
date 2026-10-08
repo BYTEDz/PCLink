@@ -177,7 +177,9 @@ fix_*.py
 *_test.py
 *_debug.py
 setup_dev.py
-
+src/pclink/scripts/*
+fl_tools.py
+ai_*
 # Configuration files (contain sensitive data)
 .env
 .port

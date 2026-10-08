@@ -24,6 +24,7 @@ from ...core.extension_context import ExtensionContext
 from ...core.extension_db import extension_db
 from ...core.extension_manager import ExtensionManager
 from ...core.utils import resource_path
+from .dependencies import extract_token
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
@@ -483,6 +484,7 @@ async def get_pclink_sdk():
 @runtime_router.get("/{extension_id}/ui")
 async def get_ui(
     extension_id: str,
+    request: Request,
     view_id: Optional[str] = None,
     token: Optional[str] = Query(None),
 ):
@@ -509,13 +511,17 @@ async def get_ui(
 
     res = FileResponse(ui_p, media_type="text/html")
     res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    if token:
+
+    effective_token = extract_token(request, token=token)
+    if effective_token:
+        is_https = request.url.scheme == "https" or "cf-ray" in request.headers
         res.set_cookie(
             "pclink_device_token",
-            token,
+            effective_token,
             max_age=86400,
             httponly=False,
             samesite="lax",
+            secure=is_https,
             path="/",
         )
     return res
@@ -525,6 +531,7 @@ async def get_ui(
 async def get_widget_ui(
     extension_id: str,
     widget_id: str,
+    request: Request,
     token: Optional[str] = Query(None),
 ):
     ext_dir, manifest = _resolve_extension_path_and_manifest(extension_id)
@@ -563,13 +570,17 @@ async def get_widget_ui(
 
     res = FileResponse(resolved_path, media_type="text/html")
     res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    if token:
+
+    effective_token = extract_token(request, token=token)
+    if effective_token:
+        is_https = request.url.scheme == "https" or "cf-ray" in request.headers
         res.set_cookie(
             "pclink_device_token",
-            token,
+            effective_token,
             max_age=86400,
             httponly=False,
             samesite="lax",
+            secure=is_https,
             path="/",
         )
     return res
@@ -759,3 +770,20 @@ async def proxy_isolated_extension_http(
     status_code = res.get("status_code", 200)
     content = res.get("content") or {"error": res.get("error")}
     return JSONResponse(content=content, status_code=status_code)
+
+
+@mgmt_router.post("/safe-mode/reset")
+async def reset_safe_mode_endpoint(request: Request):
+    ext_manager = getattr(request.app.state, "extension_manager", None)
+    if ext_manager:
+        ext_manager.reset_safe_mode()
+        try:
+            from ..ws_manager import mobile_manager, ui_manager
+
+            msg = {"type": "UPDATE_STATE", "safe_mode": False}
+            asyncio.create_task(mobile_manager.broadcast(msg))
+            asyncio.create_task(ui_manager.broadcast(msg))
+        except Exception:
+            pass
+        return {"status": "success", "safe_mode": False}
+    raise HTTPException(status_code=500, detail="Extension manager missing")

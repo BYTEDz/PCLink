@@ -52,6 +52,15 @@ class InputService:
                 "right": Button.right,
                 "middle": Button.middle,
             }
+            if hasattr(Button, "x1"):
+                self.button_map["x1"] = Button.x1
+                self.button_map["side"] = Button.x1
+                self.button_map["back"] = Button.x1
+            if hasattr(Button, "x2"):
+                self.button_map["x2"] = Button.x2
+                self.button_map["extra"] = Button.x2
+                self.button_map["forward"] = Button.x2
+
             self.key_map = {
                 "enter": Key.enter,
                 "esc": Key.esc,

@@ -4,7 +4,6 @@
 
 import gettext
 import logging
-import platform
 from typing import Any
 
 from fastapi import (
@@ -25,8 +24,6 @@ from .dependencies import extract_token, verify_mobile_api_enabled
 
 log = logging.getLogger(__name__)
 _ = gettext.gettext
-
-# --- Dependencies ---
 
 
 async def get_authenticated_terminal_device(
@@ -85,12 +82,25 @@ def create_terminal_router() -> APIRouter:
     async def get_available_shells(
         device: Any = Depends(get_authenticated_terminal_device),
     ):
-        """Returns HTTP 200 only if fully authorized, otherwise Depends() throws 401/403."""
         return terminal_service.get_available_shells()
 
+    @router.delete(
+        "/sessions/{session_id}", dependencies=[Depends(verify_mobile_api_enabled)]
+    )
+    async def delete_session(
+        session_id: str, device: Any = Depends(get_authenticated_terminal_device)
+    ):
+        """Explicitly terminates a session when user removes it from UI."""
+        await terminal_service.kill_session(session_id)
+        return {"status": "success", "session_id": session_id}
+
     @router.websocket("/ws")
-    async def terminal_websocket(websocket: WebSocket, token: str = Query(None)):
-        # 1. Authenticate BEFORE accepting the connection
+    async def terminal_websocket(
+        websocket: WebSocket,
+        token: str = Query(None),
+        session_id: str = Query("default"),
+        shell: str = Query(None),
+    ):
         try:
             device = await get_authenticated_terminal_device(
                 websocket=websocket, token=token
@@ -99,49 +109,39 @@ def create_terminal_router() -> APIRouter:
             log.warning(
                 f"Terminal connection rejected from {websocket.client}: {e.detail}"
             )
-            await websocket.close(code=1008, reason=e.detail)
+            # Use 1008 (Policy Violation) strictly for 403 Forbidden; use 1011 (Internal Error) for 500
+            close_code = 1008 if e.status_code == status.HTTP_403_FORBIDDEN else 1011
+            await websocket.close(code=close_code, reason=e.detail)
             return
 
-        # 2. Connection Approved -> Now we accept
         await websocket.accept()
         log.info(
-            f"Terminal access granted for device '{device.device_name}' ({websocket.client})"
+            f"Terminal attached for '{device.device_name}' [Session: {session_id}]"
         )
 
         try:
             shells_info = terminal_service.get_available_shells()
-            default_shell = shells_info.get("default", "bash")
-            requested_shell = websocket.query_params.get("shell", default_shell).lower()
+            default_shell = shells_info.get("default", "cmd")
+            requested_shell = (shell or default_shell).lower()
 
-            # Security: Validation of shell choice
             if (
                 requested_shell != "cmd"
                 and requested_shell not in shells_info["shells"]
             ):
-                log.warning(f"Rejecting unsupported shell: {requested_shell}")
-                await websocket.send_text(
-                    _("\r\n[PCLink] Error: Unsupported shell '{shell}'.\r\n").format(
-                        shell=requested_shell
-                    )
-                )
-                await websocket.close(code=4003)
-                return
+                requested_shell = default_shell
 
-            if platform.system() == "Windows":
-                await terminal_service.run_windows_terminal(websocket, requested_shell)
-            else:
-                await terminal_service.run_unix_terminal(websocket, requested_shell)
+            await terminal_service.handle_client_connection(
+                websocket=websocket,
+                session_id=session_id,
+                shell_type=requested_shell,
+            )
 
         except WebSocketDisconnect:
-            log.info(f"Terminal disconnected for device '{device.device_name}'")
+            log.info(
+                f"Terminal disconnected for device '{device.device_name}' [Session: {session_id}]"
+            )
         except Exception as e:
             log.error(f"Terminal error for '{device.device_name}': {e}", exc_info=True)
-            try:
-                await websocket.send_text(
-                    _("\r\n[PCLink Error] {error}\r\n").format(error=e)
-                )
-            except Exception:
-                pass
         finally:
             try:
                 await websocket.close()

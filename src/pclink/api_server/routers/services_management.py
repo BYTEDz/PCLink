@@ -141,8 +141,30 @@ async def toggle_service(payload: ServiceToggle, request: Request):
             )
             ext_manager.unload_all_extensions()
 
+    elif payload.name == "desktop_streaming" and not payload.enabled:
+        from ...services.desktop_streaming_service import desktop_streaming_service
+
+        log.info(
+            "Desktop streaming disabled via kill switch: Killing mirror engine and freeing encoders..."
+        )
+        await desktop_streaming_service.stop_engine()
+
+    elif payload.name == "terminal" and not payload.enabled:
+        from ...services.terminal_service import terminal_service
+
+        log.info(
+            "Terminal disabled via kill switch: Terminating all active shell processes..."
+        )
+        await terminal_service.terminate_all_sessions()
+
+    elif payload.name == "input" and not payload.enabled:
+        from ...services.adb_hub_service import adb_hub_service
+
+        log.info("Remote input disabled via kill switch: Stopping OTG hub...")
+        await adb_hub_service.stop()
+
     if hasattr(request.app.state, "mobile_manager"):
-        from ..services.discovery_service import DiscoveryService
+        from ...services.discovery_service import DiscoveryService
 
         await request.app.state.mobile_manager.broadcast(
             {

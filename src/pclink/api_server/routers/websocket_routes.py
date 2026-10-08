@@ -121,6 +121,9 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         {"device_id": device_id, "device_name": device.device_name, "ip": client_host},
     )
 
+    # Broadcast device connection event to active Web UI clients for immediate reactivity
+    asyncio.create_task(ui_manager.broadcast({"type": "devices_changed"}))
+
     from ...services.discovery_service import DiscoveryService
     from ...services.media_service import media_service
 
@@ -130,12 +133,17 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
 
     from ...services.system_service import system_service
 
+    ext_manager = getattr(websocket.app.state, "extension_manager", None)
+    is_safe_mode = getattr(ext_manager, "safe_mode", False) if ext_manager else False
+
     await websocket.send_json(
         {
             "type": "SYNC_STATE",
             "services": services,
             "permissions": permissions,
             "server_id": DiscoveryService.generate_server_id(),
+            "remote_access_url": config_manager.get("remote_access_url", ""),
+            "safe_mode": is_safe_mode,
         }
     )
 
@@ -268,6 +276,8 @@ async def mobile_websocket_endpoint(websocket: WebSocket, token: str = Query(Non
         from ...services.desktop_streaming_service import desktop_streaming_service
 
         asyncio.create_task(desktop_streaming_service.stop_engine())
+        # Broadcast device disconnection event to active Web UI clients for immediate reactivity
+        asyncio.create_task(ui_manager.broadcast({"type": "devices_changed"}))
 
 
 @router.websocket("/ws/ui")
@@ -332,10 +342,17 @@ async def broadcast_updates_task(mobile_mgr, ui_mgr, state):
                 continue
 
             services = config_manager.get("services", {})
+            ext_manager = getattr(state, "extension_manager", None)
+            is_safe_mode = (
+                getattr(ext_manager, "safe_mode", False) if ext_manager else False
+            )
+
             update_data = {
                 "type": "UPDATE_STATE",
                 "services": services,
                 "server_id": DiscoveryService.generate_server_id(),
+                "remote_access_url": config_manager.get("remote_access_url", ""),
+                "safe_mode": is_safe_mode,
             }
 
             if services.get("info", True):

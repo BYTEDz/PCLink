@@ -1,20 +1,119 @@
 /**
- * PCLink Unified Extension Frontend SDK v2.0
- * Provides sandbox communication, Host Broker API access, token propagation,
- * Material 3 theme token injection, dynamic widget height reporting, and themed dialog interception.
+ * PCLink Unified Extension Frontend SDK v2.1
+ * Provides sandbox communication, Host Broker API access, Zero-Trust Hardware E2EE
+ * bridge routing, mutation fetch interception, token propagation, Material 3 theme
+ * token injection, dynamic widget height reporting, and themed dialog interception.
  */
 (function (global) {
     'use strict';
 
     class PCLinkSDK {
         constructor() {
-            this.version = '2.0.0';
+            this.version = '2.1.0';
             this._listeners = new Map();
+            this._pendingBridgeRequests = new Map();
             this._token = this._resolveToken();
             this._extensionId = this._resolveExtensionId();
+            this._initBridgeResponseHandler();
+            this._initFetchInterceptor();
             this._initThemeSync();
             this._initWidgetAutoResizer();
             this._initCustomDialogs();
+        }
+
+        _initBridgeResponseHandler() {
+            global._onPCLinkBridgeResponse = (reqId, success, result, error) => {
+                const pending = this._pendingBridgeRequests.get(reqId);
+                if (pending) {
+                    this._pendingBridgeRequests.delete(reqId);
+                    if (success) {
+                        pending.resolve(result);
+                    } else {
+                        pending.reject(new Error(error || 'Bridge request failed'));
+                    }
+                }
+            };
+        }
+
+        _initFetchInterceptor() {
+            if (!window.PCLinkBridge || typeof window.PCLinkBridge.postMessage !== 'function') {
+                return;
+            }
+
+            const originalFetch = window.fetch;
+            const self = this;
+
+            window.fetch = async function (resource, init = {}) {
+                let url = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
+                const method = (init.method || 'GET').toUpperCase();
+
+                // Intercept mutation HTTP requests (POST, PUT, PATCH, DELETE) targeting extension endpoints
+                const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+                const isExtensionEndpoint =
+                    url.startsWith('./') ||
+                    url.startsWith('../') ||
+                    url.includes('/extensions/') ||
+                    (!url.startsWith('http://') && !url.startsWith('https://'));
+
+                if (isMutation && isExtensionEndpoint) {
+                    // Resolve clean absolute path for FastAPI router dispatch
+                    let cleanPath = url;
+                    if (cleanPath.startsWith('./')) {
+                        const currentBasePath = window.location.pathname.replace(/\/ui\/?$/, '').replace(/\/widget\/[^\/]+\/?$/, '');
+                        cleanPath = currentBasePath + '/' + cleanPath.slice(2);
+                    } else if (cleanPath.startsWith('../')) {
+                        const currentBasePath = window.location.pathname.replace(/\/ui\/?$/, '').replace(/\/widget\/[^\/]+\/?$/, '');
+                        cleanPath = currentBasePath + '/' + cleanPath;
+                    } else if (!cleanPath.startsWith('/')) {
+                        const currentBasePath = window.location.pathname.replace(/\/ui\/?$/, '').replace(/\/widget\/[^\/]+\/?$/, '');
+                        cleanPath = currentBasePath + '/' + cleanPath;
+                    }
+
+                    return new Promise((resolve, reject) => {
+                        const reqId = 'fetch_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now();
+                        self._pendingBridgeRequests.set(reqId, {
+                            resolve: (data) => {
+                                const bodyString = typeof data === 'string' ? data : JSON.stringify(data);
+                                resolve(new Response(bodyString, {
+                                    status: 200,
+                                    statusText: 'OK',
+                                    headers: { 'Content-Type': 'application/json' }
+                                }));
+                            },
+                            reject: (err) => {
+                                reject(err);
+                            }
+                        });
+
+                        // Timeout safeguard after 30 seconds
+                        setTimeout(() => {
+                            if (self._pendingBridgeRequests.has(reqId)) {
+                                self._pendingBridgeRequests.delete(reqId);
+                                reject(new Error('Extension mutation timed out via PCLink Bridge'));
+                            }
+                        }, 30000);
+
+                        let parsedBody = null;
+                        if (init.body) {
+                            try {
+                                parsedBody = typeof init.body === 'string' ? JSON.parse(init.body) : init.body;
+                            } catch (_) {
+                                parsedBody = init.body;
+                            }
+                        }
+
+                        window.PCLinkBridge.postMessage(JSON.stringify({
+                            reqId: reqId,
+                            type: 'http',
+                            path: cleanPath,
+                            method: method,
+                            body: parsedBody
+                        }));
+                    });
+                }
+
+                return originalFetch.apply(this, arguments);
+            };
         }
 
         _resolveToken() {
@@ -388,6 +487,31 @@
         }
 
         async callBroker(domain, method, params = {}) {
+            // Priority 1: Zero-Trust Flutter JS-Bridge (Native Hardware AES-256-GCM E2EE)
+            if (window.PCLinkBridge && typeof window.PCLinkBridge.postMessage === 'function') {
+                return new Promise((resolve, reject) => {
+                    const reqId = 'req_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now();
+                    this._pendingBridgeRequests.set(reqId, { resolve, reject });
+
+                    setTimeout(() => {
+                        if (this._pendingBridgeRequests.has(reqId)) {
+                            this._pendingBridgeRequests.delete(reqId);
+                            reject(new Error('Broker call timed out via PCLink Bridge'));
+                        }
+                    }, 30000);
+
+                    window.PCLinkBridge.postMessage(JSON.stringify({
+                        reqId: reqId,
+                        type: 'broker',
+                        extensionId: this._extensionId,
+                        domain: domain,
+                        method: method,
+                        params: params
+                    }));
+                });
+            }
+
+            // Priority 2: Direct HTTP fetch (Desktop browser / Local Web UI)
             const headers = { 'Content-Type': 'application/json' };
             if (this._token) {
                 headers['X-API-Key'] = this._token;

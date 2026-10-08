@@ -52,7 +52,7 @@
               <span class="text-[9px] opacity-40 font-bold block">Live Throughput</span>
             </div>
 
-            <!-- Thermals & Power Tile (Full Height Stretch) -->
+            <!-- Thermals & Power Tile -->
             <div class="p-3.5 bg-base-200/50 rounded-xl border border-base-300/50 space-y-2 flex flex-col justify-between h-full">
               <div class="flex justify-between items-center">
                 <span class="text-[10px] font-black uppercase opacity-50">Thermals & Power</span>
@@ -150,7 +150,7 @@
     <!-- SIDE SECTION: 1/4 Width (lg:col-span-1) -->
     <div class="lg:col-span-1 space-y-6">
 
-      <!-- Daemon Controls (Moved on Top) -->
+      <!-- Daemon Controls -->
       <div class="card bg-base-100 shadow-sm border border-base-300 w-full">
         <div class="card-body p-4">
           <h2 class="card-title text-xs font-black uppercase opacity-50 tracking-wider mb-3 flex items-center gap-2">
@@ -165,7 +165,7 @@
         </div>
       </div>
 
-      <!-- Server Identity Stats -->
+      <!-- Server Identity Stats (Including Remote Access) -->
       <div class="stats stats-vertical shadow-sm bg-base-100 border border-base-300 w-full">
         <div class="stat p-4">
           <div class="stat-figure text-primary"><i data-feather="globe" class="w-5 h-5"></i></div>
@@ -177,6 +177,18 @@
           <div class="stat-title text-[9px] font-black uppercase opacity-40 tracking-wider">Uptime</div>
           <div class="stat-value text-sm font-bold mt-0.5" id="serverUptime">Just now</div>
           <div class="stat-desc font-bold text-success text-[9px] mt-0.5" id="serverVersion">vLoading</div>
+        </div>
+        <!-- Remote Access Status Tile -->
+        <div class="stat p-4 border-t border-base-300">
+          <div class="stat-figure text-secondary"><i data-feather="radio" class="w-5 h-5"></i></div>
+          <div class="stat-title text-[9px] font-black uppercase opacity-40 tracking-wider">Remote Access</div>
+          <div class="stat-value text-xs font-bold truncate mt-0.5 flex items-center gap-1.5" id="dashRemoteAccessContainer">
+            <span class="badge badge-neutral badge-xs font-bold uppercase text-[8px]" id="dashRemoteBadge">Local Only</span>
+            <span class="truncate font-mono text-[10px] text-primary" id="dashRemoteUrl">--</span>
+          </div>
+          <div class="stat-desc font-bold text-[9px] mt-1">
+            <button class="btn btn-link btn-xs p-0 h-auto min-h-0 text-[9px] font-bold text-primary normal-case" onclick="window.pclinkUI.switchTab('remote-access')" id="dashRemoteAction">Configure</button>
+          </div>
         </div>
       </div>
 

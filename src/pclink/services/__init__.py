@@ -13,6 +13,7 @@ from .process_service import process_service
 from .system_service import system_service
 from .terminal_service import terminal_service
 from .transfer_service import transfer_service
+from .tunnel_service import tunnel_service
 from .utility_service import utility_service
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "DiscoveryService",
     "transfer_service",
     "pairing_service",
+    "tunnel_service",
 ]

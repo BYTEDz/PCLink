@@ -129,7 +129,7 @@ PCLinkWebUI.prototype.updateDashboardDisks = function (disks) {
     `).join('');
 };
 
-// Active Connected Fleet Render
+// Active Connected Fleet Render (Distinguishes Remote WAN vs Local LAN)
 PCLinkWebUI.prototype.updateDashboardFleet = function (devices) {
     const container = document.getElementById('dashFleetContainer');
     if (!container) return;
@@ -141,20 +141,48 @@ PCLinkWebUI.prototype.updateDashboardFleet = function (devices) {
         return;
     }
 
-    container.innerHTML = activeDevices.map(d => `
-        <div class="p-2.5 bg-base-200/50 rounded-xl border border-base-300/50 flex items-center justify-between gap-3">
-            <div class="flex items-center gap-2.5 min-w-0">
-                <div class="${d.is_online ? 'bg-success/10 text-success' : 'bg-base-300 opacity-50'} p-2 rounded-lg shrink-0">
-                    <i data-feather="smartphone" class="w-4 h-4"></i>
+    container.innerHTML = activeDevices.map(d => {
+        let badgeHtml = '';
+        let iconBg = 'bg-base-300 opacity-50 text-base-content';
+        let subText = `${this.escapeHTML(d.ip || 'N/A')}`;
+
+        if (d.is_online) {
+            if (d.is_relay) {
+                iconBg = 'bg-primary/10 text-primary';
+                subText += ' • Cellular / WAN';
+                badgeHtml = `
+                    <span class="badge badge-primary text-white badge-xs font-bold uppercase text-[8px] flex items-center gap-1 shadow-sm">
+                        <i data-feather="globe" class="w-2.5 h-2.5"></i> Remote
+                    </span>
+                `;
+            } else {
+                iconBg = 'bg-success/10 text-success';
+                subText += ' • Local Wi-Fi';
+                badgeHtml = `
+                    <span class="badge badge-success text-white badge-xs font-bold uppercase text-[8px] flex items-center gap-1 shadow-sm">
+                        <i data-feather="wifi" class="w-2.5 h-2.5"></i> Local
+                    </span>
+                `;
+            }
+        } else {
+            badgeHtml = '<span class="badge badge-ghost opacity-50 badge-xs font-bold uppercase text-[8px]">Offline</span>';
+        }
+
+        return `
+            <div class="p-2.5 bg-base-200/50 rounded-xl border border-base-300/50 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <div class="${iconBg} p-2 rounded-lg shrink-0">
+                        <i data-feather="smartphone" class="w-4 h-4"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <h4 class="font-bold text-xs truncate">${this.escapeHTML(d.name)}</h4>
+                        <p class="text-[9px] font-mono opacity-60 truncate">${subText}</p>
+                    </div>
                 </div>
-                <div class="min-w-0">
-                    <h4 class="font-bold text-xs truncate">${this.escapeHTML(d.name)}</h4>
-                    <p class="text-[9px] font-mono opacity-50 truncate">${d.ip || 'N/A'}</p>
-                </div>
+                ${badgeHtml}
             </div>
-            <span class="badge ${d.is_online ? 'badge-success text-white' : 'badge-ghost opacity-50'} badge-xs font-bold uppercase text-[8px]">${d.is_online ? 'Online' : 'Offline'}</span>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 
     this.renderIcons();
 };

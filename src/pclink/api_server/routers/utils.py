@@ -3,8 +3,9 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from ...services.utility_service import utility_service
@@ -44,12 +45,30 @@ async def get_clipboard():
 
 
 @router.get("/screenshot")
-async def get_screenshot():
-    """Captures and returns a screenshot of the primary monitor."""
+async def get_screenshot(
+    max_width: Optional[int] = Query(None, ge=100, le=7680),
+    max_height: Optional[int] = Query(None, ge=100, le=4320),
+    quality: int = Query(80, ge=10, le=100),
+    format: str = Query("webp", regex="^(webp|jpeg|jpg|png)$"),
+    monitor: int = Query(1, ge=0, le=32),
+):
+    """Captures and returns a screenshot with optional custom sizing and compression."""
+    fmt = format.lower()
+    if fmt == "jpg":
+        fmt = "jpeg"
     try:
-        data = await utility_service.get_screenshot()
-        return Response(content=data, media_type="image/png")
+        data = await utility_service.get_screenshot(
+            max_width=max_width,
+            max_height=max_height,
+            quality=quality,
+            format=fmt,
+            monitor=monitor,
+        )
+        return Response(content=data, media_type=f"image/{fmt}")
     except ImportError:
         raise HTTPException(
             status_code=500, detail="Required libraries (PIL) not available."
         )
+    except Exception as e:
+        log.error(f"Screenshot capture failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to capture screenshot.")

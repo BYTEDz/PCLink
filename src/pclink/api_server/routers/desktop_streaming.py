@@ -20,19 +20,20 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/desktop-streaming", tags=["desktop_streaming"])
 
 
-def _process_mouse_input(data: dict):
+def _process_mouse_input(data: dict) -> bool:
     from ...services.input_service import input_service
 
+    msg_type = data.get("type")
     action = data.get("action")
-    if not action and "type" in data and data.get("type") == "MOUSE_INPUT":
+    if not action and msg_type in ("MOUSE_INPUT", "mouse_control"):
         action = data.get("action")
 
-    if not action:
+    if not action and msg_type not in ("MOUSE_INPUT", "mouse_control"):
         return False
 
     if action == "move":
-        dx = data.get("x") or data.get("dx") or 0.0
-        dy = data.get("y") or data.get("dy") or 0.0
+        dx = data.get("dx") if data.get("dx") is not None else data.get("x", 0.0)
+        dy = data.get("dy") if data.get("dy") is not None else data.get("y", 0.0)
         input_service.mouse_move(dx, dy)
         return True
     elif action in ("click", "double_click"):
@@ -40,17 +41,68 @@ def _process_mouse_input(data: dict):
         clicks = 2 if action == "double_click" else 1
         input_service.mouse_click(btn, clicks)
         return True
-    elif action in ("button_down", "button_up"):
+    elif action in ("down", "button_down"):
         btn = data.get("button", "left")
-        input_service.mouse_click(btn, 1)
+        input_service.mouse_down(btn)
+        return True
+    elif action in ("up", "button_up"):
+        btn = data.get("button", "left")
+        input_service.mouse_up(btn)
         return True
     elif action == "scroll":
-        dx = data.get("delta_x") or data.get("dx") or 0.0
-        dy = data.get("delta_y") or data.get("dy") or 0.0
+        dx = data.get("dx") if data.get("dx") is not None else data.get("delta_x", 0.0)
+        dy = data.get("dy") if data.get("dy") is not None else data.get("delta_y", 0.0)
         input_service.mouse_scroll(dx, dy)
         return True
 
     return False
+
+
+def _process_keyboard_input(data: dict) -> bool:
+    from ...services.input_service import input_service
+
+    msg_type = data.get("type")
+    is_kb = (
+        msg_type in ("KEYBOARD_INPUT", "keyboard_control")
+        or "key" in data
+        or "scan_code" in data
+        or "text" in data
+    )
+    if not is_kb:
+        return False
+
+    action = data.get("action", "down")
+    key = data.get("key")
+    modifiers = data.get("modifiers", [])
+    scan_code = data.get("scan_code")
+
+    try:
+        if action == "down" and key:
+            input_service.key_down(key, modifiers)
+            return True
+        elif action == "up" and key:
+            input_service.key_up(key, modifiers)
+            return True
+        elif action in ("click", "press") and key:
+            input_service.keyboard_press_key(key, modifiers)
+            return True
+        elif text := data.get("text"):
+            input_service.keyboard_type(text)
+            return True
+        elif scan_code is not None:
+            input_service.raw_key(int(scan_code), action == "down")
+            return True
+        elif key:
+            input_service.keyboard_press_key(key, modifiers)
+            return True
+    except Exception as e:
+        log.error(f"Error handling streaming keyboard input: {e}")
+
+    return False
+
+
+def _process_input_event(data: dict) -> bool:
+    return _process_mouse_input(data) or _process_keyboard_input(data)
 
 
 async def broadcast_streaming_devices():
@@ -224,7 +276,7 @@ async def reset_portal():
 async def send_engine_input(request: Request):
     try:
         body = await request.json()
-        if _process_mouse_input(body):
+        if _process_input_event(body):
             return {"success": True}
 
         await desktop_streaming_service.send_command(body)
@@ -269,7 +321,7 @@ async def desktop_streaming_websocket(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_json()
-            if not _process_mouse_input(data):
+            if not _process_input_event(data):
                 await desktop_streaming_service.send_command(data)
     except WebSocketDisconnect:
         pass

@@ -3,10 +3,10 @@
 # Copyright (C) 2025 AZHAR ZOUHIR / BYTEDz
 
 import logging
-import platform
+import os
 from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -36,19 +36,41 @@ async def get_applications(force_refresh: bool = False):
 @router.post("/launch")
 async def launch_application(payload: AppLaunchPayload):
     if not payload.command:
-        raise ValueError("Empty command")
+        raise HTTPException(status_code=400, detail="Empty command")
     await app_service.launch(payload.command)
     return {"status": "success"}
 
 
 @router.get("/icon")
-async def get_application_icon(path: str):
+@router.get("/icon/")
+async def get_application_icon(
+    path: str = Query(...),
+    token: Optional[str] = Query(None),
+):
     if not path or ".." in path:
-        raise ValueError("Invalid path")
+        raise HTTPException(status_code=400, detail="Invalid path")
 
-    if platform.system() == "Linux":
-        icon = app_service.find_linux_icon(path)
-        if icon:
-            return FileResponse(icon)
+    log.debug(f"[AppsIcon] Request for: '{path}' (has_token: {bool(token)})")
 
-    raise FileNotFoundError("Icon not found")
+    icon = await app_service.resolve_icon(path)
+    if icon and os.path.exists(icon):
+        lower = icon.lower()
+        if lower.endswith(".svg"):
+            media_type = "image/svg+xml"
+        elif lower.endswith(".ico"):
+            media_type = "image/x-icon"
+        elif lower.endswith(".bmp"):
+            media_type = "image/bmp"
+        elif lower.endswith(".jpg") or lower.endswith(".jpeg"):
+            media_type = "image/jpeg"
+        else:
+            media_type = "image/png"
+
+        return FileResponse(
+            icon,
+            media_type=media_type,
+            headers={"Cache-Control": "public, max-age=604800"},
+        )
+
+    log.debug(f"[AppsIcon] 404: Icon not found for: '{path}'")
+    raise HTTPException(status_code=404, detail="Icon not found")

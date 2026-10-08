@@ -1,4 +1,5 @@
-from typing import Any, Dict, List
+import asyncio
+from typing import Any, Dict, List, Optional
 
 from fastapi import WebSocket
 
@@ -8,8 +9,10 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
         # Support multiple connections per device (Mobile app + Extensions)
         self.device_connections: Dict[str, List[WebSocket]] = {}
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     async def connect(self, websocket: WebSocket, device_id: str = None):
+        self._loop = asyncio.get_running_loop()
         try:
             await websocket.accept()
         except RuntimeError:
@@ -67,6 +70,21 @@ class ConnectionManager:
                 await connection.send_json(message)
             except Exception:
                 self.disconnect(connection)
+
+    def broadcast_threadsafe(self, message: Dict[str, Any]) -> None:
+        """Dispatches broadcast safely from worker threads or sync contexts to the running event loop."""
+        if not self.active_connections:
+            return
+
+        coro = self.broadcast(message)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            if self._loop and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(coro, self._loop)
+            else:
+                coro.close()
 
 
 # Global singleton managers

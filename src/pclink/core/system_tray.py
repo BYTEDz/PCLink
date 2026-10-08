@@ -60,6 +60,8 @@ class SystemTrayManager:
 
     def __init__(self, controller=None):
         self.controller = controller
+        if self.controller:
+            self.controller.tray_manager = self
         self.icon = None
         self.indicator = None
         self.notifier = get_system_notifier()
@@ -246,6 +248,13 @@ class SystemTrayManager:
         except Exception as e:
             log.error(f"Failed to create Linux AppIndicator: {e}", exc_info=True)
 
+    def notify_server_crashed(self, error_message: str):
+        """Notifies the user via desktop notification and triggers menu update on crash."""
+        title = "PCLink Server Crash Detected"
+        msg = f"Startup failed: {error_message[:100]}. Click Open Web UI for recovery."
+        self.show_notification(title, msg)
+        self._update_menu()
+
     def show(self):
         """Displays the tray icon and starts its event loop in a background thread."""
         if self.use_linux_native and self.indicator:
@@ -314,7 +323,10 @@ class SystemTrayManager:
             self.controller.open_web_ui()
 
     def show_server_status(self, icon=None, item=None):
-        status = "Enabled" if self.is_server_running() else "Disabled"
+        if self.controller and getattr(self.controller, "main_server_crashed", False):
+            status = "Crashed (In Recovery Mode)"
+        else:
+            status = "Enabled" if self.is_server_running() else "Disabled"
         self.show_notification("PCLink Status", f"Mobile API is {status}")
 
     def start_server(self, icon=None, item=None):
