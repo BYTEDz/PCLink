@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 2026-10-08
+
+# PCLink v5.0.0 — Dimension
+
+## Important Prerequisites
+
+> **Remote Access requires an active PCLink subscription.**
+>
+> **Client Compatibility Notice:** Remote access requires pairing with **PCLink Client v5.0** or later. If the v5.0 client update is not yet available in your app store or installed on your client device, **skip this server update** until the matching client release is available to ensure seamless compatibility. Pre-v5 clients cannot establish remote connections and will remain restricted strictly to local-network operations.
+
+## Overview
+
+PCLink v5.0.0 (**Dimension**) introduces wide-area network (WAN) remote access, allowing secure computer management over cellular and external networks through end-to-end encrypted relay architecture. This release also introduces emergency startup recovery, persistent terminal sessions, configurable screenshot capture, and database integrity enforcement.
+
+## Changes
+
+### Added
+
+* **Remote Access Infrastructure**:
+  * Relay-backed connection engine for cellular and external network routing.
+  * Dedicated Remote Access management dashboard featuring master toggles, setup guides, and real-time connection telemetry.
+  * End-to-end payload encryption across all remote relay tunnels.
+* **Resilience & Recovery**:
+  * Emergency recovery interface displayed during server startup failures, with direct restart execution controls.
+  * Automatic SQLite database corruption verification, repair routines, and quarantine isolation.
+* **Terminal**:
+  * Persistent background terminal sessions surviving network drops.
+  * Scrollback replay buffer loaded upon session reconnection.
+* **Display Capture**:
+  * Configurable capture settings including resolution scaling, image quality, output format, and multi-monitor selection.
+
+### Changed
+
+* **Desktop Streaming**:
+  * Refactored input event handling for lower latency under variable network conditions.
+  * Added keyboard passthrough and extended mouse button mapping during active streaming sessions.
+* **Telemetry & UI**:
+  * Clear distinction between local Wi-Fi and WAN/relay connections in device status indicators.
+  * Optimized application icon resolution pipeline with persistent disk caching.
+
+### Security
+
+* Enforced mandatory end-to-end payload encryption for all WAN relay traffic.
+* Restricted sensitive administrative endpoints and host operations from being accessed over remote WAN connections.
+* Isolated remote relay traffic from trusted local-network permission scopes.
+
+## Known Limitations
+
+* **Desktop and Audio Streaming Restricted over WAN**: Desktop capture and real-time audio streaming are blocked by default over external WAN relay connections in this release. Remote access in v5.0.0 is scoped to host management, monitoring, and terminal operations; desktop and audio streaming should not be expected to function over external networks.
+* **Initial WAN Connectivity Variations**: Network conditions, carrier-grade NAT (CGNAT), firewalls, and relay availability may cause intermittent connectivity or latency spikes during this initial release. Report any persistent anomalies for resolution in subsequent updates.
+
+## Upgrade Guide
+
+### Standard Upgrade Flow
+
+1. **Check Client Availability**: Confirm that PCLink Client v5.0 is published and installed on your device. If client v5.0 is not yet available, defer this host update.
+2. **Execute In-Place Update**: Apply the update normally over your existing installation. Configuration and pairing records are preserved.
+3. **Validate Local Operations**: Verify existing streaming and terminal connections on the local network.
+4. **Configure Remote Access**: Ensure you have an active PCLink subscription, enable Remote Access in the dashboard, and pair with client v5.0.
+
+### Troubleshooting & Clean Installation
+
+A clean installation is not required by default. If configuration conflicts or missing features occur after upgrading from an older release:
+
+1. Back up any critical host configuration files.
+2. Perform a full uninstall and remove residual configuration directories.
+3. Reinstall PCLink v5.0.0 cleanly and re-pair client devices.
+
+## What's Next
+
+PCLink v5.0.0 establishes the architectural baseline for wide-area connectivity. Subsequent minor releases will prioritize:
+
+* Relay routing optimizations to minimize latency across regional boundaries.
+* Direct peer-to-peer NAT traversal to bypass relays where firewall topologies permit.
+* Expanded remote diagnostics and connection telemetry tools in the client application.
+* Fine-grained access control profiles for paired devices operating over external networks.
+
 ## [4.8.0] - 2026-09-02
 
 ## ⚠️ Breaking Change: Extensions Manifest V2
