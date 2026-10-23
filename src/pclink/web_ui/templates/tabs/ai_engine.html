@@ -1,0 +1,256 @@
+<!-- Local AI Engine Tab Panel: Manage llama.cpp runtime, local model weights, and chat evaluation -->
+<div class="tab-content hidden" id="ai-engine">
+  <div class="flex flex-col gap-4">
+
+    <!-- 1. Hero Controller Header (Fixed Grid-Free Container, Anchored to Far Right) -->
+    <div id="aiEngineStatusBanner" class="bg-base-100 shadow-sm border border-base-300 rounded-2xl p-4 transition-all duration-200">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 w-full">
+
+        <!-- Left: Status Identity & Telemetry Chips (Takes all available space) -->
+        <div class="flex items-center gap-3.5 min-w-0 flex-1">
+          <div id="aiEngineStatusIcon" class="p-3 bg-base-200 rounded-xl shrink-0 border border-base-300/60">
+            <i data-feather="cpu" class="w-5 h-5 text-primary"></i>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap mb-0.5">
+              <h3 id="aiEngineStatusTitle" class="font-black text-xs uppercase tracking-wider text-base-content/90">Local AI Subsystem</h3>
+              <span id="ai_engine_badge" class="badge badge-neutral font-mono font-bold text-[10px]">Checking...</span>
+              <span id="ai_hero_model_badge" class="badge badge-outline badge-primary font-mono text-[10px] hidden" title="Loaded model">
+                <i data-feather="box" class="w-3 h-3 mr-1"></i><span id="ai_hero_model_name" class="truncate max-w-[140px]">None</span>
+              </span>
+              <span id="ai_hero_build_badge" class="badge badge-ghost font-mono text-[10px]" title="llama.cpp build">
+                <i data-feather="layers" class="w-3 h-3 mr-1 text-base-content/60"></i><span id="ai_hero_build_tag">b11793</span>
+              </span>
+            </div>
+            <p id="aiEngineStatusDesc" class="text-xs opacity-70 truncate max-w-[550px]">
+              On-device GGUF language model execution with OpenAI-compatible API pass-through.
+            </p>
+          </div>
+        </div>
+
+        <!-- Right: Primary Action Cluster (Pushed to Far Right, Identical Button Widths) -->
+        <div class="flex items-center gap-2.5 shrink-0 ml-auto">
+          <button id="btn_toggle_ai_service" class="btn btn-sm btn-outline btn-primary font-semibold text-xs gap-1.5 shadow-xs w-36 justify-center"
+            onclick="window.toggleAiService()" title="Start or stop local AI runner">
+            <i data-feather="power" class="w-4 h-4"></i> Start Runner
+          </button>
+
+          <button class="btn btn-sm btn-primary text-white font-semibold text-xs gap-1.5 shadow-xs w-36 justify-center"
+            onclick="window.openAiChatModal()" title="Evaluate active model in chat playground">
+            <i data-feather="message-square" class="w-4 h-4"></i> Test Chat
+          </button>
+
+          <!-- Secondary Options Dropdown -->
+          <div class="dropdown dropdown-end">
+            <button tabindex="0" class="btn btn-sm btn-ghost btn-square text-base-content/70 hover:text-base-content" title="Subsystem settings">
+              <i data-feather="more-vertical" class="w-4 h-4"></i>
+            </button>
+            <ul tabindex="0" class="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 text-xs border border-base-300 z-50">
+              <li>
+                <a onclick="window.openLlamaVersionModal()" class="gap-2">
+                  <i data-feather="layers" class="w-3.5 h-3.5 text-primary"></i> Engine Builds & Updates
+                </a>
+              </li>
+              <li>
+                <a onclick="window.openAiSettingsModal()" class="gap-2">
+                  <i data-feather="sliders" class="w-3.5 h-3.5 text-base-content/70"></i> Runtime Settings
+                </a>
+              </li>
+              <li>
+                <a onclick="window.refreshAiTab()" class="gap-2">
+                  <i data-feather="refresh-cw" class="w-3.5 h-3.5 text-base-content/70"></i> Refresh Status
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Active Download Progress Indicator -->
+    <div id="ai_download_progress_card" class="card bg-base-100 border border-primary/30 shadow-sm p-4 hidden">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <span class="loading loading-spinner loading-xs text-primary"></span>
+          <span id="ai_dl_filename" class="font-mono text-xs font-bold text-primary">Downloading model...</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="ai_dl_stats" class="text-[11px] opacity-70 font-mono">0 MB / 0 MB (0%)</span>
+          <button class="btn btn-xs btn-ghost text-error font-bold" onclick="window.cancelAiModelDownload()">Cancel</button>
+        </div>
+      </div>
+      <progress id="ai_dl_bar" class="progress progress-primary w-full h-2" value="0" max="100"></progress>
+    </div>
+
+    <!-- Active Upload Progress Indicator -->
+    <div id="ai_upload_progress_card" class="card bg-base-100 border border-success/30 shadow-sm p-4 hidden">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <span class="loading loading-spinner loading-xs text-success"></span>
+          <span id="ai_upload_filename" class="font-mono text-xs font-bold text-success">Copying model...</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="ai_upload_stats" class="text-[11px] opacity-70 font-mono">0 MB / 0 MB (0%)</span>
+        </div>
+      </div>
+      <progress id="ai_upload_bar" class="progress progress-success w-full h-2" value="0" max="100"></progress>
+    </div>
+
+    <!-- 2-Column Balanced Dashboard Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+      <!-- Left Column (2 Cols): Model Weight Library & Ingestion -->
+      <div class="card bg-base-100 shadow-sm border border-base-300 lg:col-span-2">
+        <div class="card-body p-5 space-y-4">
+
+          <!-- Section Toolbar with clean grouped actions -->
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-base-200">
+            <div class="space-y-0.5">
+              <div class="flex items-center gap-2 flex-nowrap">
+                <h4 class="font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 text-base-content/90 whitespace-nowrap">
+                  <i data-feather="database" class="w-4 h-4 text-primary"></i> Local Weights Library
+                </h4>
+                <span id="ai_installed_count_badge" class="badge badge-sm badge-neutral font-mono font-semibold whitespace-nowrap">0 Models</span>
+              </div>
+              <p class="text-[11px] opacity-70">
+                Switch active model weights, import local files, or browse verified models.
+              </p>
+            </div>
+
+            <!-- Consolidated Action Bar: 2 Clean Buttons -->
+            <div class="flex items-center gap-2 shrink-0">
+              <button class="btn btn-xs btn-primary text-white font-semibold gap-1.5 shadow-xs"
+                onclick="window.openHfExplorerModal()" title="Discover and download models from Hugging Face Hub">
+                <i data-feather="globe" class="w-3.5 h-3.5"></i> Model Hub
+              </button>
+
+              <!-- Ingest Options Dropdown -->
+              <div class="dropdown dropdown-end">
+                <button tabindex="0" class="btn btn-xs btn-outline btn-neutral font-semibold gap-1">
+                  <i data-feather="plus" class="w-3.5 h-3.5"></i> Add Weight <i data-feather="chevron-down" class="w-3 h-3 opacity-60"></i>
+                </button>
+                <ul tabindex="0" class="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 text-xs border border-base-300 z-50">
+                  <li>
+                    <a onclick="document.getElementById('aiGgufFileInput').click()">
+                      <i data-feather="upload" class="w-3.5 h-3.5 text-primary"></i> Select Local File (.gguf)
+                    </a>
+                  </li>
+                  <li>
+                    <a onclick="window.openAiModelsFolder()">
+                      <i data-feather="folder" class="w-3.5 h-3.5 text-base-content/70"></i> Open Models Folder
+                    </a>
+                  </li>
+                  <li>
+                    <a onclick="window.promptCustomGgufDownload()">
+                      <i data-feather="link" class="w-3.5 h-3.5 text-base-content/70"></i> Direct URL Download
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Slim Integrated Ingestion Bar -->
+          <div id="aiGgufDropZone" class="border border-dashed border-base-300 hover:border-primary/60 bg-base-200/20 hover:bg-base-200/50 rounded-xl px-4 py-2.5 transition-all cursor-pointer flex items-center justify-between gap-3 group"
+               onclick="document.getElementById('aiGgufFileInput').click()">
+            <input type="file" id="aiGgufFileInput" accept=".gguf" class="hidden">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="p-1.5 bg-base-100 rounded-lg border border-base-300/60 group-hover:scale-105 transition-transform shrink-0">
+                <i data-feather="upload-cloud" class="w-4 h-4 text-primary"></i>
+              </div>
+              <span class="text-xs font-medium truncate">
+                Drop <span class="font-mono text-primary font-semibold">.gguf</span> weights here, or <span class="text-primary underline font-semibold">browse filesystem</span>
+              </span>
+            </div>
+            <span class="text-[10px] opacity-50 font-mono hidden sm:inline shrink-0">Q4_K_M · Q5_K_M · Q8_0</span>
+          </div>
+
+          <!-- Installed Local Models Container -->
+          <div id="ai_installed_models_container" class="space-y-2">
+            <div class="text-center py-6 opacity-40 text-xs">Loading models...</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Right Column (1 Col): Runtime Telemetry & API Gateway -->
+      <div class="card bg-base-100 shadow-sm border border-base-300 h-fit">
+        <div class="card-body p-5 space-y-4">
+          <h4 class="font-bold text-xs uppercase opacity-70 tracking-wider flex items-center gap-2">
+            <i data-feather="terminal" class="w-4 h-4 text-primary"></i> Runtime & Gateway
+          </h4>
+
+          <!-- Key-Value Telemetry -->
+          <div class="divide-y divide-base-300 text-xs">
+            <div class="flex justify-between items-center py-2.5">
+              <span class="opacity-70">Engine State</span>
+              <span id="ai_process_status" class="badge badge-neutral text-[10px] font-semibold">Stopped</span>
+            </div>
+            <div class="flex justify-between items-center py-2.5">
+              <span class="opacity-70">Active Build</span>
+              <span id="ai_active_build_tag" class="font-mono font-bold text-primary">None</span>
+            </div>
+            <div class="flex justify-between items-center py-2.5">
+              <span class="opacity-70">Context Window</span>
+              <span id="ai_context_size" class="font-mono font-semibold">8,192 tokens</span>
+            </div>
+            <div class="flex justify-between items-center py-2.5">
+              <span class="opacity-70">GPU Offload</span>
+              <span id="ai_gpu_offload" class="badge badge-sm badge-ghost font-mono text-[10px]">Vulkan / Auto</span>
+            </div>
+            <div class="flex justify-between items-center py-2.5">
+              <span class="opacity-70">Auto-Offload</span>
+              <span id="ai_idle_timeout" class="font-mono text-[11px] opacity-80">10m idle timeout</span>
+            </div>
+          </div>
+
+          <!-- Copyable Gateway Endpoints -->
+          <div class="space-y-2.5 pt-1 border-t border-base-300/80">
+            <div class="space-y-1">
+              <span class="text-[10px] uppercase font-bold tracking-wider opacity-60">OpenAI Proxy URL</span>
+              <div class="flex items-center gap-1.5 p-1.5 bg-base-200/70 rounded-lg border border-base-300 font-mono text-[11px] justify-between">
+                <span class="truncate select-all text-base-content/90" id="ai_endpoint_display">/ai/v1/chat/completions</span>
+                <button class="btn btn-ghost btn-xs btn-square text-base-content/70 hover:text-base-content"
+                  onclick="window.copyAiEndpoint()" title="Copy API endpoint">
+                  <i data-feather="copy" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <span class="text-[10px] uppercase font-bold tracking-wider opacity-60">Direct Backend GUI</span>
+              <div class="flex items-center gap-1.5 p-1.5 bg-base-200/70 rounded-lg border border-base-300 font-mono text-[11px] justify-between">
+                <a id="ai_direct_backend_link" href="#" target="_blank" class="truncate text-primary hover:underline" title="Open llama.cpp built-in GUI">
+                  http://127.0.0.1:38191
+                </a>
+                <a id="ai_direct_backend_open" href="#" target="_blank" class="btn btn-ghost btn-xs btn-square text-base-content/70 hover:text-base-content" title="Open in browser">
+                  <i data-feather="external-link" class="w-3.5 h-3.5"></i>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Idle Guard Notice -->
+          <div class="rounded-xl p-3 bg-base-200/50 border border-base-300 text-xs leading-relaxed space-y-1">
+            <div class="flex items-center gap-1.5 font-semibold text-base-content/90">
+              <i data-feather="clock" class="w-3.5 h-3.5 text-primary"></i>
+              <span>Memory Idle Guard</span>
+            </div>
+            <p id="ai_idle_guard_text" class="text-[11px] opacity-70">
+              Model weights automatically unload after 10m of inactivity to release VRAM.
+            </p>
+          </div>
+
+          <!-- Quick Setup Button if Engine Missing -->
+          <div id="ai_engine_missing_prompt" class="hidden">
+            <button class="btn btn-sm btn-primary text-white font-bold w-full gap-2" onclick="window.autoInstallRecommendedLlamaEngine()">
+              <i data-feather="download-cloud" class="w-4 h-4"></i> Install Recommended Engine
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

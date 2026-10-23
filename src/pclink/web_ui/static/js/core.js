@@ -61,6 +61,7 @@ class PCLinkWebUI {
             else if (['devices', 'phone-files'].includes(activeTab)) { this.loadDevices(); }
             else if (activeTab === 'logs') { this.loadLogs(); }
             else if (activeTab === 'remote-access' && window.loadRemoteAccessTab) { window.loadRemoteAccessTab(true); }
+            else if (activeTab === 'ai-engine' && window.refreshAiTab) { window.refreshAiTab(); }
         }, 5000);
 
         setInterval(() => {
@@ -126,10 +127,12 @@ class PCLinkWebUI {
                 return;
             }
 
-            if (e.altKey && !isNaN(e.key) && parseInt(e.key) >= 1 && parseInt(e.key) <= 9) {
+            if (e.altKey && /^[0-9]$/.test(e.key)) {
                 e.preventDefault();
-                const tabList = ['dashboard', 'devices', 'phone-files', 'desktop-streaming', 'services', 'links-management', 'extensions', 'settings', 'logs'];
-                const targetTab = tabList[parseInt(e.key) - 1];
+                const tabList = ['dashboard', 'devices', 'phone-files', 'desktop-streaming', 'ai-engine', 'services', 'links-management', 'extensions', 'settings', 'logs'];
+                // Alt+1..9 map to the first nine tabs; Alt+0 selects the tenth.
+                const index = e.key === '0' ? 9 : parseInt(e.key, 10) - 1;
+                const targetTab = tabList[index];
                 if (targetTab) this.switchTab(targetTab);
                 return;
             }
@@ -186,6 +189,7 @@ class PCLinkWebUI {
             case 'services': await this.loadServices(); await this.loadBlacklist(); break;
             case 'phone-files': await this.loadDevices(); await this.loadPhoneFiles(this.currentPhonePath); break;
             case 'desktop-streaming': if (window.loadDesktopStreamingTab) await window.loadDesktopStreamingTab(); break;
+            case 'ai-engine': if (window.loadAiEngineTab) await window.loadAiEngineTab(); break;
             case 'extensions': await this.loadExtensions(); break;
             case 'macros': await this.loadMacros(); break;
             case 'links-management': if (window.refreshLinks) await window.refreshLinks(); break;
@@ -220,8 +224,12 @@ class PCLinkWebUI {
         const toast = document.createElement('div');
         const iconMap = { 'success': 'check-circle', 'error': 'alert-circle', 'info': 'info' };
         const colorMap = { 'success': 'alert-success border-success text-success-content', 'error': 'alert-error border-error text-error-content', 'info': 'alert-info border-info text-info-content' };
+        // Toast text can include server-provided filenames/error details, so
+        // escape it instead of interpolating untrusted data into innerHTML.
+        const safeTitle = this.escapeHTML(title == null ? '' : String(title));
+        const safeMessage = this.escapeHTML(message == null ? '' : String(message));
         toast.className = `alert ${colorMap[type] || 'alert-info'} shadow-xl flex items-center p-3 animate-slide-in toast-msg border-none font-bold`;
-        toast.innerHTML = `<i data-feather="${iconMap[type]}"></i><div><h3 class="text-sm leading-tight">${title}</h3><p class="text-[10px] opacity-70">${message}</p></div>`;
+        toast.innerHTML = `<i data-feather="${iconMap[type] || iconMap.info}"></i><div><h3 class="text-sm leading-tight">${safeTitle}</h3><p class="text-[10px] opacity-70">${safeMessage}</p></div>`;
         let container = document.getElementById('toast-container');
         if (!container) { container = document.createElement('div'); container.id = 'toast-container'; document.body.appendChild(container); }
         container.appendChild(toast);
@@ -380,6 +388,7 @@ window.filterCommandPalette = function (query) {
         { title: 'Remote Access (Connect from Anywhere)', category: 'NAVIGATION', icon: 'globe', tab: 'remote-access' },
         { title: 'Phone Files', category: 'NAVIGATION', icon: 'folder', tab: 'phone-files' },
         { title: 'Desktop Streaming', category: 'NAVIGATION', icon: 'monitor', tab: 'desktop-streaming' },
+        { title: 'Local AI Engine (llama.cpp & GGUF)', category: 'NAVIGATION', icon: 'cpu', tab: 'ai-engine' },
         { title: 'Access Control / Firewall', category: 'NAVIGATION', icon: 'shield', tab: 'services' },
         { title: 'Share Links', category: 'NAVIGATION', icon: 'link', tab: 'links-management' },
         { title: 'Extensions', category: 'NAVIGATION', icon: 'package', tab: 'extensions' },
@@ -402,6 +411,10 @@ window.filterCommandPalette = function (query) {
         { title: 'Toggle Server Extensions', category: 'FIREWALL & ACCESS', icon: 'package', tab: 'services', targetId: '[data-perm="extensions"]' },
         { title: 'Toggle Desktop Streaming', category: 'FIREWALL & ACCESS', icon: 'monitor', tab: 'services', targetId: '[data-perm="desktop_streaming"]' },
         { title: 'Toggle Terminal & Shell', category: 'FIREWALL & ACCESS', icon: 'terminal', tab: 'services', targetId: '[data-perm="terminal"]' },
+
+        { title: 'Start Local AI Runner', category: 'LOCAL AI CONTROLS', icon: 'play', action: () => window.toggleAiService() },
+        { title: 'Manage llama.cpp Engine Builds', category: 'LOCAL AI CONTROLS', icon: 'layers', action: () => window.openLlamaVersionModal() },
+        { title: 'Add Custom GGUF Model', category: 'LOCAL AI CONTROLS', icon: 'plus-circle', action: () => window.promptCustomGgufDownload() },
 
         { title: 'Server Port Configuration', category: 'SETTINGS & CONFIG', icon: 'settings', tab: 'settings', targetId: 'serverPortInput' },
         { title: 'Start with System Autostart', category: 'SETTINGS & CONFIG', icon: 'power', tab: 'settings', targetId: 'autoStartCheckbox' },

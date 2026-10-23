@@ -34,6 +34,7 @@ from .routers.transfers import (
 )
 from .routers.utils import router as utils_router
 from ..services.pairing_service import pairing_service
+from ..services.ai_service import ai_service
 from ..core.validators import PCLinkError, SecurityError
 
 log = logging.getLogger(__name__)
@@ -94,7 +95,19 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
 
         asyncio.create_task(background_extension_loader())
 
+        # Clean up a stale AI engine PID from a previous crash, without ever
+        # touching unrelated llama-server processes.
+        try:
+            await ai_service.initialize()
+        except Exception as e:
+            log.warning(f"AI engine initialization failed: {e}")
+
         yield
+
+        try:
+            await ai_service.shutdown()
+        except Exception as e:
+            log.warning(f"AI engine shutdown failed: {e}")
 
     app = FastAPI(
         title="PCLink API",
@@ -293,8 +306,10 @@ def create_api_app(controller_instance, connected_devices: Dict) -> FastAPI:
     )
 
     from .routers.desktop_streaming import router as desktop_streaming_router
+    from .routers.ai import router as ai_router
 
     app.include_router(desktop_streaming_router)
+    app.include_router(ai_router)
 
     try:
         from ..web_ui.router import create_web_ui_router
