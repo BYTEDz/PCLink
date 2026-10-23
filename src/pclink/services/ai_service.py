@@ -2196,87 +2196,237 @@ class AiService:
     # ==========================================
 
     def list_openai_models(self) -> dict:
-        """OpenAI-compatible model discovery without waking a cold engine."""
+        """OpenAI-compatible model discovery without waking a cold engine.
+
+        Only report a real installed weight. Returning a placeholder id when
+        no model exists makes mobile clients offer a model that cannot be
+        selected, so an empty list is the honest answer in that case.
+        """
         model = self.get_active_model_name()
-        return {
-            "object": "list",
-            "data": [
+        data = []
+        if model:
+            data.append(
                 {
-                    "id": model or "pclink-local",
+                    "id": model,
                     "object": "model",
                     "created": int(time.time()),
                     "owned_by": "pclink",
                 }
-            ],
-        }
+            )
+        return {"object": "list", "data": data}
+
+    @staticmethod
+    def _llama_error_detail(raw: str) -> str:
+        """Extract a human-readable message from a llama-server error body."""
+        raw = (raw or "").strip()
+        if not raw:
+            return "The local AI engine rejected the request."
+
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return raw[:2000]
+
+        if isinstance(parsed, dict):
+            error = parsed.get("error")
+            if isinstance(error, dict):
+                message = error.get("message")
+                if isinstance(message, str) and message.strip():
+                    return message.strip()
+            if isinstance(error, str) and error.strip():
+                return error.strip()
+            for key in ("message", "detail"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return raw[:2000]
+
+    @staticmethod
+    def _is_vision_input_unsupported(message: str) -> bool:
+        """True when the loaded model rejected image parts for lack of vision."""
+        text = (message or "").lower()
+        return (
+            "image input is not supported" in text
+            or "image input not supported" in text
+            or "does not support image" in text
+            or "does not support vision" in text
+            or ("mmproj" in text and "not" in text)
+        )
+
+    @staticmethod
+    def _strip_vision_parts(body: dict) -> Tuple[dict, int]:
+        """Return a copy of an OpenAI request without image parts.
+
+        Text-only GGUF models still need the attachment metadata so they can
+        call the client's ``upload`` tool. Replacing an image part with a short
+        notice keeps that metadata while avoiding an unsupported multimodal
+        request.
+        """
+        messages = body.get("messages")
+        if not isinstance(messages, list):
+            return body, 0
+
+        removed_total = 0
+        new_messages = []
+        for message in messages:
+            if not isinstance(message, dict):
+                new_messages.append(message)
+                continue
+            content = message.get("content")
+            if not isinstance(content, list):
+                new_messages.append(message)
+                continue
+
+            kept_parts = []
+            removed_here = 0
+            for part in content:
+                if isinstance(part, dict) and part.get("type") in (
+                    "image",
+                    "image_url",
+                    "input_image",
+                ):
+                    removed_here += 1
+                    continue
+                kept_parts.append(part)
+
+            if removed_here == 0:
+                new_messages.append(message)
+                continue
+
+            removed_total += removed_here
+            kept_parts.append(
+                {
+                    "type": "text",
+                    "text": (
+                        f"[PCLink: {removed_here} image attachment(s) omitted because "
+                        "the selected local model does not support image input. The "
+                        "attachment metadata and IDs above remain available for file "
+                        "upload actions.]"
+                    ),
+                }
+            )
+            new_message = dict(message)
+            new_message["content"] = kept_parts
+            new_messages.append(new_message)
+
+        if removed_total == 0:
+            return body, 0
+
+        stripped = dict(body)
+        stripped["messages"] = new_messages
+        return stripped, removed_total
+
+    def _open_llama_chat(self, body: dict, timeout: int, accept: str):
+        """Open a llama-server chat response, retrying text-only models.
+
+        This runs in a worker thread. Opening the stream here (rather than
+        inside the StreamingResponse generator) means upstream failures still
+        reach the client as a proper JSON HTTP error instead of a bare 500.
+        """
+        port = self.get_running_port()
+        url = f"http://127.0.0.1:{port}/v1/chat/completions"
+
+        def _request(payload: dict):
+            request = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Accept": accept},
+                method="POST",
+            )
+            return urllib.request.urlopen(request, timeout=timeout)
+
+        try:
+            return _request(body), body
+        except urllib.error.HTTPError as exc:
+            raw_error = exc.read().decode("utf-8", errors="ignore")
+            exc.close()
+            detail = self._llama_error_detail(raw_error)
+
+            retry_body, removed = None, 0
+            if self._is_vision_input_unsupported(detail):
+                retry_body, removed = self._strip_vision_parts(body)
+
+            if retry_body is not None and removed:
+                logger.info(
+                    "Local model does not support image input; retrying "
+                    "without %s image part(s).",
+                    removed,
+                )
+                try:
+                    return _request(retry_body), retry_body
+                except urllib.error.HTTPError as retry_exc:
+                    retry_raw = retry_exc.read().decode("utf-8", errors="ignore")
+                    retry_exc.close()
+                    retry_detail = self._llama_error_detail(retry_raw)
+                    logger.error(
+                        "llama-server retry without images failed HTTP %s: %s",
+                        retry_exc.code,
+                        retry_detail,
+                    )
+                    raise HTTPException(status_code=retry_exc.code, detail=retry_detail)
+                except Exception as retry_exc:
+                    logger.error(
+                        "Failed to open llama-server text-only stream: %s",
+                        retry_exc,
+                    )
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(f"Could not reach the local AI engine. {retry_exc}"),
+                    )
+
+            logger.error("llama-server returned HTTP %s: %s", exc.code, detail)
+            raise HTTPException(status_code=exc.code, detail=detail)
+        except Exception as exc:
+            logger.error("Failed to communicate with llama-server: %s", exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not reach the local AI engine. {exc}",
+            )
 
     async def proxy_sync_chat(self, body: dict) -> dict:
         self._last_request_time = time.time()
-        port = self.get_running_port()
         timeout = int(self._read_config().get("request_timeout_seconds", 300))
-        url = f"http://127.0.0.1:{port}/v1/chat/completions"
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        loop = asyncio.get_running_loop()
+        response, _ = await loop.run_in_executor(
+            None, self._open_llama_chat, body, timeout, "application/json"
         )
 
-        loop = asyncio.get_running_loop()
-
-        def _do_post():
+        def _read_response():
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-            except urllib.error.HTTPError as e:
-                err_content = e.read().decode("utf-8", errors="ignore")
-                logger.error(f"llama-server returned HTTP {e.code}: {err_content}")
-                raise HTTPException(status_code=e.code, detail=err_content)
-            except Exception as e:
-                logger.error(f"Failed to communicate with llama-server: {e}")
-                raise HTTPException(status_code=502, detail=str(e))
+                return json.loads(response.read().decode("utf-8"))
+            except Exception as exc:
+                logger.error("Invalid response from llama-server: %s", exc)
+                raise HTTPException(
+                    status_code=502,
+                    detail="The local AI engine returned an invalid response.",
+                )
+            finally:
+                response.close()
 
-        return await loop.run_in_executor(None, _do_post)
+        result = await loop.run_in_executor(None, _read_response)
+        self._last_request_time = time.time()
+        return result
 
     async def proxy_stream_chat(self, body: dict) -> AsyncGenerator[bytes, None]:
         self._last_request_time = time.time()
-        port = self.get_running_port()
         timeout = int(self._read_config().get("request_timeout_seconds", 300))
-        url = f"http://127.0.0.1:{port}/v1/chat/completions"
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "text/event-stream",
-            },
-            method="POST",
+        loop = asyncio.get_running_loop()
+        response, _ = await loop.run_in_executor(
+            None, self._open_llama_chat, body, timeout, "text/event-stream"
         )
 
-        loop = asyncio.get_running_loop()
-
-        def _open():
+        async def _iter_response():
             try:
-                return urllib.request.urlopen(req, timeout=timeout)
-            except urllib.error.HTTPError as e:
-                err_content = e.read().decode("utf-8", errors="ignore")
-                logger.error(f"llama-server stream error HTTP {e.code}: {err_content}")
-                raise HTTPException(status_code=e.code, detail=err_content)
-            except Exception as e:
-                logger.error(f"Failed to open llama-server stream: {e}")
-                raise HTTPException(status_code=502, detail=str(e))
+                while True:
+                    line = await loop.run_in_executor(None, response.readline)
+                    if not line:
+                        break
+                    self._last_request_time = time.time()
+                    yield line
+            finally:
+                response.close()
 
-        resp = await loop.run_in_executor(None, _open)
-
-        try:
-            while True:
-                line = await loop.run_in_executor(None, resp.readline)
-                if not line:
-                    break
-                self._last_request_time = time.time()
-                yield line
-        finally:
-            resp.close()
+        return _iter_response()
 
 
 ai_service = AiService()

@@ -173,6 +173,7 @@ startup_errors.log
 # Development and testing files
 debug_*.py
 test_*.py
+!tests/test_ai_service.py
 fix_*.py
 *_test.py
 *_debug.py

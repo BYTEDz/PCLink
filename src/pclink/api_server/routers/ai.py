@@ -246,13 +246,13 @@ async def openai_chat_completions(request: Request):
     await ai_service.ensure_running()
 
     if stream:
-
-        async def event_generator():
-            async for chunk in ai_service.proxy_stream_chat(body):
-                yield chunk
+        # Open the upstream stream before constructing StreamingResponse so
+        # llama-server errors become real HTTP responses (and keep their
+        # actionable JSON detail) instead of a bare 500 mid-stream.
+        stream_body = await ai_service.proxy_stream_chat(body)
 
         return StreamingResponse(
-            event_generator(),
+            stream_body,
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

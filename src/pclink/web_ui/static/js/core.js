@@ -32,6 +32,8 @@ class PCLinkWebUI {
         this.phoneShowHidden = false;
         this.phoneSelectedItems = new Set();
         this.phoneFileItems = [];
+        this.phoneVisibleItems = [];
+        this.phoneLastSelectedIndex = null;
         this.currentPhoneDeviceId = null;
         this.autoRefreshEnabled = true;
         this.lastActivity = Date.now();

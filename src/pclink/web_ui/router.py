@@ -9,6 +9,7 @@ Serves the web-based control panel interface, cached assets, and dynamic templat
 import asyncio
 import logging
 import urllib.request
+from pathlib import Path
 
 import jinja2  # noqa: F401
 from fastapi import APIRouter, FastAPI, HTTPException, Request
@@ -26,6 +27,29 @@ CACHE_UPSTREAM_URLS = {
     "tailwindcss.js": "https://cdn.tailwindcss.com",
     "daisyui.min.css": "https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css",
 }
+
+
+class LocalStaticFiles(StaticFiles):
+    """Serve local assets with revalidation so UI updates never stay stale."""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code in (200, 304):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+def _latest_asset_mtime(*directories: Path) -> int:
+    """Return the newest mtime across bundled UI assets for cache busting."""
+    latest = 0
+    for directory in directories:
+        try:
+            for asset in directory.rglob("*"):
+                if asset.is_file():
+                    latest = max(latest, asset.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return latest
 
 
 async def prewarm_web_cache():
@@ -61,10 +85,13 @@ def create_web_ui_router(app: FastAPI) -> APIRouter:
     assets_dir = resource_path("src/pclink/assets")
     templates_dir = resource_path("src/pclink/web_ui/templates")
 
-    app.mount("/ui/static", StaticFiles(directory=str(static_dir)), name="static")
-    app.mount("/ui/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+    app.mount("/ui/static", LocalStaticFiles(directory=str(static_dir)), name="static")
+    app.mount("/ui/assets", LocalStaticFiles(directory=str(assets_dir)), name="assets")
 
     templates = Jinja2Templates(directory=str(templates_dir))
+
+    def asset_version() -> str:
+        return f"{__version__}-{_latest_asset_mtime(static_dir, assets_dir)}"
 
     @router.get("/cache/{filename}")
     async def serve_cached_asset(filename: str):
@@ -121,12 +148,21 @@ def create_web_ui_router(app: FastAPI) -> APIRouter:
     async def serve_web_ui(request: Request):
         from ..core.web_auth import web_auth_manager
 
-        context = {"request": request, "server_version": __version__}
+        context = {
+            "request": request,
+            "server_version": __version__,
+            "asset_version": asset_version(),
+        }
+
+        def render(name: str) -> HTMLResponse:
+            response = templates.TemplateResponse(
+                request=request, name=name, context=context
+            )
+            response.headers["Cache-Control"] = "no-store"
+            return response
 
         if not web_auth_manager.is_setup_completed():
-            return templates.TemplateResponse(
-                request=request, name="auth.html", context=context
-            )
+            return render("auth.html")
 
         session_token = request.cookies.get("pclink_session")
         client_ip = request.client.host if request.client else None
@@ -134,19 +170,21 @@ def create_web_ui_router(app: FastAPI) -> APIRouter:
         if not session_token or not web_auth_manager.validate_session(
             session_token, client_ip
         ):
-            return templates.TemplateResponse(
-                request=request, name="auth.html", context=context
-            )
+            return render("auth.html")
 
-        return templates.TemplateResponse(
-            request=request, name="base.html", context=context
-        )
+        return render("base.html")
 
     @router.get("/auth", response_class=HTMLResponse)
     async def serve_auth_page(request: Request):
-        context = {"request": request, "server_version": __version__}
-        return templates.TemplateResponse(
+        context = {
+            "request": request,
+            "server_version": __version__,
+            "asset_version": asset_version(),
+        }
+        response = templates.TemplateResponse(
             request=request, name="auth.html", context=context
         )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     return router

@@ -1,8 +1,9 @@
-<div id="batchActionBar" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-base-100 border border-primary px-4 py-3 rounded-full shadow-2xl flex flex-wrap justify-center items-center gap-4 transition-all duration-300 translate-y-32 z-50 w-11/12 max-w-lg">
-  <div class="font-black text-sm border-r border-base-300 pr-4"><span id="selectedCount" class="text-primary">0</span> Items</div>
+<div id="batchActionBar" class="fixed bottom-10 left-1/2 -translate-x-1/2 bg-base-100 border border-primary px-4 py-3 rounded-full shadow-2xl flex flex-wrap justify-center items-center gap-4 transition-all duration-300 translate-y-32 z-50 w-11/12 max-w-xl">
+  <div class="font-black text-sm border-r border-base-300 pr-4"><span id="selectedCount" class="text-primary">0</span> Items <span id="selectedSize" class="text-[10px] opacity-40 font-bold"></span></div>
   <div class="flex gap-2">
-    <button class="btn btn-sm btn-error text-white" onclick="deleteSelectedItems()"><i data-feather="trash-2" class="w-3"></i></button>
-    <button class="btn btn-sm btn-primary text-white" onclick="downloadSelectedItems()"><i data-feather="download" class="w-3"></i> Download</button>
+    <button class="btn btn-sm btn-ghost font-bold" onclick="toggleSelectAll(true)" title="Select all visible items">All</button>
+    <button class="btn btn-sm btn-error text-white" onclick="deleteSelectedItems()" title="Delete selected"><i data-feather="trash-2" class="w-3"></i></button>
+    <button class="btn btn-sm btn-primary text-white" onclick="downloadSelectedItems()" title="Download selected as ZIP"><i data-feather="download" class="w-3"></i> Download ZIP</button>
     <button class="btn btn-sm btn-ghost" onclick="clearSelection()">Cancel</button>
   </div>
 </div>
