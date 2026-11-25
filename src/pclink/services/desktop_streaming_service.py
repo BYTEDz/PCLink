@@ -97,6 +97,7 @@ class DesktopStreamingService:
         self._subscriber_ips = {}  # callback -> client_ip
         self._active_http_clients = set()  # IP addresses of HTTP POST streaming clients
         self.srtp_key = None
+        self._last_stream_mode = None
         self._releases_cache = None
         self._releases_cache_time = 0
         self._version_cache = {}  # str(path) -> (mtime, version_string)
@@ -683,43 +684,74 @@ class DesktopStreamingService:
 
     async def start_engine(self, client_host=None, srtp_key=None, **kwargs):
         """Start or update engine. Supports multi-client unicast streaming."""
-        self.srtp_key = srtp_key
         if not ENGINE_PATH.exists():
             logger.error(_("Mirror engine not found at {}").format(ENGINE_PATH))
             return False
-
-        if client_host:
-            for h in client_host.split(","):
-                clean_h = h.strip()
-                if clean_h:
-                    self._active_http_clients.add(clean_h)
 
         config = {}
         for k, v in kwargs.items():
             snake_k = re.sub(r"(?<!^)(?=[A-Z])", "_", k).lower()
             config[snake_k] = v
 
-        all_hosts = self.get_active_client_hosts(default_ip=client_host or "127.0.0.1")
+        try:
+            audio_bitrate = int(config.get("audio_bitrate") or 128)
+        except (TypeError, ValueError):
+            audio_bitrate = 128
+
+        requested_mode = (
+            bool(config.get("audio_only", False)),
+            bool(config.get("audio", True)),
+            audio_bitrate,
+            bool(srtp_key),
+        )
+
+        def register_hosts():
+            if client_host:
+                for h in client_host.split(","):
+                    clean_h = h.strip()
+                    if clean_h:
+                        self._active_http_clients.add(clean_h)
 
         if self._engine_alive() and await self._ensure_ipc():
-            logger.info(
-                _(
-                    "Engine alive, updating multi-client pipeline via IPC: hosts={} config={}"
-                ).format(all_hosts, config)
-            )
-            cfg = {
-                "type": "RESTART_PIPELINE",
-                "output_mode": "rtp" if all_hosts else "webrtc",
-                "client_host": all_hosts,
-                "framerate": config.get("fps"),
-                "srtp_key": srtp_key,
-            }
-            for key, val in config.items():
-                if key not in cfg:
-                    cfg[key] = val
+            if (
+                self._last_stream_mode is not None
+                and self._last_stream_mode != requested_mode
+            ):
+                logger.info(
+                    _(
+                        "Stream mode changed {} -> {}; restarting mirror engine process."
+                    ).format(self._last_stream_mode, requested_mode)
+                )
+                await self.kill_engine()
+            else:
+                register_hosts()
+                self.srtp_key = srtp_key
+                all_hosts = self.get_active_client_hosts(
+                    default_ip=client_host or "127.0.0.1"
+                )
+                logger.info(
+                    _(
+                        "Engine alive, updating multi-client pipeline via IPC: hosts={} config={}"
+                    ).format(all_hosts, config)
+                )
+                cfg = {
+                    "type": "RESTART_PIPELINE",
+                    "output_mode": "rtp" if all_hosts else "webrtc",
+                    "client_host": all_hosts,
+                    "framerate": config.get("fps"),
+                    "srtp_key": srtp_key,
+                }
+                for key, val in config.items():
+                    if key not in cfg:
+                        cfg[key] = val
 
-            await self.send_command(cfg)
-            return True
+                await self.send_command(cfg)
+                self._last_stream_mode = requested_mode
+                return True
+
+        register_hosts()
+        self.srtp_key = srtp_key
+        all_hosts = self.get_active_client_hosts(default_ip=client_host or "127.0.0.1")
 
         if self.process:
             try:
@@ -796,6 +828,7 @@ class DesktopStreamingService:
         asyncio.create_task(log_engine(self.process.stderr, "ERR"))
 
         if await self._ensure_ipc():
+            self._last_stream_mode = requested_mode
             return True
         else:
             logger.error("Mirror engine IPC connection failed")
@@ -824,6 +857,7 @@ class DesktopStreamingService:
             self.process = None
 
         self.srtp_key = None
+        self._last_stream_mode = None
         self._active_http_clients.clear()
         if self.reader:
             self.reader.close()
